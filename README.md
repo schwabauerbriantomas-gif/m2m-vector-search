@@ -439,9 +439,6 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 ## 📚 References
 
-- **Documentation**: [docs.neuralmemory.ai](https://docs.neuralmemory.ai)
-- **API Reference**: [api.neuralmemory.ai](https://api.neuralmemory.ai)
-- **Community**: [community.neuralmemory.ai](https://community.neuralmemory.ai)
 - **GitHub**: [m2m-vector-search](https://github.com/schwabauerbriantomas-gif/m2m-vector-search)
 
 ---
