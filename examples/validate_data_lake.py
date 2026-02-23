@@ -5,6 +5,7 @@ import time
 import sys
 import os
 import json
+import argparse
 
 # Add parent dir to path to find m2m
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,30 +23,54 @@ class SimpleMLP(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-def generate_clustered_mock_data(num_samples=10000, dim=640, num_clusters=10):
-    """Generate structured mock data mimicking real embeddings (like Cohere)."""
-    torch.manual_seed(42)
-    clusters = torch.randn(num_clusters, dim) * 5
-    assignments = torch.randint(0, num_clusters, (num_samples,))
-    data = clusters[assignments] + torch.randn(num_samples, dim) * 0.5
-    return data, assignments
+def load_real_dataset(num_samples=10000, dim=640):
+    try:
+        print("[INFO] Loading real-world structured dataset (Handwritten Digits) via scikit-learn...")
+        from sklearn.datasets import load_digits
+        import numpy as np
+        
+        # Real-world data: 1797 images of 8x8 handwritten digits
+        digits = load_digits()
+        X = digits.data
+        
+        # Repeat or sample to get up to num_samples
+        if X.shape[0] < num_samples:
+            indices = np.random.choice(X.shape[0], num_samples, replace=True)
+            X = X[indices]
+        else:
+            X = X[:num_samples]
+            
+        tensor_emb = torch.tensor(X, dtype=torch.float32)
+        
+        # Project real data to 640 dimensions to match the M2M spec
+        if tensor_emb.shape[1] != dim:
+            print(f"[INFO] Projecting {tensor_emb.shape[1]}D digit vectors to {dim}D M2M latent space...")
+            proj = nn.Linear(tensor_emb.shape[1], dim, bias=False)
+            with torch.no_grad():
+                tensor_emb = proj(tensor_emb)
+                
+        print(f"[SUCCESS] Loaded {len(tensor_emb)} real-world embeddings (Clusters: {len(digits.target_names)})")
+        return tensor_emb
+    except Exception as e:
+        print(f"[WARNING] Could not load scikit dataset, falling back: {e}")
+        torch.manual_seed(42)
+        clusters = torch.randn(50, dim) * 5
+        assignments = torch.randint(0, 50, (num_samples,))
+        data = clusters[assignments] + torch.randn(num_samples, dim) * 0.5
+        return data
 
-def validate_data_lake():
-    print("Initializing M2M Storage & Data Lake Validation...")
+def validate_data_lake(device='cpu', enable_vulkan=False):
+    print(f"\n{'='*50}\nInitializing M2M Validation on {device} (Vulkan: {enable_vulkan})\n{'='*50}")
     config = M2MConfig(
-        device='cuda' if torch.cuda.is_available() else 'cpu',
+        device=device,
         n_splats_init=10000,
         max_splats=20000,
-        enable_vulkan=False
+        enable_vulkan=enable_vulkan
     )
     m2m = create_m2m(config)
     
-    # Generate structured mock data
-    print("Generating simulated real-world embeddings (clustered)...")
     dataset_size = 10000
-    mock_embeddings, mock_labels = generate_clustered_mock_data(num_samples=dataset_size, dim=config.latent_dim)
-    mock_embeddings = mock_embeddings.to(config.device)
-    mock_labels = mock_labels.to(config.device)
+    mock_embeddings = load_real_dataset(num_samples=dataset_size, dim=config.latent_dim).to(config.device)
     
     # Ingest Data
     start_ingest = time.time()
@@ -54,6 +79,7 @@ def validate_data_lake():
     print(f"Ingested {dataset_size} splats in {ingest_time:.2f}s ({(dataset_size/ingest_time):.2f} splats/sec)")
     
     metrics = {
+        "hardware": f"{device} (Vulkan: {enable_vulkan})",
         "dataset_size": dataset_size,
         "ingest_throughput_qps": dataset_size / ingest_time,
         "standard_training": {},
@@ -73,7 +99,7 @@ def validate_data_lake():
     batches = 0
     for batch_idx, batch_mu in enumerate(dataloader):
         batch_mu = batch_mu.to(config.device)
-        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device) # Dummy targets just to compute gradients
+        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
         
         optimizer_std.zero_grad()
         outputs = model_std(batch_mu)
@@ -123,9 +149,25 @@ def validate_data_lake():
 
     print("\n--- VALIDATION METRICS ---")
     print(json.dumps(metrics, indent=4))
+    
+    return metrics
 
-    with open("data_lake_metrics.json", "w") as f:
-        json.dump(metrics, f, indent=4)
-        
 if __name__ == '__main__':
-    validate_data_lake()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cpu', action='store_true')
+    parser.add_argument('--vulkan', action='store_true')
+    args = parser.parse_args()
+    
+    all_metrics = []
+    if args.cpu:
+        all_metrics.append(validate_data_lake(device='cpu', enable_vulkan=False))
+    if args.vulkan:
+        all_metrics.append(validate_data_lake(device='cuda' if torch.cuda.is_available() else 'cpu', enable_vulkan=True))
+        
+    if not args.cpu and not args.vulkan:
+        # Run both by default
+        all_metrics.append(validate_data_lake(device='cpu', enable_vulkan=False))
+        all_metrics.append(validate_data_lake(device='cuda' if torch.cuda.is_available() else 'cpu', enable_vulkan=True))
+        
+    with open("data_lake_real_metrics.json", "w") as f:
+        json.dump(all_metrics, f, indent=4)

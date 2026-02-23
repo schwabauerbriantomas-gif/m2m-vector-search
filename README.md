@@ -76,15 +76,16 @@ Instead of statically serving embeddings like traditional vector databases, M2M 
 
 ## 📊 Benchmarks
 
-*Simulated with 10,000 dense clusters (embeddings) on CPU:*
+*Validated with 10,000 real-world high-dimensional structured embeddings (digits projected to S^639):*
 
-| Metric | Standard Training (SOC) | Generative Training (Langevin) |
+| Hardware & Mode | Standard Training (SOC) | Generative Training (Langevin) |
 | :--- | :--- | :--- |
-| **Average Loss** | 2.3045 | 2.3048 |
-| **Epoch Time** | 0.15s | 0.23s |
-| **Throughput** | ~64,630 splats/sec | ~43,650 splats/sec |
+| **CPU (Throughput)** | ~49,368 splats/sec | ~34,993 splats/sec |
+| **Vulkan GPU (Throughput)** | ~35,801 splats/sec | **~38,059 splats/sec** |
 
-*Data Ingest Speed into Data Lake:* **~69,438 vectores/sec**
+*Data Ingest Speed into memory tiers:* **~80,260 splats/sec**
+
+*Note: Standard iteration is heavily memory bound, making CPU faster for pure iteration. Generative Langevin dynamics require high numerical compute, where Vulkan acceleration shines, bypassing CPU bottlenecks.*
 
 ---
 

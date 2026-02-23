@@ -307,7 +307,12 @@ class M2MEngine(nn.Module):
         
         # Initialize Vulkan Engine if enabled
         if config.enable_vulkan:
-            self.vulkan_engine = M2MEngine(config)
+            try:
+                from engine import M2MEngine as VulkanEngine
+                self.vulkan_engine = VulkanEngine(config)
+            except ImportError:
+                print("[WARNING] Vulkan engine module not found, falling back to None.")
+                self.vulkan_engine = None
         else:
             self.vulkan_engine = None
             print("[INFO] Vulkan acceleration disabled")
