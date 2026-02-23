@@ -13,6 +13,7 @@ import time
 from splat_types import GaussianSplat, SplatEmbedding, SplatCluster
 from encoding import FullEmbeddingBuilder
 from clustering import KMeans, assign_clusters
+from engine import M2MEngine
 
 
 @dataclass
@@ -71,7 +72,8 @@ class HRM2Engine:
         embedding_dim: int = 640,
         n_probe: int = 5,
         batch_size: int = 10000,
-        random_state: int = 42
+        random_state: int = 42,
+        config = None
     ):
         """
         Initialize HRM2 Engine.
@@ -83,6 +85,7 @@ class HRM2Engine:
             n_probe: Coarse clusters to search
             batch_size: Batch size for K-Means
             random_state: Random seed
+            config: M2MConfig for hardware acceleration
         """
         self.n_coarse = n_coarse
         self.n_fine = n_fine
@@ -90,6 +93,10 @@ class HRM2Engine:
         self.n_probe = n_probe
         self.batch_size = batch_size
         self.random_state = random_state
+        self.config = config
+        
+        # Initialize hardware router if configured
+        self.router = M2MEngine(config) if config else None
         
         # Storage
         self.splats: List[GaussianSplat] = []
@@ -118,33 +125,38 @@ class HRM2Engine:
         self.splats.extend(splats)
         self._is_indexed = False
     
-    def index(self) -> float:
+    def index(self, precomputed_embeddings: np.ndarray = None) -> float:
         """
         Build the hierarchical index.
         
+        Args:
+            precomputed_embeddings: Optional direct embedding vectors to bypass the encoder
+            
         Returns:
             Time taken to build index
         """
         start_time = time.time()
         
-        if len(self.splats) == 0:
+        if len(self.splats) == 0 and precomputed_embeddings is None:
             return 0.0
         
-        # Build embeddings
-        positions = np.array([s.position for s in self.splats])
-        colors = np.array([s.color for s in self.splats])
-        opacities = np.array([s.opacity for s in self.splats])
-        scales = np.array([s.scale for s in self.splats])
-        rotations = np.array([s.rotation for s in self.splats])
-        
-        self.embeddings = self.encoder.build(
-            positions, colors, opacities, scales, rotations
-        )
-        
-        # Ensure correct dtype
-        self.embeddings = np.ascontiguousarray(self.embeddings.astype(np.float32))
-        
-        n_samples = len(self.splats)
+        if precomputed_embeddings is not None:
+            self.embeddings = np.ascontiguousarray(precomputed_embeddings.astype(np.float32))
+            n_samples = self.embeddings.shape[0]
+        else:
+            # Build embeddings
+            positions = np.array([s.position for s in self.splats])
+            colors = np.array([s.color for s in self.splats])
+            opacities = np.array([s.opacity for s in self.splats])
+            scales = np.array([s.scale for s in self.splats])
+            rotations = np.array([s.rotation for s in self.splats])
+            
+            self.embeddings = self.encoder.build(
+                positions, colors, opacities, scales, rotations
+            )
+            # Ensure correct dtype
+            self.embeddings = np.ascontiguousarray(self.embeddings.astype(np.float32))
+            n_samples = len(self.splats)        
         
         # Level 1: Coarse clustering
         n_coarse_effective = min(self.n_coarse, n_samples // 10)
@@ -228,19 +240,44 @@ class HRM2Engine:
         # Search within selected clusters
         candidates = []
         
+        # Collect all points to be scored by MoE router
+        expert_embeddings = []
+        expert_indices = []
+        coarse_ids = []
+        fine_ids = []
+        
         for coarse_id in closest_coarse:
             mask = self.coarse_assignments == coarse_id
             cluster_indices = np.where(mask)[0]
             
             if len(cluster_indices) == 0:
                 continue
-            
-            # Compute distances to all splats in cluster
+                
             cluster_embeddings = self.embeddings[mask]
-            distances = np.linalg.norm(cluster_embeddings - query_vector, axis=1)
             
-            for idx, dist in zip(cluster_indices, distances):
-                candidates.append((idx, float(dist), int(coarse_id)))
+            expert_embeddings.append(cluster_embeddings)
+            expert_indices.append(cluster_indices)
+            coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
+            
+            # Optionally grab fine IDs if needed
+            fine_assigns = self.fine_assignments.get(int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32))
+            fine_ids.extend(fine_assigns.tolist())
+            
+        if expert_embeddings:
+            expert_embeddings = np.vstack(expert_embeddings)
+            expert_indices = np.concatenate(expert_indices)
+            coarse_ids = np.array(coarse_ids)
+            fine_ids = np.array(fine_ids)
+            
+            if self.router: # Hardware-accelerated MoE distance
+                results = self.router.compute_expert_distances(
+                    query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids
+                )
+                candidates = [(r[0], r[1], r[2]) for r in results]
+            else: # CPU fallback
+                distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
+                for idx, dist, cid in zip(expert_indices, distances, coarse_ids):
+                    candidates.append((idx, float(dist), int(cid)))
         
         # Sort by distance and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -288,27 +325,49 @@ class HRM2Engine:
         # Search within selected clusters
         candidates = []
         
+        # Collect all points to be scored by MoE router
+        expert_embeddings = []
+        expert_indices = []
+        coarse_ids = []
+        fine_ids = []
+        
         for coarse_id in closest_coarse:
             mask = self.coarse_assignments == coarse_id
             cluster_indices = np.where(mask)[0]
             
             if len(cluster_indices) == 0:
                 continue
-            
+                
             cluster_embeddings = self.embeddings[mask]
-            distances = np.linalg.norm(cluster_embeddings - query_vector, axis=1)
             
-            # Get fine cluster assignments
-            fine_assigns = self.fine_assignments.get(coarse_id, np.zeros(len(cluster_indices), dtype=np.int32))
+            expert_embeddings.append(cluster_embeddings)
+            expert_indices.append(cluster_indices)
+            coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
             
-            for i, (idx, dist) in enumerate(zip(cluster_indices, distances)):
-                fine_id = int(fine_assigns[i]) if i < len(fine_assigns) else 0
-                candidates.append((
-                    self.splats[idx].id,
-                    float(dist),
-                    int(coarse_id),
-                    fine_id
-                ))
+            # Form fine assignments
+            fine_assigns = self.fine_assignments.get(int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32))
+            fine_ids.extend(fine_assigns.tolist())
+            
+        if expert_embeddings:
+            expert_embeddings = np.vstack(expert_embeddings)
+            expert_indices = np.concatenate(expert_indices)
+            coarse_ids = np.array(coarse_ids)
+            fine_ids = np.array(fine_ids)
+            
+            if self.router: # Hardware-accelerated MoE distance
+                results = self.router.compute_expert_distances(
+                    query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids
+                )
+                candidates = [(self.splats[r[0]].id, r[1], r[2], r[3]) for r in results]
+            else: # CPU fallback
+                distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
+                for idx, dist, cid, fid in zip(expert_indices, distances, coarse_ids, fine_ids):
+                    candidates.append((
+                        self.splats[idx].id,
+                        float(dist),
+                        int(cid),
+                        int(fid)
+                    ))
         
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])

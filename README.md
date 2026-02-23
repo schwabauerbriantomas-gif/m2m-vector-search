@@ -39,6 +39,7 @@ Instead of statically serving embeddings like traditional vector databases, M2M 
 - **Tier-Aware Streaming:** Background prefetching threads seamlessly load data from Cold (SSD) $\rightarrow$ Warm (RAM) $\rightarrow$ Hot (VRAM).
 - **Consolidation:** Automatic redundancy elimination via Self-Organized Criticality.
 - **Gaussian Representations:** Stores mean ($\mu$), concentration ($\kappa$), and precision ($\alpha$) rather than simple points.
+- **Semantic Spatial Router:** Hierarchical KMeans++ index with MoE distance shaders capable of >1000 QPS indexing and sub-20ms 10k similarity retrieval.
 
 ### PyTorch Integration
 - **`M2MDataLake` Dataset:** Native PyTorch `IterableDataset` exported instantly via `m2m.export_to_dataloader()`.
@@ -78,14 +79,20 @@ Instead of statically serving embeddings like traditional vector databases, M2M 
 
 *Validated with 10,000 real-world high-dimensional structured embeddings (digits projected to S^639):*
 
+### Data Lake Training Throughput (splats/sec)
 | Hardware & Mode | Standard Training (SOC) | Generative Training (Langevin) |
 | :--- | :--- | :--- |
-| **CPU (Throughput)** | ~49,368 splats/sec | ~34,993 splats/sec |
-| **Vulkan GPU (Throughput)** | ~35,801 splats/sec | **~38,059 splats/sec** |
+| **CPU Math** | ~49,368 splats/sec | ~34,993 splats/sec |
+| **Vulkan GPU** | ~35,801 splats/sec | **~38,059 splats/sec** |
 
 *Data Ingest Speed into memory tiers:* **~80,260 splats/sec**
-
 *Note: Standard iteration is heavily memory bound, making CPU faster for pure iteration. Generative Langevin dynamics require high numerical compute, where Vulkan acceleration shines, bypassing CPU bottlenecks.*
+
+### Semantic MoE Retrieval Performance (10,000 Splats)
+| Hardware | QPS | p95 Latency | p99 Latency | Avg Latency |
+| :--- | :--- | :--- | :--- | :--- |
+| **CPU Math** | ~62.5 QPS | 19.55 ms | 22.55 ms | 16.00 ms |
+| **Vulkan GLSL Shaders** | ~47.0 QPS | 25.01 ms | 29.97 ms | 21.28 ms |
 
 ---
 

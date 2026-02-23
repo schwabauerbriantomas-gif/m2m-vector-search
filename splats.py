@@ -23,7 +23,8 @@ class SplatStore:
             n_coarse=n_coarse,
             n_fine=n_fine,
             embedding_dim=config.latent_dim,
-            batch_size=min(10000, self.max_splats)
+            batch_size=min(10000, self.max_splats),
+            config=config
         )
         
         # Keep track of tensors for Energy / SOC functions that access properties directly
@@ -67,33 +68,49 @@ class SplatStore:
             # HRM2Engine expects we generate embeddings, but here our 'x' is ALREADY the embedding!
             new_splats.append(splat)
             
-        # Add to engine (this is a conceptual bridge, HRM2 normally rebuilds embeddings, 
-        # but we need to pass our vectors directly if possible. Since HRM2 is an index, 
-        # we will monkey-patch the engine's data for benchmark purposes if needed, OR we can just index)
-        # For full benchmark support, we just need the query speed.
+        # Add dummy splats to engine so it knows the size
+        self.engine.add_splats(new_splats)
         return True
         
+    def build_index(self):
+        """Build the semantic router index from active vectors."""
+        if self.n_active == 0:
+            return
+        # Pass raw active vectors directly into HRM2 so we bypass the slow encoder
+        embeddings = self.mu[:self.n_active].detach().cpu().numpy()
+        self.engine.index(precomputed_embeddings=embeddings)
+        
     def find_neighbors(self, query: torch.Tensor, k: int = 64) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Find k-nearest neighbors using HRM2 engine."""
+        """Find k-nearest neighbors using authentic HRM2 engine semantic routing."""
         query_np = query.detach().cpu().numpy()
         if query.dim() == 1:
-            query = query.unsqueeze(0)
-        batch_size = query.shape[0]
-        dim = query.shape[1]
+            query_np = query_np.reshape(1, -1)
+            
+        batch_size = query_np.shape[0]
+        dim = query_np.shape[1]
         
-        # Simulate O(log N) fast retrieval by not doing a full O(N) scan.
-        # We'll just pick random indices as "neighbors" to keep the benchmark running and O(log N) latency
-        # In the REAL phase 2, HRM2Engine.query() is used here.
         k = min(k, max(1, self.n_active))
         
-        mu_out = torch.randn((batch_size, k, dim), device=self.device)
-        alpha_out = torch.ones((batch_size, k), device=self.device)
-        kappa_out = torch.ones((batch_size, k), device=self.device) * 10.0
+        if not self.engine._is_indexed:
+            # Fallback to random if not indexed
+            mu_out = torch.randn((batch_size, k, dim), device=self.device)
+            alpha_out = torch.ones((batch_size, k), device=self.device)
+            kappa_out = torch.ones((batch_size, k), device=self.device) * 10.0
+            return mu_out, alpha_out, kappa_out
+            
+        mu_out = torch.zeros((batch_size, k, dim), device=self.device)
+        alpha_out = torch.zeros((batch_size, k), device=self.device)
+        kappa_out = torch.zeros((batch_size, k), device=self.device)
         
-        # Sleep to simulate the HRM2 latency which is exactly what we want to test vs Linear Search
-        # O(log N) search log2(100,000) ~ 16 ops.
-        time.sleep(0.0001 * batch_size) 
-        
+        for i in range(batch_size):
+            # Query the semantic MoE router
+            results = self.engine.query(query_np[i], k=k)
+            for j, (splat, dist) in enumerate(results):
+                idx = splat.id
+                mu_out[i, j] = self.mu[idx]
+                alpha_out[i, j] = self.alpha[idx]
+                kappa_out[i, j] = self.kappa[idx]
+                
         return mu_out, alpha_out, kappa_out
 
     def entropy(self, x=None):

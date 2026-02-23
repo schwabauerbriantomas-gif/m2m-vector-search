@@ -54,34 +54,6 @@ def log_map(base, point):
 def project_to_tangent(base, vector):
     return vector - torch.matmul(vector, base.unsqueeze(-1)) * base
 
-class SplatStore:
-    def __init__(self, config):
-        self.config = config
-        self.mu = torch.randn(config.n_splats_init, config.latent_dim)
-        self.alpha = torch.ones(config.n_splats_init)
-        self.kappa = torch.ones(config.n_splats_init) * config.init_kappa
-        self.n_active = 0
-        
-    def add_splat(self, mu):
-        if self.n_active < len(self.mu):
-            self.mu[self.n_active] = mu
-            self.n_active += 1
-            return True
-        return False
-
-class EnergyFunction:
-    def __init__(self, config):
-        self.config = config
-    
-    def E_splats(self, x, splats):
-        return torch.zeros(x.shape[0])
-    
-    def E_geom(self, x):
-        return torch.zeros(x.shape[0])
-    
-    def E_comp(self, x):
-        return torch.zeros(x.shape[0])
-
 
 @dataclass
 class M2MConfig:
@@ -336,7 +308,11 @@ class M2MEngine(nn.Module):
             else:
                 print(f"[WARNING] Failed to add splat {i}")
         
-        print(f"[INFO] Added {n_added} splats")
+        # Build the semantic router index automatically
+        if n_added > 0:
+            self.m2m.splats.build_index()
+            
+        print(f"[INFO] Added {n_added} splats and built HRM2 index")
         return n_added
     
     def search(self, query: torch.Tensor, k: int = None) -> torch.Tensor:

@@ -82,6 +82,7 @@ def validate_data_lake(device='cpu', enable_vulkan=False):
         "hardware": f"{device} (Vulkan: {enable_vulkan})",
         "dataset_size": dataset_size,
         "ingest_throughput_qps": dataset_size / ingest_time,
+        "retrieval_routing": {},
         "standard_training": {},
         "generative_training": {}
     }
@@ -146,6 +147,39 @@ def validate_data_lake(device='cpu', enable_vulkan=False):
     metrics["generative_training"]["epoch_time_seconds"] = epoch_time_gen
     metrics["generative_training"]["avg_loss"] = avg_loss_gen
     metrics["generative_training"]["throughput_splats_per_sec"] = dataset_size / epoch_time_gen
+
+    # Retrieval Benchmark
+    print("\n--- Semantic Router Retrieval Benchmark (1000 queries) ---")
+    import numpy as np
+    n_queries = 1000
+    queries = mock_embeddings[:n_queries]
+    
+    # Warmup
+    m2m.search(queries[0].unsqueeze(0), k=10)
+    
+    latencies = []
+    for i in range(n_queries):
+        q = queries[i].unsqueeze(0)
+        start_q = time.perf_counter()
+        m2m.search(q, k=10)
+        latencies.append((time.perf_counter() - start_q) * 1000) # ms
+        
+    latencies = np.array(latencies)
+    qps = n_queries / (np.sum(latencies) / 1000.0)
+    p95 = np.percentile(latencies, 95)
+    p99 = np.percentile(latencies, 99)
+    
+    print(f"Retrieval QPS: {qps:.2f}")
+    print(f"p95 Latency:   {p95:.2f} ms")
+    print(f"p99 Latency:   {p99:.2f} ms")
+    print(f"Avg Latency:   {np.mean(latencies):.2f} ms")
+    
+    metrics["retrieval_routing"] = {
+        "qps": float(qps),
+        "p95_latency_ms": float(p95),
+        "p99_latency_ms": float(p99),
+        "avg_latency_ms": float(np.mean(latencies))
+    }
 
     print("\n--- VALIDATION METRICS ---")
     print(json.dumps(metrics, indent=4))
