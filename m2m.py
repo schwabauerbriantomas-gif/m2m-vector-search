@@ -190,7 +190,7 @@ class M2MMemory(nn.Module):
         
         return E
     
-    def retrieve(self, query: torch.Tensor, k: int = None) -> Tuple[torch.Tensor, torch.Tensor]:
+    def retrieve(self, query: torch.Tensor, k: int = None, lod: int = 2) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Retrieve k-nearest neighbors from splat store."""
         if k is None:
             k = self.config.knn_k
@@ -198,8 +198,8 @@ class M2MMemory(nn.Module):
         # Encode query to spherical space
         query_norm = normalize_sphere(query)
         
-        # Find neighbors (using FAISS if available)
-        neighbors_mu, neighbors_alpha, neighbors_kappa = self.splats.find_neighbors(query_norm, k)
+        # Find neighbors (using LOD semantics)
+        neighbors_mu, neighbors_alpha, neighbors_kappa = self.splats.find_neighbors(query_norm, k, lod=lod)
         
         return neighbors_mu, neighbors_alpha, neighbors_kappa
     

@@ -212,7 +212,8 @@ class HRM2Engine:
     def query(
         self,
         query_vector: np.ndarray,
-        k: int = 10
+        k: int = 10,
+        lod: int = 2
     ) -> List[Tuple[GaussianSplat, float]]:
         """
         Query for k most similar splats.
@@ -220,6 +221,7 @@ class HRM2Engine:
         Args:
             query_vector: Query embedding vector
             k: Number of results
+            lod: Level of Detail (0=Coarse Approx, 1=Fine Approx, 2=Exact MoE Router)
         
         Returns:
             List of (Splat, distance) tuples
@@ -237,47 +239,79 @@ class HRM2Engine:
         coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
         closest_coarse = np.argsort(coarse_distances)[:self.n_probe]
         
-        # Search within selected clusters
         candidates = []
         
-        # Collect all points to be scored by MoE router
-        expert_embeddings = []
-        expert_indices = []
-        coarse_ids = []
-        fine_ids = []
-        
-        for coarse_id in closest_coarse:
-            mask = self.coarse_assignments == coarse_id
-            cluster_indices = np.where(mask)[0]
-            
-            if len(cluster_indices) == 0:
-                continue
+        if lod == 0:
+            # LOD 0: Ultra-fast coarse approximation. Just return vectors from the nearest macro-clusters.
+            for coarse_id in closest_coarse:
+                dist = coarse_distances[coarse_id]
+                mask = self.coarse_assignments == coarse_id
+                indices = np.where(mask)[0][:k]
+                for idx in indices:
+                    candidates.append((idx, float(dist), int(coarse_id)))
+                if len(candidates) >= k:
+                    break
+                    
+        elif lod == 1:
+            # LOD 1: Fast fine approximation. Find the closest fine cluster and return its point approximations.
+            for coarse_id in closest_coarse:
+                fine_model = self.fine_models.get(coarse_id)
+                if not fine_model:
+                    continue
+                fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
+                closest_fine = np.argsort(fine_dists)[0] # Top 1 fine cluster inside this coarse
+                dist = fine_dists[closest_fine]
                 
-            cluster_embeddings = self.embeddings[mask]
+                coarse_mask = self.coarse_assignments == coarse_id
+                coarse_indices = np.where(coarse_mask)[0]
+                fine_assigns = self.fine_assignments.get(coarse_id, np.zeros(len(coarse_indices), dtype=np.int32))
+                
+                # Match local fine cluster
+                fine_mask = fine_assigns == closest_fine
+                indices = coarse_indices[fine_mask][:k]
+                for idx in indices:
+                    candidates.append((idx, float(dist), int(coarse_id)))
+                if len(candidates) >= k:
+                    break
+        else:
+            # LOD 2 (Exact): Collect all points to be scored exactly by MoE router
+            expert_embeddings = []
+            expert_indices = []
+            coarse_ids = []
+            fine_ids = []
             
-            expert_embeddings.append(cluster_embeddings)
-            expert_indices.append(cluster_indices)
-            coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
-            
-            # Optionally grab fine IDs if needed
-            fine_assigns = self.fine_assignments.get(int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32))
-            fine_ids.extend(fine_assigns.tolist())
-            
-        if expert_embeddings:
-            expert_embeddings = np.vstack(expert_embeddings)
-            expert_indices = np.concatenate(expert_indices)
-            coarse_ids = np.array(coarse_ids)
-            fine_ids = np.array(fine_ids)
-            
-            if self.router: # Hardware-accelerated MoE distance
-                results = self.router.compute_expert_distances(
-                    query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids
-                )
-                candidates = [(r[0], r[1], r[2]) for r in results]
-            else: # CPU fallback
-                distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
-                for idx, dist, cid in zip(expert_indices, distances, coarse_ids):
-                    candidates.append((idx, float(dist), int(cid)))
+            for coarse_id in closest_coarse:
+                mask = self.coarse_assignments == coarse_id
+                cluster_indices = np.where(mask)[0]
+                
+                if len(cluster_indices) == 0:
+                    continue
+                    
+                cluster_embeddings = self.embeddings[mask]
+                
+                expert_embeddings.append(cluster_embeddings)
+                expert_indices.append(cluster_indices)
+                coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
+                
+                # Optionally grab fine IDs if needed
+                fine_assigns = self.fine_assignments.get(int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32))
+                fine_ids.extend(fine_assigns.tolist())
+                
+            if expert_embeddings:
+                expert_embeddings = np.vstack(expert_embeddings)
+                expert_indices = np.concatenate(expert_indices)
+                coarse_ids = np.array(coarse_ids)
+                fine_ids = np.array(fine_ids)
+                
+                if self.router: # Hardware-accelerated MoE distance
+                    results = self.router.compute_expert_distances(
+                        query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids
+                    )
+                    candidates = [(r[0], r[1], r[2]) for r in results]
+                else: # CPU fallback
+                    distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
+                    for idx, dist, cid in zip(expert_indices, distances, coarse_ids):
+                        candidates.append((idx, float(dist), int(cid)))
         
         # Sort by distance and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -299,7 +333,8 @@ class HRM2Engine:
     def query_with_details(
         self,
         query_vector: np.ndarray,
-        k: int = 10
+        k: int = 10,
+        lod: int = 2
     ) -> List[SearchResult]:
         """
         Query with detailed results including cluster info.
@@ -307,6 +342,7 @@ class HRM2Engine:
         Args:
             query_vector: Query embedding vector
             k: Number of results
+            lod: Level of Detail (0=Coarse Approx, 1=Fine Approx, 2=Exact MoE Router)
         
         Returns:
             List of SearchResult objects
@@ -322,52 +358,81 @@ class HRM2Engine:
         coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
         closest_coarse = np.argsort(coarse_distances)[:self.n_probe]
         
-        # Search within selected clusters
         candidates = []
         
-        # Collect all points to be scored by MoE router
-        expert_embeddings = []
-        expert_indices = []
-        coarse_ids = []
-        fine_ids = []
-        
-        for coarse_id in closest_coarse:
-            mask = self.coarse_assignments == coarse_id
-            cluster_indices = np.where(mask)[0]
-            
-            if len(cluster_indices) == 0:
-                continue
+        if lod == 0:
+            for coarse_id in closest_coarse:
+                dist = coarse_distances[coarse_id]
+                mask = self.coarse_assignments == coarse_id
+                indices = np.where(mask)[0][:k]
+                for idx in indices:
+                    # Provide an approximation for fine_id (e.g. 0) since we didn't search
+                    candidates.append((self.splats[idx].id, float(dist), int(coarse_id), 0))
+                if len(candidates) >= k:
+                    break
+                    
+        elif lod == 1:
+            for coarse_id in closest_coarse:
+                fine_model = self.fine_models.get(coarse_id)
+                if not fine_model:
+                    continue
+                fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
+                closest_fine = np.argsort(fine_dists)[0]
+                dist = fine_dists[closest_fine]
                 
-            cluster_embeddings = self.embeddings[mask]
+                coarse_mask = self.coarse_assignments == coarse_id
+                coarse_indices = np.where(coarse_mask)[0]
+                fine_assigns = self.fine_assignments.get(coarse_id, np.zeros(len(coarse_indices), dtype=np.int32))
+                
+                fine_mask = fine_assigns == closest_fine
+                indices = coarse_indices[fine_mask][:k]
+                for idx in indices:
+                    candidates.append((self.splats[idx].id, float(dist), int(coarse_id), int(closest_fine)))
+                if len(candidates) >= k:
+                    break
+        else:
+            expert_embeddings = []
+            expert_indices = []
+            coarse_ids = []
+            fine_ids = []
             
-            expert_embeddings.append(cluster_embeddings)
-            expert_indices.append(cluster_indices)
-            coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
-            
-            # Form fine assignments
-            fine_assigns = self.fine_assignments.get(int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32))
-            fine_ids.extend(fine_assigns.tolist())
-            
-        if expert_embeddings:
-            expert_embeddings = np.vstack(expert_embeddings)
-            expert_indices = np.concatenate(expert_indices)
-            coarse_ids = np.array(coarse_ids)
-            fine_ids = np.array(fine_ids)
-            
-            if self.router: # Hardware-accelerated MoE distance
-                results = self.router.compute_expert_distances(
-                    query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids
-                )
-                candidates = [(self.splats[r[0]].id, r[1], r[2], r[3]) for r in results]
-            else: # CPU fallback
-                distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
-                for idx, dist, cid, fid in zip(expert_indices, distances, coarse_ids, fine_ids):
-                    candidates.append((
-                        self.splats[idx].id,
-                        float(dist),
-                        int(cid),
-                        int(fid)
-                    ))
+            for coarse_id in closest_coarse:
+                mask = self.coarse_assignments == coarse_id
+                cluster_indices = np.where(mask)[0]
+                
+                if len(cluster_indices) == 0:
+                    continue
+                    
+                cluster_embeddings = self.embeddings[mask]
+                
+                expert_embeddings.append(cluster_embeddings)
+                expert_indices.append(cluster_indices)
+                coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
+                
+                # Form fine assignments
+                fine_assigns = self.fine_assignments.get(int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32))
+                fine_ids.extend(fine_assigns.tolist())
+                
+            if expert_embeddings:
+                expert_embeddings = np.vstack(expert_embeddings)
+                expert_indices = np.concatenate(expert_indices)
+                coarse_ids = np.array(coarse_ids)
+                fine_ids = np.array(fine_ids)
+                
+                if self.router: # Hardware-accelerated MoE distance
+                    results = self.router.compute_expert_distances(
+                        query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids
+                    )
+                    candidates = [(self.splats[r[0]].id, r[1], r[2], r[3]) for r in results]
+                else: # CPU fallback
+                    distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
+                    for idx, dist, cid, fid in zip(expert_indices, distances, coarse_ids, fine_ids):
+                        candidates.append((
+                            self.splats[idx].id,
+                            float(dist),
+                            int(cid),
+                            int(fid)
+                        ))
         
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])

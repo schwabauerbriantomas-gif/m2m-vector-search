@@ -80,7 +80,7 @@ class SplatStore:
         embeddings = self.mu[:self.n_active].detach().cpu().numpy()
         self.engine.index(precomputed_embeddings=embeddings)
         
-    def find_neighbors(self, query: torch.Tensor, k: int = 64) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def find_neighbors(self, query: torch.Tensor, k: int = 64, lod: int = 2) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Find k-nearest neighbors using authentic HRM2 engine semantic routing."""
         query_np = query.detach().cpu().numpy()
         if query.dim() == 1:
@@ -104,7 +104,7 @@ class SplatStore:
         
         for i in range(batch_size):
             # Query the semantic MoE router
-            results = self.engine.query(query_np[i], k=k)
+            results = self.engine.query(query_np[i], k=k, lod=lod)
             for j, (splat, dist) in enumerate(results):
                 idx = splat.id
                 mu_out[i, j] = self.mu[idx]
