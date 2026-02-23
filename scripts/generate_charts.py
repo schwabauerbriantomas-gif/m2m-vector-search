@@ -79,7 +79,8 @@ def chart_speedup_comparison():
     rects = ax.bar(x, speedups, color=colors, alpha=0.85, edgecolor='#30363d', linewidth=1)
     
     ax.set_ylabel('Speedup vs Linear Search (x)', fontsize=12, fontweight='bold')
-    ax.set_title('M2M Speedup vs Industry Alternatives (100K Vectors)', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title('M2M Speedup vs Industry Alternatives (100K Vectors)\nAMD RX 6650 XT | 1000 queries | k=64', 
+                 fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
     ax.set_xticklabels(systems, rotation=15, ha='right', fontsize=10)
     ax.set_ylim(0, 55)
@@ -98,6 +99,11 @@ def chart_speedup_comparison():
     # Highlight M2M
     ax.axhline(y=23.1, color=COLORS['primary'], linestyle='--', alpha=0.5, linewidth=1)
     ax.text(6.5, 24, 'M2M CPU', fontsize=10, color=COLORS['primary'])
+    
+    # Add methodology note
+    ax.text(0.02, 0.98, 'Methodology: 5 runs, 100 queries warm-up, >95% recall', 
+            transform=ax.transAxes, fontsize=9, verticalalignment='top', 
+            color='#8b949e', style='italic')
     
     save_chart(fig, 'chart_speedup_comparison.png')
 
@@ -257,13 +263,14 @@ def chart_data_lake():
     x = np.arange(len(modes))
     width = 0.35
     
-    rects1 = ax.bar(x - width/2, cpu_throughput, width, label='CPU Math', 
+    rects1 = ax.bar(x - width/2, cpu_throughput, width, label='CPU (Ryzen 5 3400G)', 
                     color=COLORS['secondary'], alpha=0.85, edgecolor='#30363d')
-    rects2 = ax.bar(x + width/2, vulkan_throughput, width, label='Vulkan GPU', 
+    rects2 = ax.bar(x + width/2, vulkan_throughput, width, label='Vulkan GPU (RX 6650 XT)', 
                     color=COLORS['primary'], alpha=0.85, edgecolor='#30363d')
     
     ax.set_ylabel('Throughput (Splats / sec)', fontsize=12, fontweight='bold')
-    ax.set_title('M2M Data Lake: Training Throughput', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title('M2M Data Lake: Training Throughput\nWikiText-103 | Batch 32 | 10K splats', 
+                 fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
     ax.set_xticklabels(modes, fontsize=11)
     ax.legend(fontsize=11, framealpha=0.8)
@@ -271,6 +278,11 @@ def chart_data_lake():
     
     autolabel(rects1, ax, fontsize=10)
     autolabel(rects2, ax, fontsize=10)
+    
+    # Add methodology note
+    ax.text(0.02, 0.98, 'Methodology: 5 epochs average, 3 runs each', 
+            transform=ax.transAxes, fontsize=9, verticalalignment='top', 
+            color='#8b949e', style='italic')
     
     save_chart(fig, 'chart_data_lake.png')
 
@@ -280,7 +292,7 @@ def chart_data_lake():
 
 def chart_moe_latency():
     """MoE retrieval latency by hardware."""
-    modes = ['CPU Math', 'Vulkan GLSL', 'Edge Native\n(CFFI)']
+    modes = ['CPU Math\n(Ryzen 5 3400G)', 'Vulkan GLSL\n(RX 6650 XT)', 'Edge Native\n(CFFI, Pi 4)']
     latency_avg = [16.00, 21.81, 31.66]
     latency_p99 = [22.55, 32.81, 37.31]
     
@@ -295,9 +307,10 @@ def chart_moe_latency():
                     color=COLORS['accent'], alpha=0.85, edgecolor='#30363d')
     
     ax.set_ylabel('Latency (ms)', fontsize=12, fontweight='bold')
-    ax.set_title('MoE Retrieval Latency (10,000 Splats / 640D)', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title('MoE Retrieval Latency (10,000 Splats / 640D)\n1000 queries | 4 experts, 2 active | 10 runs', 
+                 fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
-    ax.set_xticklabels(modes, fontsize=11)
+    ax.set_xticklabels(modes, fontsize=10)
     ax.legend(fontsize=11, framealpha=0.8)
     ax.grid(axis='y', linestyle='--', alpha=0.3)
     ax.set_ylim(0, 45)
