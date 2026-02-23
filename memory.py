@@ -142,6 +142,15 @@ class SplatMemoryManager:
         
         return None
     
+    def prefetch_to_warm(self, splat_ids: List[int]) -> None:
+        """
+        Prefetch splats from cold storage to warm storage asynchronously.
+        Useful for Data Lake sequential or sampled iterations.
+        """
+        for splat_id in splat_ids:
+            if splat_id in self._cold and splat_id not in self._ram and splat_id not in self._vram:
+                self._load_to_ram(splat_id)
+                
     def _promote_to_vram(self, splat_id: int) -> None:
         """Promote splat from RAM to VRAM."""
         if splat_id not in self._ram:

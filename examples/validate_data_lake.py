@@ -1,0 +1,131 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import time
+import sys
+import os
+import json
+
+# Add parent dir to path to find m2m
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from m2m import M2MConfig, create_m2m
+
+class SimpleMLP(nn.Module):
+    def __init__(self, input_dim=640, hidden_dim=256, output_dim=10):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+    def forward(self, x):
+        return self.net(x)
+
+def generate_clustered_mock_data(num_samples=10000, dim=640, num_clusters=10):
+    """Generate structured mock data mimicking real embeddings (like Cohere)."""
+    torch.manual_seed(42)
+    clusters = torch.randn(num_clusters, dim) * 5
+    assignments = torch.randint(0, num_clusters, (num_samples,))
+    data = clusters[assignments] + torch.randn(num_samples, dim) * 0.5
+    return data, assignments
+
+def validate_data_lake():
+    print("Initializing M2M Storage & Data Lake Validation...")
+    config = M2MConfig(
+        device='cuda' if torch.cuda.is_available() else 'cpu',
+        n_splats_init=10000,
+        max_splats=20000,
+        enable_vulkan=False
+    )
+    m2m = create_m2m(config)
+    
+    # Generate structured mock data
+    print("Generating simulated real-world embeddings (clustered)...")
+    dataset_size = 10000
+    mock_embeddings, mock_labels = generate_clustered_mock_data(num_samples=dataset_size, dim=config.latent_dim)
+    mock_embeddings = mock_embeddings.to(config.device)
+    mock_labels = mock_labels.to(config.device)
+    
+    # Ingest Data
+    start_ingest = time.time()
+    m2m.add_splats(mock_embeddings)
+    ingest_time = time.time() - start_ingest
+    print(f"Ingested {dataset_size} splats in {ingest_time:.2f}s ({(dataset_size/ingest_time):.2f} splats/sec)")
+    
+    metrics = {
+        "dataset_size": dataset_size,
+        "ingest_throughput_qps": dataset_size / ingest_time,
+        "standard_training": {},
+        "generative_training": {}
+    }
+    
+    # Training Loop - Standard
+    print("\n--- Standard Training Loop (SOC Importance Sampling) ---")
+    dataloader = m2m.export_to_dataloader(batch_size=256, importance_sampling=True, generate_samples=False)
+    
+    model_std = SimpleMLP(input_dim=config.latent_dim).to(config.device)
+    optimizer_std = optim.Adam(model_std.parameters(), lr=1e-3)
+    criterion = nn.CrossEntropyLoss()
+    
+    start_time = time.time()
+    total_loss_std = 0
+    batches = 0
+    for batch_idx, batch_mu in enumerate(dataloader):
+        batch_mu = batch_mu.to(config.device)
+        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device) # Dummy targets just to compute gradients
+        
+        optimizer_std.zero_grad()
+        outputs = model_std(batch_mu)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer_std.step()
+        total_loss_std += loss.item()
+        batches += 1
+        
+    epoch_time = time.time() - start_time
+    avg_loss_std = total_loss_std / max(1, batches)
+    print(f"Standard Epoch completed in {epoch_time:.2f}s | Avg Loss: {avg_loss_std:.4f}")
+    
+    metrics["standard_training"]["epoch_time_seconds"] = epoch_time
+    metrics["standard_training"]["avg_loss"] = avg_loss_std
+    metrics["standard_training"]["throughput_splats_per_sec"] = dataset_size / epoch_time
+
+    # Training Loop - Generative
+    print("\n--- Generative Training Loop (Langevin Augmentation) ---")
+    gen_dataloader = m2m.export_to_dataloader(batch_size=256, generate_samples=True)
+    
+    model_gen = SimpleMLP(input_dim=config.latent_dim).to(config.device)
+    optimizer_gen = optim.Adam(model_gen.parameters(), lr=1e-3)
+    
+    start_time = time.time()
+    total_loss_gen = 0
+    batches = 0
+    for batch_idx, batch_mu in enumerate(gen_dataloader):
+        batch_mu = batch_mu.to(config.device)
+        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
+        
+        optimizer_gen.zero_grad()
+        outputs = model_gen(batch_mu)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer_gen.step()
+        total_loss_gen += loss.item()
+        batches += 1
+        
+    epoch_time_gen = time.time() - start_time
+    avg_loss_gen = total_loss_gen / max(1, batches)
+    print(f"Generative Epoch completed in {epoch_time_gen:.2f}s | Avg Loss: {avg_loss_gen:.4f}")
+    
+    metrics["generative_training"]["epoch_time_seconds"] = epoch_time_gen
+    metrics["generative_training"]["avg_loss"] = avg_loss_gen
+    metrics["generative_training"]["throughput_splats_per_sec"] = dataset_size / epoch_time_gen
+
+    print("\n--- VALIDATION METRICS ---")
+    print(json.dumps(metrics, indent=4))
+
+    with open("data_lake_metrics.json", "w") as f:
+        json.dump(metrics, f, indent=4)
+        
+if __name__ == '__main__':
+    validate_data_lake()

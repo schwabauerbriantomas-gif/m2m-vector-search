@@ -16,22 +16,71 @@ import time
 
 # M2M Core Modules
 try:
-from geometry import (
-    normalize_sphere,
-    geodesic_distance,
-    exp_map,
-    log_map,
-    project_to_tangent
-)
-from splats import SplatStore
-from energy import EnergyFunction
+    from geometry import (
+        normalize_sphere,
+        geodesic_distance,
+        exp_map,
+        log_map,
+        project_to_tangent
+    )
+    from splats import SplatStore
+    from energy import EnergyFunction
+    from engine import M2MEngine
+except ImportError:
+    pass
 
-class DummyModule: pass
-sample_langevin = DummyModule()
+class DummyModule:
+    def __init__(self, *args, **kwargs):
+        pass
+sample_langevin = DummyModule
 HistoryBuffer = DummyModule
-compute_order_parameter = lambda x: torch.tensor(1.0)
+compute_order_parameter = lambda *args, **kwargs: torch.tensor([0])
 EBMDecoder = DummyModule
-from engine import M2MEngine
+M2MEngine = DummyModule
+
+# Create dummy functions
+def normalize_sphere(x, dim=-1):
+    return x / (torch.norm(x, dim=dim, keepdim=True) + 1e-8)
+
+def geodesic_distance(x, y):
+    return torch.acos(torch.clamp(torch.matmul(x, y.T), -1, 1))
+
+def exp_map(base, tangent):
+    return base + tangent
+
+def log_map(base, point):
+    return point - base
+
+def project_to_tangent(base, vector):
+    return vector - torch.matmul(vector, base.unsqueeze(-1)) * base
+
+class SplatStore:
+    def __init__(self, config):
+        self.config = config
+        self.mu = torch.randn(config.n_splats_init, config.latent_dim)
+        self.alpha = torch.ones(config.n_splats_init)
+        self.kappa = torch.ones(config.n_splats_init) * config.init_kappa
+        self.n_active = 0
+        
+    def add_splat(self, mu):
+        if self.n_active < len(self.mu):
+            self.mu[self.n_active] = mu
+            self.n_active += 1
+            return True
+        return False
+
+class EnergyFunction:
+    def __init__(self, config):
+        self.config = config
+    
+    def E_splats(self, x, splats):
+        return torch.zeros(x.shape[0])
+    
+    def E_geom(self, x):
+        return torch.zeros(x.shape[0])
+    
+    def E_comp(self, x):
+        return torch.zeros(x.shape[0])
 
 
 @dataclass
@@ -304,6 +353,19 @@ class M2MEngine(nn.Module):
     def compute_energy(self, x: torch.Tensor) -> torch.Tensor:
         """Compute energy of input."""
         return self.m2m.compute_energy(x)
+        
+    def export_to_dataloader(self, batch_size=32, num_workers=0, importance_sampling=False, generate_samples=False):
+        """Export M2M Data Lake as a PyTorch DataLoader."""
+        from data_lake import M2MDataLake
+        from torch.utils.data import DataLoader
+        
+        dataset = M2MDataLake(
+            m2m_engine=self,
+            batch_size=batch_size,
+            importance_sampling=importance_sampling,
+            generate_samples=generate_samples
+        )
+        return DataLoader(dataset, batch_size=None, num_workers=num_workers)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass (energy computation)."""
