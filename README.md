@@ -1,6 +1,6 @@
-# M2M Training Data Lake
+# M2M Vector Search Engine
 
-**High-performance Gaussian Splat Storage & Training Data Lake for AI Systems**
+**High-performance Machine-to-Memory (M2M) Engine & Gaussian Splat Vector Cloud**
 
  [![Python](https://img.shields.io/badge/python-3.8%2B-brightgreen.svg)](https://python.org)
  [![License](https://img.shields.io/badge/license-Apache%202.0-yellow.svg)](LICENSE)
@@ -22,28 +22,30 @@
 
 ## 🎯 Overview
 
-**M2M Training Data Lake** transforms the M2M Vector Search core into a high-performance active PyTorch `IterableDataset` capable of scaling dynamically across VRAM, RAM, and SSD.
+**M2M Vector Search** is a next-generation vector database built on **Gaussian Splats** and **Tier-Aware Memory** (VRAM, RAM, SSD) capable of scaling to millions of high-dimensional vectors. 
 
-Instead of statically serving embeddings like traditional vector databases, M2M leverages **Gaussian Splats** and **Langevin Dynamics** to stream massive amounts of embeddings directly into Deep Learning training loops, generating stochastic data augmentations on the fly. 
+Beyond simple static retrieval, M2M possesses an active architecture that supports **Generative Langevin Augmentations**, **Hardware-Accelerated SPIR-V MoE Routing**, and **Progressive Semantic LODs** for sub-millisecond AI context retrieval.
 
-### 💡 Why M2M Data Lake?
-- **Streaming Massive Data:** Load millions of vectors directly into standard PyTorch training scripts from cold storage (SSD) to VRAM without exploding memory.
-- **Langevin Data Augmentation:** The data lake is alive; it uses energy surfaces to alter and sample vectors at training time. The model never sees the exact same embedding twice.
-- **SOC Importance Sampling:** Train faster by letting the Self-Organized Criticality (SOC) controller feed only the most "concentrated" ($\kappa$) and salient embeddings, skipping redundant data.
+### 💡 Key Capabilities
+- **Massive Hierarchical Retrieval:** Route searches through coarse/fine KMeans++ macros, bypassing linear scans at scales up to 10k QPS.
+- **True Vulkan Hardware Acceleration:** 100% FAISS/CUDA-free execution. Runs parallelized spatial shaders strictly on `SPIR-V` through CFFI.
+- **Edge Computing Native:** Dependency-free Python bindings allowing the M2M Router to execute efficiently inside Edge IoT endpoints and smartphones.
+- **Active Data Lake Training:** Feed embedded spaces directly into PyTorch scripts, bypassing RAM bottlenecks while augmenting vectors continuously via `Langevin Dynamics`.
 
 ---
 
 ## 🌟 Features
 
-### Storage & Optimization
-- **Tier-Aware Streaming:** Background prefetching threads seamlessly load data from Cold (SSD) $\rightarrow$ Warm (RAM) $\rightarrow$ Hot (VRAM).
-- **Consolidation:** Automatic redundancy elimination via Self-Organized Criticality.
-- **Gaussian Representations:** Stores mean ($\mu$), concentration ($\kappa$), and precision ($\alpha$) rather than simple points.
-- **Semantic Spatial Router:** Hierarchical KMeans++ index with MoE distance shaders capable of >1000 QPS indexing and sub-20ms 10k similarity retrieval.
+### 1. Vector Search & RAG Optimization
+- **Progressive Semantic LODs:** Adaptive Semantic Routing. Exit early with LOD 0 (Coarse Centroids) for `< 1ms` Time-To-First-Frame context, or drill down to LOD 2 for precise Vulkan MoE evaluation (`~20ms`).
+- **Semantic Spatial Router:** Native `KMeans++` routing combined with raw GPU Compute shaders to calculate cross-cluster Euclidean potentials in zero-copy boundaries.
+- **Edge-Ready Standalone Nodes:** Capable of running dependency-free (No PyTorch/TorchVision) simply via `numpy` and `vulkan` Python FFI.
 
-### PyTorch Integration
-- **`M2MDataLake` Dataset:** Native PyTorch `IterableDataset` exported instantly via `m2m.export_to_dataloader()`.
-- **Zero-Copy Generation:** Bypasses RAM bottlenecks where possible, feeding generated states directly via PyTorch tensors on CUDA.
+### 2. Tiered Storage Data Lake
+- **Tier-Aware Streaming:** Background prefetching threads seamlessly load data from Cold (SSD) $\rightarrow$ Warm (RAM) $\rightarrow$ Hot (VRAM).
+- **SOC Importance Sampling:** Train faster by letting the Self-Organized Criticality (SOC) controller feed only the most "concentrated" ($\kappa$) embeddings.
+- **Gaussian Representations:** Stores mean ($\mu$), concentration ($\kappa$), and precision ($\alpha$) for active Energy physics rather than basic coordinate points.
+- **PyTorch Integration:** Seamless Native PyTorch `IterableDataset` exported instantly via `m2m.export_to_dataloader()`.
 
 ---
 
@@ -116,36 +118,38 @@ pip install -r requirements.txt
 
 ## 🚀 Quick Start
 
-### M2M Data Lake in 10 lines of code
+### M2M Retrieval and Data Lake in 15 lines of code
 
 ```python
 import torch
-import torch.nn as nn
 from m2m import M2MConfig, create_m2m
 
-# 1. Initialize M2M Data Lake
-m2m = create_m2m(M2MConfig(device='cuda'))
+# 1. Initialize M2M Engine (Vulkan Accelerated)
+m2m = create_m2m(M2MConfig(device='cpu', enable_vulkan=True))
 
-# 2. Ingest your dataset (embeddings)
-dataset_embeddings = torch.randn(100000, 640).cuda()
+# 2. Ingest your dataset (embeddings) and Build Hierarchical Index
+dataset_embeddings = torch.randn(100000, 640)
 m2m.add_splats(dataset_embeddings)
+m2m.splats.build_index()
 
-# 3. Export to an Iterable PyTorch DataLoader
+# 3. Progressive Fast Retrieval (RAG)
+query = torch.randn(640)
+# LOD 0: Ultra-fast Approximation (< 1ms)
+approx_results = m2m.retrieve(query, k=10, lod=0) 
+# LOD 2: Exact Vulkan SPIR-V Routing (~20ms)
+exact_results = m2m.retrieve(query, k=10, lod=2)
+
+# 4. Optional: Export to an Iterable PyTorch DataLoader for Training
 dataloader = m2m.export_to_dataloader(
     batch_size=256, 
     generate_samples=True,  # Enables Langevin generative augmentation
     importance_sampling=True # Sorts stream by SOC concentration
 )
 
-# 4. Standard PyTorch Training
-model = nn.Linear(640, 10).cuda()
-optimizer = torch.optim.Adam(model.parameters())
-
-for epoch in range(5):
+for epoch in range(1):
     for batch in dataloader:
-        loss = model(batch).sum()
-        loss.backward()
-        optimizer.step()
+        # Train your neural network directly on active M2M Splats
+        pass
 ```
 
 See the `/examples` directory for complete working examples, such as `examples/m2m_training_loop.py` and `examples/validate_data_lake.py`.
