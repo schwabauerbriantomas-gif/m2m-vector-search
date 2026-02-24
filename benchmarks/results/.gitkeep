@@ -1,0 +1,4 @@
+# benchmarks/results/.gitkeep
+# JSON benchmark outputs are saved here.
+# Files ending in _latest.json track the most recent run.
+# Timestamped files are kept for historical comparison.

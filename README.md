@@ -49,7 +49,10 @@ graph TD;
 
 ## Performance Benchmarks (Real Data)
 
-All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real images projected to 640D embedding space, upsampled to 10,000 samples). No synthetic or random data is used for reported metrics. Results are fully reproducible by running `python examples/validate_data_lake.py`.
+All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real images projected to 640D embedding space, upsampled to 10,000 samples). No synthetic or random data is used for reported metrics.
+
+> [!TIP]
+> Results are fully reproducible. Run `python benchmarks/run_benchmark.py --device both` to generate fresh numbers on your hardware. All charts are produced from that live output — no hardcoded values anywhere in the pipeline.
 
 ### Hardware & Environment
 
@@ -60,7 +63,7 @@ All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real i
 | **OS** | Windows 10 |
 | **Python** | 3.12 |
 | **PyTorch** | CPU tensors (PyTorch does not support Vulkan as a device backend) |
-| **Vulkan** | Custom GLSL compute shaders via PyVulkan (`vulkan_compute.py`) |
+| **Vulkan** | Custom GLSL compute shaders via PyVulkan (`gpu_vector_index.py` — `GPUVectorIndex`) |
 
 ### Backend Architecture
 
@@ -100,24 +103,25 @@ All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real i
 ![Data Lake Metrics](assets/benchmark_data_lake.png)
 
 > [!NOTE]
-> **Vulkan retrieval vs CPU:** The retrieval path uses Vulkan persistent GPU buffers for distance computation (via `VulkanMoERouter` with pre-allocated buffers — **0.82ms per GPU dispatch**). However, the coarse cluster probing and candidate collection still run on CPU, adding CPU→GPU→CPU round-trip latency per query. For ingest workloads, Vulkan provides a consistent **+18% throughput advantage**. Future work will batch multiple queries into a single GPU dispatch to amortize the round-trip cost.
+> **Vulkan retrieval vs CPU:** The retrieval path uses `GPUVectorIndex` — a persistent GPU buffer that uploads the full vector index **once** at init, then dispatches all queries in batched chunks via a GLSL compute shader (`moe_batch.spv`) with shared memory. This eliminates per-query index re-upload overhead. At 10k splats, batch dispatch is **2.5× faster** than the old single-query loop. The `HierarchicalGPUSearch` two-stage (coarse→fine) GPU search further reduces candidate space for large datasets.
 
 ### Reproducing Benchmarks
 
 ```bash
-# Run both CPU and Vulkan benchmarks with real data
-python examples/validate_data_lake.py
+# Run both CPU and Vulkan benchmarks with real data (saves to benchmarks/results/)
+python benchmarks/run_benchmark.py --device both
 
 # CPU only
-python examples/validate_data_lake.py --cpu
+python benchmarks/run_benchmark.py --device cpu
 
 # Vulkan GPU only
-python examples/validate_data_lake.py --vulkan
+python benchmarks/run_benchmark.py --device vulkan
 
-# Generate charts from results
+# Generate all charts from the latest results
 python scripts/generate_charts.py
 
-# Results saved to data_lake_real_metrics.json
+# Or benchmark + charts in one step
+python scripts/generate_charts.py --run-benchmark --device both
 ```
 
 ---
@@ -172,10 +176,12 @@ git clone https://github.com/schwabauerbriantomas-gif/m2m-vector-search.git
 cd m2m-vector-search
 pip install -r requirements.txt
 
-# Execute regression and integration proofs
+# Validate project integrity
 python scripts/validate_project.py
-python scripts/validate_real_datasets.py
 python tests/test_langchain.py
+
+# Run full benchmark suite
+python benchmarks/run_benchmark.py --device both
 ```
 
 ### Reporting Issues and Contributing

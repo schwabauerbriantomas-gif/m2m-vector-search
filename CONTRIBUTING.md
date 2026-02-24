@@ -260,7 +260,7 @@ m2m/
 ├── splats.py             # SplatStore implementation
 ├── hrm2_engine.py        # Hierarchical search engine
 ├── memory.py             # 3-tier memory manager
-├── vulkan_compute.py     # GPU acceleration
+├── gpu_vector_index.py   # GPU acceleration (GPUVectorIndex, HierarchicalGPUSearch)
 ├── geometry.py           # Riemannian operations
 └── energy.py             # Energy functions
 

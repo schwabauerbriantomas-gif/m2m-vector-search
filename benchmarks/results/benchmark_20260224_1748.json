@@ -1,0 +1,96 @@
+{
+  "timestamp": "2026-02-24 17:49:00",
+  "system_specs": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
+    "python_version": "3.12.10",
+    "torch_version": "2.10.0+cpu",
+    "numpy_version": "2.3.5",
+    "cpu_cores_physical": 4,
+    "cpu_cores_logical": 8,
+    "ram_total_gb": 15.93,
+    "vulkan_gpu": "AMD Radeon RX 6650 XT",
+    "vulkan_api": "1.4.315"
+  },
+  "data_meta": {
+    "source": "sklearn.datasets.load_digits",
+    "original_dim": 64,
+    "latent_dim": 640,
+    "n_samples": 5000,
+    "n_classes": 10,
+    "projection": "random matrix 64\u2192640, seeded=42",
+    "normalization": "L2 unit sphere"
+  },
+  "config": {
+    "n_splats": 5000,
+    "n_queries": 200,
+    "k": 10,
+    "latent_dim": 640,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "avg_latency_ms": 5.2549,
+    "p50_latency_ms": 5.0051,
+    "p95_latency_ms": 5.8007,
+    "p99_latency_ms": 6.9833,
+    "throughput_qps": 190.3
+  },
+  "backends": {
+    "cpu": {
+      "device": "cpu",
+      "vulkan_enabled": false,
+      "init_time_ms": 3.53,
+      "n_splats": 5000,
+      "ingest_throughput_qps": 939.8,
+      "standard_training": {
+        "throughput_splats_per_sec": 307656.34,
+        "epoch_time_s": 0.0163,
+        "avg_loss": 2.302403
+      },
+      "generative_training": {
+        "throughput_splats_per_sec": 107657.92,
+        "epoch_time_s": 0.0464,
+        "avg_loss": 2.303015
+      },
+      "retrieval": {
+        "n_queries": 200,
+        "k": 10,
+        "avg_latency_ms": 13.9703,
+        "p50_latency_ms": 13.8717,
+        "p95_latency_ms": 17.4677,
+        "p99_latency_ms": 19.1101,
+        "min_latency_ms": 8.5936,
+        "max_latency_ms": 37.6725,
+        "throughput_qps": 71.58
+      }
+    },
+    "vulkan": {
+      "device": "vulkan",
+      "vulkan_enabled": true,
+      "init_time_ms": 144.6,
+      "n_splats": 5000,
+      "ingest_throughput_qps": 1314.18,
+      "standard_training": {
+        "throughput_splats_per_sec": 315758.23,
+        "epoch_time_s": 0.0158,
+        "avg_loss": 2.303227
+      },
+      "generative_training": {
+        "throughput_splats_per_sec": 104102.47,
+        "epoch_time_s": 0.048,
+        "avg_loss": 2.302598
+      },
+      "retrieval": {
+        "n_queries": 200,
+        "k": 10,
+        "avg_latency_ms": 19.923,
+        "p50_latency_ms": 19.6356,
+        "p95_latency_ms": 25.9221,
+        "p99_latency_ms": 28.7583,
+        "min_latency_ms": 11.8257,
+        "max_latency_ms": 47.1179,
+        "throughput_qps": 50.19
+      }
+    }
+  }
+}

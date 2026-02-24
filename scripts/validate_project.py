@@ -141,7 +141,8 @@ class ProjectValidator:
             "energy",
             "engine",
             "m2m",
-            "vulkan_compute",
+            "vulkan_compute",   # kept for backward compatibility check (file deleted — should fail gracefully)
+            "gpu_vector_index",
         ]
 
         imports = {}

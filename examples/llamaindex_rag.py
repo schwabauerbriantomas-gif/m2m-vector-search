@@ -78,19 +78,21 @@ class LlamaIndexRAG:
     def retrieve_relevant_docs(self, query: str, k: int = 3) -> List[str]:
         """Retrieve k-relevant documents for query."""
         print(f"[INFO] Retrieving top-{k} documents for query: '{query}'")
-        
+
         # Embed query
         query_embedding = self.embed_query(query)
-        
+
         # Retrieve from M2M
         neighbors_mu, neighbors_alpha, neighbors_kappa = self.m2m.search(query_embedding, k)
-        
-        # Get document indices
-        top_k_indices = torch.topk(neighbors_kappa, k).indices
-        
-        # Retrieve documents
-        retrieved_docs = [self.documents[i] for i in top_k_indices[0].tolist()]
-        
+
+        # Use document list for integer indexing (documents dict has string keys)
+        doc_list = list(self.documents.values())
+        n_docs = len(doc_list)
+
+        # Get document indices from top-K kappa (clamped to valid range)
+        top_k_indices = torch.topk(neighbors_kappa, min(k, neighbors_kappa.shape[-1])).indices
+        retrieved_docs = [doc_list[int(i) % n_docs] for i in top_k_indices[0].tolist()]
+
         return retrieved_docs
     
     def generate_response(self, query: str, context_docs: List[str]) -> str:

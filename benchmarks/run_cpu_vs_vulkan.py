@@ -8,15 +8,18 @@ import time
 import json
 from pathlib import Path
 
-project_root = Path(__file__).parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+RESULTS_DIR.mkdir(exist_ok=True)
 
 import torch
 import numpy as np
 
 from m2m import M2MConfig, M2MEngine, normalize_sphere
 
-def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=128):
+def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=640):
     """Run a single benchmark on a given device."""
     print(f"\n{'='*60}")
     print(f"  BENCHMARK: {device_name.upper()}")

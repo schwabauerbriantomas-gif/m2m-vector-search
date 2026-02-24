@@ -16,9 +16,12 @@ class M2MEngine:
         
         if config and config.enable_vulkan:
             try:
-                from vulkan_compute import VulkanMoERouter
+                from gpu_vector_index import GPUVectorIndex
                 dim = config.latent_dim if hasattr(config, "latent_dim") else 640
-                self.vulkan_router = VulkanMoERouter(dim=dim)
+                # Use a small dummy index (1 vector); compute_distances() uploads
+                # dynamic expert sets per call — the index buffer is reused.
+                dummy = __import__('numpy').zeros((1, dim), dtype='float32')
+                self.vulkan_router = GPUVectorIndex(dummy, max_batch_size=1)
                 self.use_vulkan = True
                 print("[INFO] Initialized True Vulkan Compute Shader MoE Router.")
             except Exception as e:

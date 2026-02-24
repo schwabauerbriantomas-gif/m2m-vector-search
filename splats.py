@@ -36,6 +36,11 @@ class SplatStore:
         # Internal splat counter for ID generation
         self._next_id = 0
 
+        # GPUVectorIndex: lazy-init on first batch_find_neighbors when Vulkan enabled.
+        # Rebuilds automatically when index changes (dirty flag).
+        self._gpu_index = None
+        self._gpu_index_dirty = True
+
     def add_splat(self, x: torch.Tensor) -> bool:
         """Add a batch of splats or a single splat."""
         if x.dim() == 1:
@@ -79,6 +84,8 @@ class SplatStore:
         # Pass raw active vectors directly into HRM2 so we bypass the slow encoder
         embeddings = self.mu[:self.n_active].detach().cpu().numpy()
         self.engine.index(precomputed_embeddings=embeddings)
+        # Mark GPU index dirty so it is rebuilt on next batch_find_neighbors call
+        self._gpu_index_dirty = True
         
     def find_neighbors(self, query: torch.Tensor, k: int = 64, lod: int = 2) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Find k-nearest neighbors using authentic HRM2 engine semantic routing."""
@@ -111,6 +118,84 @@ class SplatStore:
                 alpha_out[i, j] = self.alpha[idx]
                 kappa_out[i, j] = self.kappa[idx]
                 
+        return mu_out, alpha_out, kappa_out
+
+    def batch_find_neighbors(
+        self,
+        queries: torch.Tensor,
+        k: int = 64,
+        lod: int = 2,
+        max_batch_size: int = 100,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Batch k-NN search — uses GPUVectorIndex (persistent index, single dispatch)
+        when Vulkan is enabled, falls back to sequential find_neighbors() on CPU.
+
+        ✅ CORRECT pattern (reference implementation):
+          - Index uploaded to GPU ONCE (or when dirty after rebuild)
+          - Only queries (small) are transferred per call
+          - All B queries dispatched in one vkCmdDispatch(ceil(N/256), B, 1)
+
+        Args:
+            queries: [B, D] tensor
+            k:       number of neighbours
+            lod:     level of detail (CPU path only)
+            max_batch_size: max queries per GPU dispatch
+
+        Returns:
+            mu_out    [B, k, D]
+            alpha_out [B, k]
+            kappa_out [B, k]
+        """
+        if queries.dim() == 1:
+            queries = queries.unsqueeze(0)
+        batch_size = queries.shape[0]
+        dim = queries.shape[1]
+        k = min(k, max(1, self.n_active))
+
+        # ── GPU path: GPUVectorIndex ──────────────────────────────────
+        vulkan_enabled = getattr(self.config, 'enable_vulkan', False)
+        if vulkan_enabled and self.n_active > 0:
+            try:
+                # Lazy init / rebuild when index vectors changed
+                if self._gpu_index is None or self._gpu_index_dirty:
+                    from gpu_vector_index import GPUVectorIndex
+                    index_vecs = self.mu[:self.n_active].detach().cpu().numpy()
+                    self._gpu_index = GPUVectorIndex(
+                        index_vecs, max_batch_size=max_batch_size
+                    )
+                    self._gpu_index_dirty = False
+
+                queries_np = queries.detach().cpu().numpy().astype(np.float32)
+                gpu_ids, gpu_dists = self._gpu_index.batch_search(queries_np, k=k)
+
+                mu_out    = torch.zeros((batch_size, k, dim), device=self.device)
+                alpha_out = torch.zeros((batch_size, k),      device=self.device)
+                kappa_out = torch.zeros((batch_size, k),      device=self.device)
+
+                for i in range(batch_size):
+                    for j, idx in enumerate(gpu_ids[i]):
+                        if idx < self.n_active:
+                            mu_out[i, j]    = self.mu[idx]
+                            alpha_out[i, j] = self.alpha[idx]
+                            kappa_out[i, j] = self.kappa[idx]
+
+                return mu_out, alpha_out, kappa_out
+
+            except Exception as e:
+                print(f"[SplatStore] GPU batch search failed ({e}), falling back to CPU.")
+
+        # ── CPU fallback: sequential find_neighbors ───────────────────
+        mu_out    = torch.zeros((batch_size, k, dim), device=self.device)
+        alpha_out = torch.zeros((batch_size, k),      device=self.device)
+        kappa_out = torch.zeros((batch_size, k),      device=self.device)
+
+        for i in range(batch_size):
+            mu_i, a_i, k_i = self.find_neighbors(queries[i:i+1], k=k, lod=lod)
+            mu_out[i]    = mu_i[0]
+            alpha_out[i] = a_i[0]
+            kappa_out[i] = k_i[0]
+
         return mu_out, alpha_out, kappa_out
 
     def entropy(self, x=None):
