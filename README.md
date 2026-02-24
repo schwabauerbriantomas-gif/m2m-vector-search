@@ -32,7 +32,7 @@
 - **Hierarchical Retrieval**: HRM2 clustering for fast searches
 - **3-Tier Memory**: VRAM (Hot) → RAM (Warm) → SSD (Cold)
 - **Gaussian Splats**: Full representation (μ, α, κ)
-- **RAG Compatible**: LangChain and LlamaIndex integrations
+- **Natively Integrated RAG**: Official LangChain `M2MVectorStore` wrapper & LlamaIndex compatibility
 
 ---
 
@@ -84,7 +84,7 @@
 | **Embeddings** | 562 × 640 |
 | **Test** | ✅ Added + Search OK |
 
-**Sample Query**: Searched in 'zai-search-rest.py', found k=5 neighbors
+**Sample Query**: Searched in 'dxdiag.txt', found k=5 neighbors
 
 ---
 
@@ -131,6 +131,7 @@
 
 | Parameter | Value |
 |-----------|-------|
+| **Hardware** | AMD Ryzen CPU (Windows 10) |
 | **Device** | CPU |
 | **Splats** | 100,000 |
 | **Queries** | 1,000 |
@@ -138,10 +139,12 @@
 
 ### Results (Validated)
 
+![Benchmark Results](assets/benchmark_results.png)
+
 | System | Avg Latency | Throughput | Speedup |
 |--------|-------------|------------|---------|
-| **Linear Search** | 94.79ms | 10.55 QPS | 1x (baseline) |
-| **M2M (HRM2+KNN)** | **0.99ms** | **1,012.77 QPS** | **32.4x** |
+| **Linear Search** | 93.53ms | 10.70 QPS | 1x (baseline) |
+| **M2M (HRM2+KNN)** | **0.52ms** | **1,928.00 QPS** | **61.7x** |
 
 ### Reproduce Benchmark
 

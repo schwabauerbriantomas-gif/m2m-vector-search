@@ -8,21 +8,21 @@
   "results": {
     "Linear Search (O(N))": {
       "name": "Linear Search (O(N))",
-      "total_time_s": 94.7870020866394,
-      "avg_latency_ms": 94.7870020866394,
-      "throughput_qps": 10.549969700338838
+      "total_time_s": 93.52909755706787,
+      "avg_latency_ms": 93.52909755706787,
+      "throughput_qps": 10.69185981816876
     },
     "M2M (HRM2 + KNN)": {
       "name": "M2M (HRM2 + KNN, K=64)",
       "n_splats": 100000,
-      "total_time_s": 0.9873881340026855,
-      "avg_latency_ms": 0.9873881340026855,
-      "throughput_qps": 1012.772956817081,
-      "speedup_vs_linear": 32.40873461814659
+      "total_time_s": 0.5186808109283447,
+      "avg_latency_ms": 0.5186808109283447,
+      "throughput_qps": 1927.9679890416248,
+      "speedup_vs_linear": 61.694975649331994
     }
   },
   "comparison": {
-    "speedup": 95.99771237111261,
-    "throughput_improvement": 9499.771237111261
+    "speedup": 180.32110613397808,
+    "throughput_improvement": 17932.11061339781
   }
 }

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-23 22:26:28",
+  "timestamp": "2026-02-23 22:57:37",
   "methodology": {
     "approach": "Real embeddings only, no synthetic data",
     "reproducible": true,
@@ -24,7 +24,7 @@
         },
         "search": {
           "status": "SUCCESS",
-          "query_document": "zai-search-rest.py",
+          "query_document": "dxdiag.txt",
           "k": 5
         }
       }

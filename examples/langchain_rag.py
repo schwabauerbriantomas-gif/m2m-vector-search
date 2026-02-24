@@ -29,77 +29,53 @@ class LangChainRAG:
     def __init__(self, config: M2MConfig):
         self.config = config
         
-        # Initialize M2M Engine
-        print("[INFO] Initializing M2M Engine for RAG...")
-        self.m2m = M2MEngine(config)
-        
-        # Initialize vectorstore
+        # Initialize M2M VectorStore
         print("[INFO] Initializing M2M VectorStore...")
-        self.vectorstore = self.m2m.splats
+        from langchain_core.embeddings import FakeEmbeddings
+        from integrations.langchain import M2MVectorStore
+        
+        # Use FakeEmbeddings for demonstration (in real system, use HuggingFaceEmbeddings)
+        self.embeddings = FakeEmbeddings(size=config.latent_dim)
+        
+        # Initialize the M2M store wrapper
+        self.vectorstore = M2MVectorStore(
+            embeddings=self.embeddings,
+            config=self.config
+        )
         
         # Sample documents
-        self.documents = {
-            "doc1": "M2M is a high-performance Gaussian Splat storage system designed for AI applications requiring persistent, long-term memory.",
-            "doc2": "The system uses a 3-tier memory hierarchy (VRAM Hot, RAM Warm, SSD Cold) for efficient storage and retrieval.",
-            "doc3": "It achieves 9x-92x speedup vs linear search through Hierarchical Region Merging (HRM2) clustering.",
-            "doc4": "Self-Organized Criticality (SOC) automatically consolidates representations without human intervention.",
-            "doc5": "GPU acceleration via Vulkan compute shaders enables massive parallelism for energy calculations and KNN search.",
-            "doc6": "M2M is optimized for AMD RX 6650XT (8GB VRAM) with full Vulkan support."
-        }
+        self.documents = [
+            "M2M is a high-performance Gaussian Splat storage system designed for AI applications requiring persistent, long-term memory.",
+            "The system uses a 3-tier memory hierarchy (VRAM Hot, RAM Warm, SSD Cold) for efficient storage and retrieval.",
+            "It achieves 9x-92x speedup vs linear search through Hierarchical Region Merging (HRM2) clustering.",
+            "Self-Organized Criticality (SOC) automatically consolidates representations without human intervention.",
+            "GPU acceleration via Vulkan compute shaders enables massive parallelism for energy calculations and KNN search.",
+            "M2M is optimized for AMD RX 6650XT (8GB VRAM) with full Vulkan support."
+        ]
         
         print(f"[INFO] Loaded {len(self.documents)} documents")
     
-    def embed_documents(self) -> torch.Tensor:
-        """Embed documents using simple random embeddings (in real system, use BERT/GPT-2)."""
-        print("[INFO] Creating document embeddings...")
-        
-        # In real system, use BERT, GPT-2, or Sentence-BERT
-        # Here we use random embeddings for demonstration
-        doc_vectors = []
-        for i in range(len(self.documents)):
-            # Random vector on S^639
-            vec = torch.randn(self.config.latent_dim)
-            doc_vectors.append(vec)
-        
-        # Normalize to unit sphere
-        doc_vectors_tensor = torch.stack(doc_vectors)
-        doc_vectors_normalized = normalize_sphere(doc_vectors_tensor)
-        
-        print(f"[INFO] Created {doc_vectors_normalized.shape[0]} document embeddings")
-        
-        return doc_vectors_normalized
-    
-    def add_to_vectorstore(self, doc_embeddings: torch.Tensor) -> None:
+    def embed_documents(self) -> None:
         """Add documents to M2M vectorstore."""
         print("[INFO] Adding documents to M2M vectorstore...")
         
-        # Add to splat store
-        for i, doc_embedding in enumerate(doc_embeddings):
-            self.m2m.add_splat(doc_embedding)
+        self.vectorstore.add_texts(self.documents)
         
-        print(f"[INFO] Added {doc_embeddings.shape[0]} documents to vectorstore")
+        print(f"[INFO] Added {len(self.documents)} documents to vectorstore")
+    
+    def add_to_vectorstore(self, doc_embeddings) -> None:
+        pass # Not needed anymore
     
     def retrieve_relevant_docs(self, query: str, k: int = 3) -> List[str]:
         """Retrieve k-relevant documents for a query."""
         print(f"[INFO] Retrieving top-{k} relevant documents for query: '{query}'")
         
-        # In real system, embed query (use BERT, GPT-2, etc.)
-        # Here we use a random query embedding for demonstration
-        query_embedding = torch.randn(self.config.latent_dim)
-        query_embedding = normalize_sphere(query_embedding)
+        # Retrieve k-nearest neighbors from M2M via LangChain API
+        docs = self.vectorstore.similarity_search(query, k=k)
         
-        # Retrieve k-nearest neighbors from M2M
-        neighbors_mu, neighbors_alpha, neighbors_kappa = self.vectorstore.find_neighbors(
-            query_embedding.unsqueeze(0),
-            k=k
-        )
+        print(f"[INFO] Retrieved {len(docs)} documents")
         
-        print(f"[INFO] Retrieved {k} documents")
-        
-        return [
-            self.documents[i]
-            for i in torch.topk(neighbors_kappa.squeeze(0), k).indices.tolist()
-        ]
+        return [doc.page_content for doc in docs]
     
     def generate_response(self, query: str, context_docs: List[str]) -> str:
         """Generate response based on retrieved documents."""
@@ -140,25 +116,20 @@ def main():
     
     # Embed documents
     print("[STEP 1/4] Embedding documents...")
-    doc_embeddings = rag.embed_documents()
-    print()
-    
-    # Add to vectorstore
-    print("[STEP 2/4] Adding documents to vectorstore...")
-    rag.add_to_vectorstore(doc_embeddings)
+    rag.embed_documents()
     print()
     
     # Query
     query = "What is M2M and how does it work?"
-    print(f"[STEP 3/4] Processing query: '{query}'")
+    print(f"[STEP 2/4] Processing query: '{query}'")
     
     # Retrieve relevant documents
-    print("[STEP 4/4] Retrieving relevant documents...")
+    print("[STEP 3/4] Retrieving relevant documents...")
     context_docs = rag.retrieve_relevant_docs(query, k=3)
     print()
     
     # Generate response
-    print("Generating response...")
+    print("[STEP 4/4] Generating response...")
     response = rag.generate_response(query, context_docs)
     print()
     
