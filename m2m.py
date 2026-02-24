@@ -114,6 +114,22 @@ class M2MConfig:
     # API Configuration
     rest_port: int = 8080
     grpc_port: int = 9090
+    
+    def __post_init__(self):
+        """Handle 'vulkan' device: enable Vulkan GPU compute shaders."""
+        if self.device == 'vulkan':
+            self.enable_vulkan = True
+    
+    @property
+    def torch_device(self) -> str:
+        """PyTorch-compatible device for tensor allocation.
+        
+        When device='vulkan', tensors are stored on CPU but heavy compute
+        (distances, MoE routing) runs on the GPU via Vulkan compute shaders.
+        """
+        if self.device == 'vulkan':
+            return 'cpu'
+        return self.device
 
 
 class M2MMemory(nn.Module):
@@ -153,9 +169,9 @@ class M2MMemory(nn.Module):
         self.decoder = EBMDecoder(config)
         
         # Move to device
-        self.to(config.device)
+        self.to(config.torch_device)
         
-        print(f"[INFO] M2M initialized on {config.device}")
+        print(f"[INFO] M2M initialized on {config.device} (torch_device={config.torch_device})")
         print(f"[INFO] Latent dim: {config.latent_dim}")
         print(f"[INFO] Max splats: {config.max_splats}")
         print(f"[INFO] 3-tier memory: {config.enable_3_tier_memory}")
@@ -290,10 +306,10 @@ class M2MEngine(nn.Module):
             print("[INFO] Vulkan acceleration disabled")
         
         # Move to device
-        self.to(config.device)
+        self.to(config.torch_device)
         
-        print(f"[INFO] M2M Engine initialized on {config.device}")
-        print(f"[INFO] Vulkan: {'Enabled' if config.enable_vulkan else 'Disabled'}")
+        print(f"[INFO] M2M Engine initialized on {config.device} (torch_device={config.torch_device})")
+        print(f"[INFO] Vulkan GPU Compute: {'Enabled' if config.enable_vulkan else 'Disabled'}")
     
     def add_splats(self, vectors: torch.Tensor, labels: List[str] = None) -> int:
         """Add new splats to the system."""
@@ -408,7 +424,7 @@ def main():
     
     # Example: Add random splats
     print("[EXAMPLE] Adding 100 random splats...")
-    random_vectors = torch.randn(100, config.latent_dim).to(config.device)
+    random_vectors = torch.randn(100, config.latent_dim).to(config.torch_device)
     n_added = m2m.add_splats(random_vectors)
     print(f"[EXAMPLE] Added {n_added} splats")
     print()

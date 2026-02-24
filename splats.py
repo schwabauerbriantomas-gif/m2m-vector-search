@@ -11,7 +11,7 @@ class SplatStore:
 
     def __init__(self, config):
         self.config = config
-        self.device = config.device
+        self.device = config.torch_device
         self.max_splats = config.max_splats
         self.n_active = 0
         

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-23 21:53:28",
+  "timestamp": "2026-02-24 11:24:05",
   "project_structure": {
     "core": {
       "exists": true,
@@ -19,12 +19,12 @@
     }
   },
   "code_metrics": {
-    "python_files": 24,
-    "total_lines": 4540,
-    "code_lines": 2944,
-    "comment_lines": 306,
-    "blank_lines": 847,
-    "docstring_lines": 443
+    "python_files": 28,
+    "total_lines": 5386,
+    "code_lines": 3525,
+    "comment_lines": 352,
+    "blank_lines": 1008,
+    "docstring_lines": 501
   },
   "functionality_tests": {
     "imports": {
@@ -55,14 +55,37 @@
       "splat_types": {
         "status": "SUCCESS",
         "error": null
+      },
+      "energy": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "engine": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "m2m": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "vulkan_compute": {
+        "status": "SUCCESS",
+        "error": null
       }
     },
     "basic": {
       "config_creation": {
         "status": "SUCCESS",
         "device": "cpu",
+        "torch_device": "cpu",
         "max_splats": 1000,
         "latent_dim": 640
+      },
+      "vulkan_config": {
+        "status": "SUCCESS",
+        "device": "vulkan",
+        "torch_device": "cpu",
+        "enable_vulkan": true
       },
       "geometry_normalization": {
         "status": "SUCCESS",
@@ -71,7 +94,7 @@
           640
         ],
         "output_norm_mean": 1.0,
-        "output_norm_std": 3.973643103449831e-08
+        "output_norm_std": 7.694926296153426e-08
       },
       "splatstore_basic": {
         "status": "SUCCESS",
@@ -112,7 +135,30 @@
     }
   },
   "performance_tests": {
-    "existing_benchmark": {
+    "data_lake_real_metrics": [
+      {
+        "hardware": "cpu (Vulkan: True)",
+        "dataset_size": 10000,
+        "ingest_throughput_qps": 1013.0762872793023,
+        "retrieval_routing": {
+          "qps": 45.86042543698027,
+          "p95_latency_ms": 26.040060001832895,
+          "p99_latency_ms": 32.8057370006718,
+          "avg_latency_ms": 21.80529270000261
+        },
+        "standard_training": {
+          "epoch_time_seconds": 0.1750345230102539,
+          "avg_loss": 2.3039591908454895,
+          "throughput_splats_per_sec": 57131.586546581886
+        },
+        "generative_training": {
+          "epoch_time_seconds": 0.2494673728942871,
+          "avg_loss": 2.3038332402706145,
+          "throughput_splats_per_sec": 40085.402287206285
+        }
+      }
+    ],
+    "benchmark_results": {
       "configuration": {
         "n_splats": 100000,
         "queries": 1000,
@@ -122,22 +168,22 @@
       "results": {
         "Linear Search (O(N))": {
           "name": "Linear Search (O(N))",
-          "total_time_s": 94.7870020866394,
-          "avg_latency_ms": 94.7870020866394,
-          "throughput_qps": 10.549969700338838
+          "total_time_s": 93.52909755706787,
+          "avg_latency_ms": 93.52909755706787,
+          "throughput_qps": 10.69185981816876
         },
         "M2M (HRM2 + KNN)": {
           "name": "M2M (HRM2 + KNN, K=64)",
           "n_splats": 100000,
-          "total_time_s": 0.9873881340026855,
-          "avg_latency_ms": 0.9873881340026855,
-          "throughput_qps": 1012.772956817081,
-          "speedup_vs_linear": 32.40873461814659
+          "total_time_s": 0.5186808109283447,
+          "avg_latency_ms": 0.5186808109283447,
+          "throughput_qps": 1927.9679890416248,
+          "speedup_vs_linear": 61.694975649331994
         }
       },
       "comparison": {
-        "speedup": 95.99771237111261,
-        "throughput_improvement": 9499.771237111261
+        "speedup": 180.32110613397808,
+        "throughput_improvement": 17932.11061339781
       }
     }
   }

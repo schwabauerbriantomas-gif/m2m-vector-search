@@ -44,7 +44,7 @@ class M2MBenchmarker:
     
     def __init__(self, config: M2MConfig):
         self.config = config
-        self.device = config.device
+        self.device = config.torch_device
         
         # Initialize M2M components (if available)
         try:
@@ -63,11 +63,11 @@ class M2MBenchmarker:
         print(f"[INFO] Generating test data: {n_splats} splats, {query_size} queries")
         
         # Generate random splats (normalized to unit sphere S^639)
-        splats = torch.randn(n_splats, self.config.latent_dim, device=self.device)
+        splats = torch.randn(n_splats, self.config.latent_dim, device=self.config.torch_device)
         splats_normalized = normalize_sphere(splats)
         
         # Generate random queries
-        queries = torch.randn(query_size, self.config.latent_dim, device=self.device)
+        queries = torch.randn(query_size, self.config.latent_dim, device=self.config.torch_device)
         queries_normalized = normalize_sphere(queries)
         
         return splats_normalized, queries_normalized

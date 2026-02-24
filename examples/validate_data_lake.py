@@ -70,7 +70,7 @@ def validate_data_lake(device='cpu', enable_vulkan=False):
     m2m = create_m2m(config)
     
     dataset_size = 10000
-    mock_embeddings = load_real_dataset(num_samples=dataset_size, dim=config.latent_dim).to(config.device)
+    mock_embeddings = load_real_dataset(num_samples=dataset_size, dim=config.latent_dim).to(config.torch_device)
     
     # Ingest Data
     start_ingest = time.time()
@@ -91,7 +91,7 @@ def validate_data_lake(device='cpu', enable_vulkan=False):
     print("\n--- Standard Training Loop (SOC Importance Sampling) ---")
     dataloader = m2m.export_to_dataloader(batch_size=256, importance_sampling=True, generate_samples=False)
     
-    model_std = SimpleMLP(input_dim=config.latent_dim).to(config.device)
+    model_std = SimpleMLP(input_dim=config.latent_dim).to(config.torch_device)
     optimizer_std = optim.Adam(model_std.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss()
     
@@ -99,8 +99,8 @@ def validate_data_lake(device='cpu', enable_vulkan=False):
     total_loss_std = 0
     batches = 0
     for batch_idx, batch_mu in enumerate(dataloader):
-        batch_mu = batch_mu.to(config.device)
-        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
+        batch_mu = batch_mu.to(config.torch_device)
+        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.torch_device)
         
         optimizer_std.zero_grad()
         outputs = model_std(batch_mu)
@@ -122,15 +122,15 @@ def validate_data_lake(device='cpu', enable_vulkan=False):
     print("\n--- Generative Training Loop (Langevin Augmentation) ---")
     gen_dataloader = m2m.export_to_dataloader(batch_size=256, generate_samples=True)
     
-    model_gen = SimpleMLP(input_dim=config.latent_dim).to(config.device)
+    model_gen = SimpleMLP(input_dim=config.latent_dim).to(config.torch_device)
     optimizer_gen = optim.Adam(model_gen.parameters(), lr=1e-3)
     
     start_time = time.time()
     total_loss_gen = 0
     batches = 0
     for batch_idx, batch_mu in enumerate(gen_dataloader):
-        batch_mu = batch_mu.to(config.device)
-        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
+        batch_mu = batch_mu.to(config.torch_device)
+        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.torch_device)
         
         optimizer_gen.zero_grad()
         outputs = model_gen(batch_mu)
@@ -196,12 +196,12 @@ if __name__ == '__main__':
     if args.cpu:
         all_metrics.append(validate_data_lake(device='cpu', enable_vulkan=False))
     if args.vulkan:
-        all_metrics.append(validate_data_lake(device='cuda' if torch.cuda.is_available() else 'cpu', enable_vulkan=True))
+        all_metrics.append(validate_data_lake(device='vulkan', enable_vulkan=True))
         
     if not args.cpu and not args.vulkan:
         # Run both by default
         all_metrics.append(validate_data_lake(device='cpu', enable_vulkan=False))
-        all_metrics.append(validate_data_lake(device='cuda' if torch.cuda.is_available() else 'cpu', enable_vulkan=True))
+        all_metrics.append(validate_data_lake(device='vulkan', enable_vulkan=True))
         
     with open("data_lake_real_metrics.json", "w") as f:
         json.dump(all_metrics, f, indent=4)

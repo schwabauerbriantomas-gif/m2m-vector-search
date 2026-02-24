@@ -12,7 +12,7 @@ def test_langchain_integration():
     print("Testing M2M LangChain Integration...")
     
     # Configuration
-    config = M2MConfig(device='cpu', latent_dim=128)
+    config = M2MConfig(device='vulkan', latent_dim=128)
     
     # Fake Embeddings
     embeddings = FakeEmbeddings(size=128)

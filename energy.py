@@ -6,13 +6,13 @@ class EnergyFunction:
         self.config = config
         
     def E_splats(self, x, splats):
-        return torch.zeros(x.shape[0], device=self.config.device)
+        return torch.zeros(x.shape[0], device=self.config.torch_device)
         
     def E_geom(self, x):
-        return torch.zeros(x.shape[0], device=self.config.device)
+        return torch.zeros(x.shape[0], device=self.config.torch_device)
         
     def E_comp(self, x):
-        return torch.zeros(x.shape[0], device=self.config.device)
+        return torch.zeros(x.shape[0], device=self.config.torch_device)
         
     def __call__(self, x):
         # M2M config usually adds these up based on weights

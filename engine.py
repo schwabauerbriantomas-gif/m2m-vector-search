@@ -9,7 +9,7 @@ class M2MEngine:
     """
     def __init__(self, config=None):
         self.config = config
-        self.device = config.device if config else 'cpu'
+        self.device = config.torch_device if config else 'cpu'
         
         self.use_vulkan = False
         self.vulkan_router = None
@@ -23,9 +23,9 @@ class M2MEngine:
                 print("[INFO] Initialized True Vulkan Compute Shader MoE Router.")
             except Exception as e:
                 print(f"[WARNING] Vulkan MoE initialization failed: {e}. Falling back to PyTorch CUDA proxy.")
-                self.compute_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                self.compute_device = torch.device(config.torch_device)
         else:
-            self.compute_device = torch.device('cpu')
+            self.compute_device = torch.device(config.torch_device if config else 'cpu')
             
     def compute_expert_distances(
         self, 

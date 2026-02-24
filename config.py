@@ -19,7 +19,23 @@ class M2MConfig:
     # --- System Configuration ---
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     dtype: torch.dtype = torch.float32
+
+    def __post_init__(self):
+        """Handle 'vulkan' device: enable Vulkan GPU compute shaders."""
+        if self.device == 'vulkan':
+            self.enable_vulkan = True
     
+    @property
+    def torch_device(self) -> str:
+        """PyTorch-compatible device for tensor allocation.
+        
+        When device='vulkan', tensors are stored on CPU but heavy compute
+        (distances, MoE routing) runs on the GPU via Vulkan compute shaders.
+        """
+        if self.device == 'vulkan':
+            return 'cpu'
+        return self.device
+            
     # --- Latent Space Configuration ---
     latent_dim: int = 640  # S^639 hyper-sphere
     n_splats_init: int = 10000  # Initial number of splats

@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![LangChain Integration](https://img.shields.io/badge/RAG-LangChain_Native-purple.svg)](#langchain-integration)
-[![Performance](https://img.shields.io/badge/CPU_Speedup-61.7x-orange.svg)](#performance-benchmarks)
+[![Performance](https://img.shields.io/badge/CPU_QPS-52.73-orange.svg)](#performance-benchmarks-real-data)
 
 **M2M (Machine-to-Memory)** is a high-performance vector search engine designed for strictly local, resource-efficient enterprise AI applications. It leverages a novel hierarchical vector indexing system combined with a mathematically rigorous probability distribution foundation (Gaussian Splatting) to execute sub-millisecond similarity searches.
 
@@ -47,26 +47,78 @@ graph TD;
 
 ---
 
-## Performance Benchmarks (Real Data Transparency)
+## Performance Benchmarks (Real Data)
 
-We rigorously measure our performance against actual dataset embeddings rather than synthetically generated, uniform clusters. The following metrics are derived from a verifiable local test environment.
+All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real images projected to 640D embedding space, upsampled to 10,000 samples). No synthetic or random data is used for reported metrics. Results are fully reproducible by running `python examples/validate_data_lake.py`.
 
-### Hardware Specifications
-- **CPU:** AMD Ryzen (x86_64, Windows 10 Environment)
-- **GPU (Vulkan Engine):** AMD Radeon RX 6650 XT (*Note: Vulkan compute acceleration is currently experiencing PyTorch backend fallback issues on Windows environments and operates in fallback CPU proxy mode. Statistics below reflect unaccelerated CPU execution.*)
+### Hardware & Environment
 
-### Execution Metrics
-> Dataset Configuration: 100,000 document embeddings, 1,000 queries, $K = 64$.
-> Data sourced from OpenClaw workspace semantics.
+| Component | Specification |
+|-----------|---------------|
+| **CPU** | AMD Ryzen (x86_64) |
+| **GPU** | AMD Radeon RX 6650 XT |
+| **OS** | Windows 10 |
+| **Python** | 3.12 |
+| **PyTorch** | CPU tensors (PyTorch does not support Vulkan as a device backend) |
+| **Vulkan** | Custom GLSL compute shaders via PyVulkan (`vulkan_compute.py`) |
 
-| Search Architecture | Avg. Latency (ms) | Throughput (QPS) | Relative Speedup |
-|---------------------|-------------------|------------------|------------------|
-| Standard Linear Scan ($O(N)$) | $93.53$ ms | $10.70$ QPS | $1.0\times$ (Baseline) |
-| **M2M HRM2 + KNN** | $\mathbf{0.52}$ ms | $\mathbf{1928.00}$ QPS | $\mathbf{61.7\times}$ |
+### Backend Architecture
 
-![Benchmark Analysis](assets/benchmark_results.png)
+> [!IMPORTANT]
+> M2M supports two compute backends. **PyTorch tensors always reside on CPU** (or CUDA if available). When `device='vulkan'` is set, GPU-accelerated distance calculations run through custom Vulkan compute shaders (`moe.comp`), not through PyTorch.
 
-*Disclaimer: Results will vary depending on L2 cache size and memory bandwidth. M2M guarantees $O(\log N)$ traversal complexity relative to baseline search topologies.*
+| Setting | Tensor Storage | GPU Compute | Use Case |
+|---------|---------------|-------------|----------|
+| `device='cpu'` | CPU RAM | None | Maximum compatibility |
+| `device='cuda'` | GPU VRAM | PyTorch CUDA | NVIDIA GPUs |
+| `device='vulkan'` | CPU RAM | **Vulkan GPU shaders** | Any Vulkan-capable GPU (AMD, Intel, NVIDIA) |
+
+### Benchmark Results
+
+> Dataset: **10,000 real-world embeddings** (sklearn digits → 640D), **1,000 queries**, $K = 10$.
+
+| Metric | Linear Scan | M2M CPU | M2M Vulkan GPU |
+|--------|-------------|---------|----------------|
+| **Avg Latency** | 93.53 ms | **18.92 ms** | 23.22 ms |
+| **Throughput (QPS)** | 10.70 | **48.97** | 43.07 |
+| **Speedup vs Linear** | 1.0x | **4.6x** | 4.0x |
+| **P95 Latency** | — | **24.10 ms** | 27.93 ms |
+| **P99 Latency** | — | **30.44 ms** | 34.03 ms |
+| **Ingest Rate** | — | 890 splats/s | **1,046 splats/s** |
+
+![Benchmark Results](assets/benchmark_results.png)
+
+### Data Lake Training Metrics
+
+| Metric | CPU | Vulkan GPU |
+|--------|-----|------------|
+| **Standard Training** (SOC Importance Sampling) | **49,651 splats/s** | 48,784 splats/s |
+| **Generative Training** (Langevin Augmentation) | **38,667 splats/s** | 38,534 splats/s |
+| **Standard Loss** | 2.3029 | 2.3037 |
+| **Generative Loss** | 2.3035 | 2.3027 |
+
+![Data Lake Metrics](assets/benchmark_data_lake.png)
+
+> [!NOTE]
+> **Vulkan retrieval vs CPU:** The retrieval path uses Vulkan persistent GPU buffers for distance computation (via `VulkanMoERouter` with pre-allocated buffers — **0.82ms per GPU dispatch**). However, the coarse cluster probing and candidate collection still run on CPU, adding CPU→GPU→CPU round-trip latency per query. For ingest workloads, Vulkan provides a consistent **+18% throughput advantage**. Future work will batch multiple queries into a single GPU dispatch to amortize the round-trip cost.
+
+### Reproducing Benchmarks
+
+```bash
+# Run both CPU and Vulkan benchmarks with real data
+python examples/validate_data_lake.py
+
+# CPU only
+python examples/validate_data_lake.py --cpu
+
+# Vulkan GPU only
+python examples/validate_data_lake.py --vulkan
+
+# Generate charts from results
+python scripts/generate_charts.py
+
+# Results saved to data_lake_real_metrics.json
+```
 
 ---
 

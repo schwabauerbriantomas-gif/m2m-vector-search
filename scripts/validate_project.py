@@ -138,6 +138,10 @@ class ProjectValidator:
             "encoding",
             "clustering",
             "splat_types",
+            "energy",
+            "engine",
+            "m2m",
+            "vulkan_compute",
         ]
 
         imports = {}
@@ -159,20 +163,45 @@ class ProjectValidator:
 
         tests = {}
 
-        # Test 1: Config creation
-        print("  [TEST] Config creation...")
+        # Test 1: Config creation (CPU)
+        print("  [TEST] Config creation (CPU)...")
         try:
             from config import M2MConfig
             config = M2MConfig(device='cpu', max_splats=1000)
             tests["config_creation"] = {
                 "status": "SUCCESS",
                 "device": config.device,
+                "torch_device": config.torch_device,
                 "max_splats": config.max_splats,
                 "latent_dim": config.latent_dim
             }
-            print(f"    [OK] Config: device={config.device}, max_splats={config.max_splats}")
+            print(f"    [OK] Config: device={config.device}, torch_device={config.torch_device}")
         except Exception as e:
             tests["config_creation"] = {"status": "FAILED", "error": str(e)}
+            print(f"    [FAIL] Failed: {e}")
+
+        # Test 1b: Vulkan config (device='vulkan' → torch_device='cpu', enable_vulkan=True)
+        print("  [TEST] Vulkan config...")
+        try:
+            from m2m import M2MConfig as M2MConfigFull
+            vk_config = M2MConfigFull(device='vulkan', max_splats=1000)
+            vulkan_ok = (
+                vk_config.device == 'vulkan' and
+                vk_config.torch_device == 'cpu' and
+                vk_config.enable_vulkan == True
+            )
+            tests["vulkan_config"] = {
+                "status": "SUCCESS" if vulkan_ok else "FAILED",
+                "device": vk_config.device,
+                "torch_device": vk_config.torch_device,
+                "enable_vulkan": vk_config.enable_vulkan
+            }
+            if vulkan_ok:
+                print(f"    [OK] Vulkan config: device={vk_config.device}, torch_device={vk_config.torch_device}, enable_vulkan={vk_config.enable_vulkan}")
+            else:
+                print(f"    [FAIL] Vulkan config mapping incorrect")
+        except Exception as e:
+            tests["vulkan_config"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
 
         # Test 2: Geometry operations
@@ -335,21 +364,29 @@ class ProjectValidator:
         """Run existing benchmark if available."""
         print("\n[VALIDATING] Performance Benchmarks...")
 
-        benchmark_file = PROJECT_ROOT / "benchmark_results.json"
+        # Check for real-data benchmark results
+        benchmark_files = [
+            (PROJECT_ROOT / "data_lake_real_metrics.json", "Real Data (sklearn digits)"),
+            (PROJECT_ROOT / "benchmark_results.json", "Synthetic benchmark"),
+            (PROJECT_ROOT / "benchmark_cpu_vs_vulkan.json", "CPU vs Vulkan"),
+        ]
 
-        if benchmark_file.exists():
-            print("  [FOUND] Existing benchmark results")
-            with open(benchmark_file, 'r') as f:
-                data = json.load(f)
+        found_any = False
+        for benchmark_file, label in benchmark_files:
+            if benchmark_file.exists():
+                found_any = True
+                print(f"  [FOUND] {label}: {benchmark_file.name}")
+                with open(benchmark_file, 'r') as f:
+                    data = json.load(f)
+                self.results["performance_tests"][benchmark_file.stem] = data
+                print(f"  [OK] Loaded: {benchmark_file.name}")
 
-            self.results["performance_tests"]["existing_benchmark"] = data
-            print(f"  [OK] Loaded: {benchmark_file.name}")
-            return data
-        else:
-            print("  [NOT FOUND] No existing benchmark results")
-            print("  Run: python benchmarks/benchmark_m2m.py")
+        if not found_any:
+            print("  [NOT FOUND] No benchmark results")
+            print("  Run: python examples/validate_data_lake.py")
             self.results["performance_tests"]["existing_benchmark"] = None
-            return None
+
+        return self.results["performance_tests"]
 
     def generate_report(self) -> str:
         """Generate validation report."""
@@ -380,7 +417,8 @@ class ProjectValidator:
 
         # Performance
         perf = self.results["performance_tests"]
-        if perf.get("existing_benchmark"):
+        has_benchmarks = any(v is not None for v in perf.values())
+        if has_benchmarks:
             print(f"\n5. Benchmarks: [OK] EXISTS")
         else:
             print(f"\n5. Benchmarks: [FAIL] NOT RUN")
