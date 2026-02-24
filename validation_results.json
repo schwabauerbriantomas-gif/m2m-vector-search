@@ -1,0 +1,144 @@
+{
+  "timestamp": "2026-02-23 21:53:28",
+  "project_structure": {
+    "core": {
+      "exists": true,
+      "path": "."
+    },
+    "benchmarks": {
+      "exists": true,
+      "path": "benchmarks"
+    },
+    "examples": {
+      "exists": true,
+      "path": "examples"
+    },
+    "tests": {
+      "exists": true,
+      "path": "tests"
+    }
+  },
+  "code_metrics": {
+    "python_files": 24,
+    "total_lines": 4540,
+    "code_lines": 2944,
+    "comment_lines": 306,
+    "blank_lines": 847,
+    "docstring_lines": 443
+  },
+  "functionality_tests": {
+    "imports": {
+      "config": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "geometry": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "splats": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "hrm2_engine": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "encoding": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "clustering": {
+        "status": "SUCCESS",
+        "error": null
+      },
+      "splat_types": {
+        "status": "SUCCESS",
+        "error": null
+      }
+    },
+    "basic": {
+      "config_creation": {
+        "status": "SUCCESS",
+        "device": "cpu",
+        "max_splats": 1000,
+        "latent_dim": 640
+      },
+      "geometry_normalization": {
+        "status": "SUCCESS",
+        "input_shape": [
+          10,
+          640
+        ],
+        "output_norm_mean": 1.0,
+        "output_norm_std": 3.973643103449831e-08
+      },
+      "splatstore_basic": {
+        "status": "SUCCESS",
+        "splats_added": 50,
+        "capacity": 100
+      },
+      "hrm2_engine": {
+        "status": "SUCCESS",
+        "n_coarse": 10,
+        "n_fine": 50,
+        "embedding_dim": 640
+      },
+      "encoding": {
+        "status": "SUCCESS",
+        "input_shape": [
+          10,
+          3
+        ],
+        "output_shape": [
+          10,
+          60
+        ]
+      },
+      "clustering": {
+        "status": "SUCCESS",
+        "n_clusters": 10,
+        "unique_labels_found": 10,
+        "data_shape": [
+          100,
+          640
+        ]
+      },
+      "search": {
+        "status": "SUCCESS",
+        "k": 5,
+        "results_shape": "available"
+      }
+    }
+  },
+  "performance_tests": {
+    "existing_benchmark": {
+      "configuration": {
+        "n_splats": 100000,
+        "queries": 1000,
+        "device": "cpu",
+        "k": 64
+      },
+      "results": {
+        "Linear Search (O(N))": {
+          "name": "Linear Search (O(N))",
+          "total_time_s": 94.7870020866394,
+          "avg_latency_ms": 94.7870020866394,
+          "throughput_qps": 10.549969700338838
+        },
+        "M2M (HRM2 + KNN)": {
+          "name": "M2M (HRM2 + KNN, K=64)",
+          "n_splats": 100000,
+          "total_time_s": 0.9873881340026855,
+          "avg_latency_ms": 0.9873881340026855,
+          "throughput_qps": 1012.772956817081,
+          "speedup_vs_linear": 32.40873461814659
+        }
+      },
+      "comparison": {
+        "speedup": 95.99771237111261,
+        "throughput_improvement": 9499.771237111261
+      }
+    }
+  }
+}

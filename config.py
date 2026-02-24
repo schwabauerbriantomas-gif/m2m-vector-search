@@ -48,6 +48,9 @@ class M2MConfig:
     soc_update_interval: int = 100  # Update SOC every N samples
     phi_convergence_threshold: float = 0.95  # Order parameter convergence
     
+    # --- Hardware Acceleration ---
+    enable_vulkan: bool = False      # Enable Vulkan GPU acceleration
+    
     # --- Memory Hierarchy ---
     enable_3_tier_memory: bool = True # Enable VRAM/RAM/SSD hierarchy
     memory_tier: str = "3-tier"  # 3-tier memory (VRAM/RAM/SSD)
