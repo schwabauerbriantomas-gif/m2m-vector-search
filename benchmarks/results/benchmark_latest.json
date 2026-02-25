@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-25 06:36:35",
+  "timestamp": "2026-02-25 07:32:52",
   "system_specs": {
     "platform": "Windows-10-10.0.19045-SP0",
     "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
@@ -16,80 +16,33 @@
     "source": "Local DBpedia OpenAI (3072D)",
     "url": "file:///C:/dbpedia_dataset",
     "latent_dim": 640,
-    "n_samples": 10000,
+    "n_samples": 2000,
     "normalization": "L2 unit sphere",
     "cached": false
   },
   "config": {
-    "n_splats": 10000,
-    "n_queries": 1000,
+    "n_splats": 2000,
+    "n_queries": 100,
     "k": 10,
     "latent_dim": 640,
     "seed": 42
   },
   "linear_baseline": {
-    "avg_latency_ms": 9.8481,
-    "p50_latency_ms": 9.6348,
-    "p95_latency_ms": 11.0231,
-    "p99_latency_ms": 13.3711,
-    "throughput_qps": 101.54
+    "avg_latency_ms": 2.2614,
+    "p50_latency_ms": 2.1108,
+    "p95_latency_ms": 3.0996,
+    "p99_latency_ms": 3.6682,
+    "throughput_qps": 442.19
   },
   "backends": {
     "cpu": {
-      "device": "cpu",
-      "vulkan_enabled": false,
-      "init_time_ms": 4.83,
-      "n_splats": 10000,
-      "ingest_throughput_qps": 709.67,
-      "standard_training": {
-        "throughput_splats_per_sec": 300658.74,
-        "epoch_time_s": 0.0333,
-        "avg_loss": 2.302828
-      },
-      "generative_training": {
-        "throughput_splats_per_sec": 114488.13,
-        "epoch_time_s": 0.0873,
-        "avg_loss": 2.303335
-      },
-      "retrieval": {
-        "n_queries": 1000,
-        "k": 10,
-        "avg_latency_ms": 22.8315,
-        "p50_latency_ms": 22.7863,
-        "p95_latency_ms": 29.2596,
-        "p99_latency_ms": 34.0939,
-        "min_latency_ms": 15.0448,
-        "max_latency_ms": 38.5709,
-        "throughput_qps": 43.8
-      }
+      "error": "cannot access local variable 't0' where it is not associated with a value"
     },
     "vulkan": {
-      "device": "vulkan",
-      "vulkan_enabled": true,
-      "init_time_ms": 161.52,
-      "n_splats": 10000,
-      "ingest_throughput_qps": 832.3,
-      "standard_training": {
-        "throughput_splats_per_sec": 311956.03,
-        "epoch_time_s": 0.0321,
-        "avg_loss": 2.302753
-      },
-      "generative_training": {
-        "throughput_splats_per_sec": 111331.05,
-        "epoch_time_s": 0.0898,
-        "avg_loss": 2.303394
-      },
-      "retrieval": {
-        "n_queries": 1000,
-        "k": 10,
-        "avg_latency_ms": 33.0998,
-        "p50_latency_ms": 32.7556,
-        "p95_latency_ms": 41.6639,
-        "p99_latency_ms": 51.1691,
-        "min_latency_ms": 22.8429,
-        "max_latency_ms": 152.5962,
-        "throughput_qps": 30.21
-      }
+      "error": "cannot access local variable 't0' where it is not associated with a value"
+    },
+    "transformed": {
+      "error": "cannot access local variable 't0' where it is not associated with a value"
     }
   }
 }

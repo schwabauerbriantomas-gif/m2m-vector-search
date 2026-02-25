@@ -210,3 +210,33 @@ class SplatStore:
             'max_splats': self.max_splats,
             'hrm2_stats': self.engine.get_stats()
         }
+
+    def _build_hrm2_from_splats(self, splats):
+        """Construye índice HRM2 desde splats pre-computados."""
+        from splat_types import GaussianSplat as HrmSplat
+        
+        n_new = len(splats)
+        if n_new > self.max_splats:
+            raise ValueError(f"Too many splats to load ({n_new} > {self.max_splats})")
+            
+        new_splats = []
+        for i, s in enumerate(splats):
+            self.mu[i] = torch.tensor(s.mu, device=self.device)
+            self.alpha[i] = s.alpha
+            self.kappa[i] = s.kappa
+            self.frequency[i] = 1.0
+            
+            splat_obj = HrmSplat(id=i)
+            new_splats.append(splat_obj)
+            
+        self.n_active = n_new
+        self._next_id = n_new
+        
+        # Clear and rebuild engine
+        self.engine.clear()
+        self.engine.add_splats(new_splats)
+        
+        # Bypass encoder
+        embeddings = self.mu[:self.n_active].detach().cpu().numpy()
+        self.engine.index(precomputed_embeddings=embeddings)
+        self._gpu_index_dirty = True

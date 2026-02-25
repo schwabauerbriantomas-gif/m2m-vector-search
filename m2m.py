@@ -368,6 +368,23 @@ class M2MEngine(nn.Module):
         """Forward pass (energy computation)."""
         return self.m2m(x)
 
+    def load_optimized(self, path: str):
+        """Carga dataset transformado con Gaussian Splats pre-computados."""
+        from loaders.optimized_loader import load_m2m_dataset
+        
+        splats = load_m2m_dataset(path)
+        
+        # Usar splats directamente sin re-computar
+        self._build_hrm2_from_splats(splats)
+        
+        return self
+
+    def _build_hrm2_from_splats(self, splats):
+        """Construye índice HRM2 desde splats pre-computados."""
+        # Los splats ya tienen estructura jerárquica
+        # Solo necesitamos construir el árbol de búsqueda en el SplatStore
+        self.m2m.splats._build_hrm2_from_splats(splats)
+
 
 # Factory function
 def create_m2m(config: M2MConfig) -> M2MEngine:
@@ -392,9 +409,38 @@ def main():
     parser.add_argument('--knn-k', type=int, default=64, help='K for K-nearest neighbors')
     parser.add_argument('--enable-vulkan', action='store_true', help='Enable Vulkan acceleration')
     parser.add_argument('--disable-vulkan', action='store_true', help='Disable Vulkan acceleration')
+    parser.add_argument('--transform-dataset', nargs=2, metavar=('INPUT.npy', 'OUTPUT.bin'), help='Transform a flat embeddings dataset to M2M hierarchial splats offline')
+    parser.add_argument('--load-optimized', type=str, metavar='INPUT.bin', help='Start M2M from a pre-transformed dataset directly')
     
     args = parser.parse_args()
     
+    # Check offline transform path first
+    if args.transform_dataset:
+        input_path, output_path = args.transform_dataset
+        print("=" * 60)
+        print(f"M2M Dataset Transformer")
+        print("=" * 60)
+        print(f"Input: {input_path}")
+        print(f"Output: {output_path}")
+        
+        import numpy as np
+        from dataset_transformer import M2MDatasetTransformer
+        
+        print("\n[DATA] Loading input vectors...")
+        try:
+            vectors = np.load(input_path)
+            if not isinstance(vectors, np.ndarray):
+                print(f"[ERROR] Input must be a valid numpy array.")
+                return
+        except Exception as e:
+            print(f"[ERROR] Failed to load {input_path}: {e}")
+            return
+            
+        print(f"[TRANSFORM] Structure: {vectors.shape}")
+        transformer = M2MDatasetTransformer(vectors)
+        transformer.save_for_m2m(output_path)
+        return
+
     # Determine device
     device = args.device
     if device is None:
@@ -421,10 +467,20 @@ def main():
     print()
     
     m2m = create_m2m(config)
-    
-    # Example: Add random splats
-    print("[EXAMPLE] Adding 100 random splats...")
-    random_vectors = torch.randn(100, config.latent_dim).to(config.torch_device)
+
+    # Optional optimized load
+    if args.load_optimized:
+        print(f"[LOAD] Loading optimized dataset from {args.load_optimized}...")
+        try:
+            m2m.load_optimized(args.load_optimized)
+            print(f"[LOAD] Successfully booted from pre-computed hierarchy.")
+        except Exception as e:
+            print(f"[ERROR] Failed to load optimized dataset: {e}")
+            return
+    else:
+        # Example: Add random splats
+        print("[EXAMPLE] Adding 100 random splats...")
+        random_vectors = torch.randn(100, config.latent_dim).to(config.torch_device)
     n_added = m2m.add_splats(random_vectors)
     print(f"[EXAMPLE] Added {n_added} splats")
     print()

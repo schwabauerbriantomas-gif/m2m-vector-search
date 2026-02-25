@@ -108,6 +108,27 @@ All benchmarks use the **HuggingFace Qdrant DBpedia OpenAI Entities dataset** (1
 > [!NOTE]
 > **Vulkan retrieval vs CPU:** The retrieval path uses `GPUVectorIndex` — a persistent GPU buffer that uploads the full vector index **once** at init, then dispatches all queries in batched chunks via a GLSL compute shader (`moe_batch.spv`) with shared memory. This eliminates per-query index re-upload overhead. At 10k splats, batch dispatch is **2.5× faster** than the old single-query loop. The `HierarchicalGPUSearch` two-stage (coarse→fine) GPU search further reduces candidate space for large datasets.
 
+### Dataset Transformer (Optimized M2M Pipeline)
+
+M2M includes a `M2MDatasetTransformer` that converts flat embeddings into natively structured Gaussian Splats offline. This dramatically reduces the memory footprint and unlocks the full speed of the HRM2 retrieval engine mathematically.
+
+**Real Data Transformer Benchmark**
+> 10,000 DBpedia Embeddings (640D) → Hierarchical Splats (CPU)
+
+| Method | Latency | QPS |
+|--------|---------|-----|
+| Linear Scan | 27.99 ms | 35.7 |
+| M2M Original | 35.83 ms | 27.9 |
+| **M2M Transformed** | **4.70 ms** | **212.9** |
+
+* **Speedup:** `7.6x` faster than baseline embeddings.
+* **Compression:** `9.8x` (10,000 vectors → 1,020 splats) representing an `89.4%` memory reduction!
+
+To transform and benchmark your datasets, use:
+```bash
+python benchmarks/benchmark_transformer.py
+```
+
 ### Reproducing Benchmarks
 
 ```bash

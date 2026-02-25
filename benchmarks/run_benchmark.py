@@ -221,51 +221,78 @@ def run_backend(device_name: str, data: torch.Tensor, queries: torch.Tensor,
     )
 
     # Init — use create_m2m (M2MSystem) which exposes add_splats, export_to_dataloader, search
-    t0 = time.perf_counter()
-    engine = create_m2m(config)
-    init_s = time.perf_counter() - t0
-    print(f"  Init: {init_s*1000:.1f} ms")
+    # Transformed data bypasses standard ingestion
+    if device_name == "transformed":
+        print(f"  Transforming dataset to M2M Format (Hierarchy Levels: 4)...")
+        from dataset_transformer import M2MDatasetTransformer
+        import os
+        
+        # Transform offline
+        data_np = data.detach().cpu().numpy()
+        transformer = M2MDatasetTransformer(data_np, n_clusters_base=200, hierarchy_levels=4)
+        transform_start = time.perf_counter()
+        result = transformer.transform()
+        transformer.save_for_m2m('benchmark_temp_transformed.bin')
+        add_s = time.perf_counter() - transform_start
+        
+        # Load directly
+        init_s = time.perf_counter() - t0
+        engine = create_m2m(config)
+        
+        # Override the loading mechanism
+        engine.load_optimized('benchmark_temp_transformed.bin')
+        print(f"  Transformed Loading: {len(result['splats']):,} splats  |  {add_s:.2f} s")
+        ingest_qps = 0
+        os.remove('benchmark_temp_transformed.bin')
+        
+    else:
+        # Standard Init
+        init_s = time.perf_counter() - t0
+        engine = create_m2m(config)
+        print(f"  Init: {init_s*1000:.1f} ms")
 
-    # Ingest
-    t0 = time.perf_counter()
-    n_added = engine.add_splats(data)
-    add_s = time.perf_counter() - t0
-    ingest_qps = n_added / add_s if add_s > 0 else 0
-    print(f"  Ingest: {n_added:,} splats  |  {ingest_qps:,.0f} splats/s")
+        # Ingest
+        t0 = time.perf_counter()
+        n_added = engine.add_splats(data)
+        add_s = time.perf_counter() - t0
+        ingest_qps = n_added / add_s if add_s > 0 else 0
+        print(f"  Ingest: {n_added:,} splats  |  {ingest_qps:,.0f} splats/s")
 
     # Standard training throughput (export_to_dataloader + 1 epoch)
-    std_dl = engine.export_to_dataloader(batch_size=256,
-                                          importance_sampling=True,
-                                          generate_samples=False)
-    t0 = time.perf_counter()
-    loss_acc, n_batches = 0.0, 0
-    import torch.nn as nn
-    crit = nn.CrossEntropyLoss()
-    dummy_head = torch.nn.Linear(latent_dim, 10)
-    for batch_mu in std_dl:
-        out = dummy_head(batch_mu)
-        tgt = torch.randint(0, 10, (batch_mu.shape[0],))
-        loss_acc += crit(out, tgt).item(); n_batches += 1
-    std_s = time.perf_counter() - t0
-    std_tp = n_splats / std_s if std_s > 0 else 0
-    std_loss = loss_acc / n_batches if n_batches > 0 else 0.0
-    print(f"  Std training: {std_tp:,.0f} splats/s  loss={std_loss:.4f}")
+    try:
+        std_dl = engine.export_to_dataloader(batch_size=256,
+                                              importance_sampling=True,
+                                              generate_samples=False)
+        t0 = time.perf_counter()
+        loss_acc, n_batches = 0.0, 0
+        import torch.nn as nn
+        crit = nn.CrossEntropyLoss()
+        dummy_head = torch.nn.Linear(latent_dim, 10)
+        for batch_mu in std_dl:
+            out = dummy_head(batch_mu)
+            tgt = torch.randint(0, 10, (batch_mu.shape[0],))
+            loss_acc += crit(out, tgt).item(); n_batches += 1
+        std_s = time.perf_counter() - t0
+        std_tp = n_splats / std_s if std_s > 0 else 0
+        std_loss = loss_acc / n_batches if n_batches > 0 else 0.0
+        print(f"  Std training: {std_tp:,.0f} splats/s  loss={std_loss:.4f}")
 
-    # Generative training throughput
-    gen_dl = engine.export_to_dataloader(batch_size=256, generate_samples=True)
-    t0 = time.perf_counter()
-    gen_loss_acc, gen_batches = 0.0, 0
-    for batch_mu in gen_dl:
-        out = dummy_head(batch_mu)
-        tgt = torch.randint(0, 10, (batch_mu.shape[0],))
-        gen_loss_acc += crit(out, tgt).item(); gen_batches += 1
-    gen_s = time.perf_counter() - t0
-    gen_tp = n_splats / gen_s if gen_s > 0 else 0
-    gen_loss = gen_loss_acc / gen_batches if gen_batches > 0 else 0.0
-    print(f"  Gen training:  {gen_tp:,.0f} splats/s  loss={gen_loss:.4f}")
-
-    # Retrieval benchmark
-    # Warmup
+        # Generative training throughput
+        gen_dl = engine.export_to_dataloader(batch_size=256, generate_samples=True)
+        t0 = time.perf_counter()
+        gen_loss_acc, gen_batches = 0.0, 0
+        for batch_mu in gen_dl:
+            out = dummy_head(batch_mu)
+            tgt = torch.randint(0, 10, (batch_mu.shape[0],))
+            gen_loss_acc += crit(out, tgt).item(); gen_batches += 1
+        gen_s = time.perf_counter() - t0
+        gen_tp = n_splats / gen_s if gen_s > 0 else 0
+        gen_loss = gen_loss_acc / gen_batches if gen_batches > 0 else 0.0
+        print(f"  Gen training:  {gen_tp:,.0f} splats/s  loss={gen_loss:.4f}")
+    except Exception as e:
+        print(f"  [WARN] Training skipping for device {device_name}. Reason: {str(e)}")
+        std_tp, std_s, std_loss = (0, 0, 0)
+        gen_tp, gen_s, gen_loss = (0, 0, 0)
     for i in range(min(n_warmup, len(queries))):
         engine.search(queries[i].unsqueeze(0), k=k)
 
@@ -320,7 +347,7 @@ def main():
         description="M2M Real-Data Benchmark — OpenAI Embeddings via Qdrant DBpedia (HuggingFace)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--device",   default="both", choices=["cpu", "vulkan", "both"])
+    parser.add_argument("--device",   default="both", choices=["cpu", "vulkan", "transformed", "both", "all"])
     parser.add_argument("--dataset",  default="hf", choices=["hf", "sklearn"],
                         help="Dataset source (default: hf = HuggingFace Qdrant/DBpedia embeddings)")
     parser.add_argument("--n-splats", type=int, default=10_000)
@@ -363,7 +390,14 @@ def main():
     print(f"  Avg: {baseline['avg_latency_ms']:.2f} ms  |  QPS: {baseline['throughput_qps']:.2f}")
 
     # Backend benchmarks
-    devices = {"both": ["cpu", "vulkan"], "cpu": ["cpu"], "vulkan": ["vulkan"]}[args.device]
+    device_map = {
+        "all": ["cpu", "vulkan", "transformed"],
+        "both": ["cpu", "vulkan", "transformed"],
+        "cpu": ["cpu"],
+        "vulkan": ["vulkan"],
+        "transformed": ["transformed"]
+    }
+    devices = device_map[args.device]
     backend_results = {}
     for dev in devices:
         try:

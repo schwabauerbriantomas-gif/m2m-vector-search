@@ -130,10 +130,11 @@ def _r(d: dict, *keys, default="—"):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def chart_main_benchmark(data: dict):
-    """3-way comparison: Linear vs M2M CPU vs M2M Vulkan GPU."""
+    """3-way or 4-way comparison: Linear vs M2M CPU vs M2M Vulkan vs Transformed."""
     bl    = data.get("linear_baseline", {})
     cpu_r = data.get("backends", {}).get("cpu", {}).get("retrieval", {})
     vk_r  = data.get("backends", {}).get("vulkan", {}).get("retrieval", {})
+    tx_r  = data.get("backends", {}).get("transformed", {}).get("retrieval", {})
     cfg   = data.get("config", {})
     dmeta = data.get("data_meta", {})
 
@@ -146,13 +147,16 @@ def chart_main_benchmark(data: dict):
     if vk_r and "avg_latency_ms" in vk_r:
         series.append(("M2M\n(Vulkan GPU)", C['vulkan'],
                        vk_r["avg_latency_ms"], vk_r["throughput_qps"]))
+    if tx_r and "avg_latency_ms" in tx_r:
+        series.append(("M2M\n(Transformed)", C['accent'],
+                       tx_r["avg_latency_ms"], tx_r["throughput_qps"]))
 
     labels = [s[0] for s in series]
     colors = [s[1] for s in series]
     lats   = [s[2] for s in series]
     qpss   = [s[3] for s in series]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
     b1 = ax1.bar(labels, lats, color=colors, alpha=0.9, edgecolor=C['edge'], width=0.55)
     ax1.set_ylabel('Avg Latency (ms)', fontsize=12, fontweight='bold')
@@ -316,11 +320,13 @@ def chart_summary_table(data: dict):
     bl    = data.get("linear_baseline", {})
     cpu_b = data.get("backends", {}).get("cpu", {})
     vk_b  = data.get("backends", {}).get("vulkan", {})
+    tx_b  = data.get("backends", {}).get("transformed", {})
     cfg   = data.get("config", {})
     dmeta = data.get("data_meta", {})
 
     cpu_r = cpu_b.get("retrieval", {}) if "error" not in cpu_b else {}
     vk_r  = vk_b.get("retrieval", {})  if "error" not in vk_b  else {}
+    tx_r  = tx_b.get("retrieval", {})  if "error" not in tx_b  else {}
 
     def fmt_ms(d, key): return f'{d[key]:.2f} ms' if d.get(key) is not None else '—'
     def fmt_qps(d, key): return f'{d[key]:.2f}' if d.get(key) is not None else '—'
@@ -328,33 +334,37 @@ def chart_summary_table(data: dict):
     bl_lat = bl.get("avg_latency_ms", 0)
     cpu_sp = f'{bl_lat/cpu_r["avg_latency_ms"]:.1f}×' if cpu_r.get("avg_latency_ms") else '—'
     vk_sp  = f'{bl_lat/vk_r["avg_latency_ms"]:.1f}×'  if vk_r.get("avg_latency_ms")  else '—'
+    tx_sp  = f'{bl_lat/tx_r["avg_latency_ms"]:.1f}×'  if tx_r.get("avg_latency_ms")  else '—'
 
-    headers = ['Metric', 'Linear Scan', 'M2M CPU', 'M2M Vulkan GPU']
+    headers = ['Metric', 'Linear Scan', 'M2M CPU', 'M2M Vulkan GPU', 'M2M Transformed']
     rows_ = [
-        ['Avg Latency',       fmt_ms(bl,'avg_latency_ms'),  fmt_ms(cpu_r,'avg_latency_ms'),  fmt_ms(vk_r,'avg_latency_ms')],
-        ['P95 Latency',       '—',                          fmt_ms(cpu_r,'p95_latency_ms'),  fmt_ms(vk_r,'p95_latency_ms')],
-        ['P99 Latency',       '—',                          fmt_ms(cpu_r,'p99_latency_ms'),  fmt_ms(vk_r,'p99_latency_ms')],
-        ['Throughput (QPS)',  fmt_qps(bl,'throughput_qps'), fmt_qps(cpu_r,'throughput_qps'), fmt_qps(vk_r,'throughput_qps')],
-        ['Speedup vs Linear', '1.0×',                       cpu_sp,                          vk_sp],
+        ['Avg Latency',       fmt_ms(bl,'avg_latency_ms'),  fmt_ms(cpu_r,'avg_latency_ms'),  fmt_ms(vk_r,'avg_latency_ms'), fmt_ms(tx_r,'avg_latency_ms')],
+        ['P95 Latency',       '—',                          fmt_ms(cpu_r,'p95_latency_ms'),  fmt_ms(vk_r,'p95_latency_ms'), fmt_ms(tx_r,'p95_latency_ms')],
+        ['P99 Latency',       '—',                          fmt_ms(cpu_r,'p99_latency_ms'),  fmt_ms(vk_r,'p99_latency_ms'), fmt_ms(tx_r,'p99_latency_ms')],
+        ['Throughput (QPS)',  fmt_qps(bl,'throughput_qps'), fmt_qps(cpu_r,'throughput_qps'), fmt_qps(vk_r,'throughput_qps'), fmt_qps(tx_r,'throughput_qps')],
+        ['Speedup vs Linear', '1.0×',                       cpu_sp,                          vk_sp, tx_sp],
         ['Ingest Rate',       '—',
          f'{cpu_b.get("ingest_throughput_qps",0):.0f} sp/s' if "error" not in cpu_b else '—',
-         f'{vk_b.get("ingest_throughput_qps",0):.0f} sp/s'  if "error" not in vk_b  else '—'],
+         f'{vk_b.get("ingest_throughput_qps",0):.0f} sp/s'  if "error" not in vk_b  else '—',
+         '—'], # Transformer is offline
         ['Std Training',      '—',
          f'{cpu_b.get("standard_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s' if "error" not in cpu_b else '—',
-         f'{vk_b.get("standard_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s'  if "error" not in vk_b  else '—'],
+         f'{vk_b.get("standard_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s'  if "error" not in vk_b  else '—',
+         f'{tx_b.get("standard_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s'  if "error" not in tx_b  else '—'],
         ['Gen Training',      '—',
          f'{cpu_b.get("generative_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s' if "error" not in cpu_b else '—',
-         f'{vk_b.get("generative_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s'  if "error" not in vk_b  else '—'],
+         f'{vk_b.get("generative_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s'  if "error" not in vk_b  else '—',
+         f'{tx_b.get("generative_training",{}).get("throughput_splats_per_sec",0):,.0f} sp/s'  if "error" not in tx_b  else '—'],
     ]
 
-    fig, ax = plt.subplots(figsize=(13, 6))
+    fig, ax = plt.subplots(figsize=(15, 6))
     ax.axis('off')
     table = ax.table(cellText=rows_, colLabels=headers, cellLoc='center', loc='center')
     table.auto_set_font_size(False)
     table.set_fontsize(11)
     table.scale(1, 1.8)
 
-    col_colors = [None, C['linear'], C['cpu'], C['vulkan']]
+    col_colors = [None, C['linear'], C['cpu'], C['vulkan'], C['accent']]
     for (row, col), cell in table.get_celld().items():
         cell.set_edgecolor('#30363d')
         if row == 0:
