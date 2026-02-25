@@ -49,7 +49,7 @@ graph TD;
 
 ## Performance Benchmarks (Real Data)
 
-All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real images projected to 640D embedding space, upsampled to 10,000 samples). No synthetic or random data is used for reported metrics.
+All benchmarks use the **HuggingFace Qdrant DBpedia OpenAI Entities dataset** (100k real Wikipedia embeddings at 3072D, truncated to 640D). No synthetic or random data is used for reported metrics.
 
 > [!TIP]
 > Results are fully reproducible. Run `python benchmarks/run_benchmark.py --device both` to generate fresh numbers on your hardware. All charts are produced from that live output — no hardcoded values anywhere in the pipeline.
@@ -78,27 +78,30 @@ All benchmarks use the **scikit-learn Handwritten Digits dataset** (1,797 real i
 
 ### Benchmark Results
 
-> Dataset: **10,000 real-world embeddings** (sklearn digits → 640D), **1,000 queries**, $K = 10$.
+> Dataset: **10,000 real-world embeddings** (HuggingFace DBpedia OpenAI 3072D → 640D), **1,000 queries**, $K = 10$.
+> Hardware: AMD Ryzen 4C/8T · AMD Radeon RX 6650 XT · Vulkan 1.4.315 · Windows 10
 
 | Metric | Linear Scan | M2M CPU | M2M Vulkan GPU |
 |--------|-------------|---------|----------------|
-| **Avg Latency** | 93.53 ms | **18.92 ms** | 23.22 ms |
-| **Throughput (QPS)** | 10.70 | **48.97** | 43.07 |
-| **Speedup vs Linear** | 1.0x | **4.6x** | 4.0x |
-| **P95 Latency** | — | **24.10 ms** | 27.93 ms |
-| **P99 Latency** | — | **30.44 ms** | 34.03 ms |
-| **Ingest Rate** | — | 890 splats/s | **1,046 splats/s** |
+| **Avg Latency** | 9.85 ms | **22.83 ms** | 33.10 ms |
+| **Throughput (QPS)** | 101.54 | **43.80** | 30.21 |
+| **P95 Latency** | — | **29.26 ms** | 41.66 ms |
+| **Ingest Rate** | — | 710 splats/s | **832 splats/s** |
 
 ![Benchmark Results](assets/benchmark_results.png)
+
+![Latency Percentiles](assets/benchmark_latency.png)
+
+![Benchmark Summary](assets/benchmark_summary.png)
 
 ### Data Lake Training Metrics
 
 | Metric | CPU | Vulkan GPU |
 |--------|-----|------------|
-| **Standard Training** (SOC Importance Sampling) | **49,651 splats/s** | 48,784 splats/s |
-| **Generative Training** (Langevin Augmentation) | **38,667 splats/s** | 38,534 splats/s |
-| **Standard Loss** | 2.3029 | 2.3037 |
-| **Generative Loss** | 2.3035 | 2.3027 |
+| **Standard Training** (SOC Importance Sampling) | **300,659 splats/s** | 311,956 splats/s |
+| **Generative Training** (Langevin Augmentation) | **114,488 splats/s** | 111,331 splats/s |
+| **Standard Loss** | 2.3028 | 2.3028 |
+| **Generative Loss** | 2.3033 | 2.3034 |
 
 ![Data Lake Metrics](assets/benchmark_data_lake.png)
 

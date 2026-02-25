@@ -102,12 +102,12 @@ def load_benchmark_json() -> dict:
         return json.load(f)
 
 
-def run_benchmark_subprocess(device: str = "both"):
+def run_benchmark_subprocess(device: str = "both", dataset: str = "hf"):
     """Invoke run_benchmark.py as a subprocess."""
     script = PROJECT_ROOT / "benchmarks" / "run_benchmark.py"
-    print(f"\n[RUN] python {script.name} --device {device}\n")
+    print(f"\n[RUN] python {script.name} --device {device} --dataset {dataset}\n")
     result = subprocess.run(
-        [sys.executable, str(script), "--device", device],
+        [sys.executable, str(script), "--device", device, "--dataset", dataset],
         cwd=str(PROJECT_ROOT),
     )
     if result.returncode != 0:
@@ -457,6 +457,8 @@ def main():
                         help="Run benchmarks/run_benchmark.py before generating charts")
     parser.add_argument("--device", default="both", choices=["cpu", "vulkan", "both"],
                         help="Device to pass to run_benchmark.py (only with --run-benchmark)")
+    parser.add_argument("--dataset", default="hf", choices=["hf", "sklearn"],
+                        help="Dataset source to pass to run_benchmark.py (only with --run-benchmark)")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -465,7 +467,7 @@ def main():
 
     # Step 1 — optionally run benchmark
     if args.run_benchmark:
-        run_benchmark_subprocess(args.device)
+        run_benchmark_subprocess(args.device, args.dataset)
 
     # Step 2 — load fresh results (fail loudly if missing)
     print(f"\n[LOAD] {BENCHMARK_JSON.name}...")

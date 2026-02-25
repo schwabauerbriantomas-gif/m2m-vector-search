@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-24 17:49:00",
+  "timestamp": "2026-02-25 06:36:35",
   "system_specs": {
     "platform": "Windows-10-10.0.19045-SP0",
     "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
@@ -13,83 +13,82 @@
     "vulkan_api": "1.4.315"
   },
   "data_meta": {
-    "source": "sklearn.datasets.load_digits",
-    "original_dim": 64,
+    "source": "Local DBpedia OpenAI (3072D)",
+    "url": "file:///C:/dbpedia_dataset",
     "latent_dim": 640,
-    "n_samples": 5000,
-    "n_classes": 10,
-    "projection": "random matrix 64\u2192640, seeded=42",
-    "normalization": "L2 unit sphere"
+    "n_samples": 10000,
+    "normalization": "L2 unit sphere",
+    "cached": false
   },
   "config": {
-    "n_splats": 5000,
-    "n_queries": 200,
+    "n_splats": 10000,
+    "n_queries": 1000,
     "k": 10,
     "latent_dim": 640,
     "seed": 42
   },
   "linear_baseline": {
-    "avg_latency_ms": 5.2549,
-    "p50_latency_ms": 5.0051,
-    "p95_latency_ms": 5.8007,
-    "p99_latency_ms": 6.9833,
-    "throughput_qps": 190.3
+    "avg_latency_ms": 9.8481,
+    "p50_latency_ms": 9.6348,
+    "p95_latency_ms": 11.0231,
+    "p99_latency_ms": 13.3711,
+    "throughput_qps": 101.54
   },
   "backends": {
     "cpu": {
       "device": "cpu",
       "vulkan_enabled": false,
-      "init_time_ms": 3.53,
-      "n_splats": 5000,
-      "ingest_throughput_qps": 939.8,
+      "init_time_ms": 4.83,
+      "n_splats": 10000,
+      "ingest_throughput_qps": 709.67,
       "standard_training": {
-        "throughput_splats_per_sec": 307656.34,
-        "epoch_time_s": 0.0163,
-        "avg_loss": 2.302403
+        "throughput_splats_per_sec": 300658.74,
+        "epoch_time_s": 0.0333,
+        "avg_loss": 2.302828
       },
       "generative_training": {
-        "throughput_splats_per_sec": 107657.92,
-        "epoch_time_s": 0.0464,
-        "avg_loss": 2.303015
+        "throughput_splats_per_sec": 114488.13,
+        "epoch_time_s": 0.0873,
+        "avg_loss": 2.303335
       },
       "retrieval": {
-        "n_queries": 200,
+        "n_queries": 1000,
         "k": 10,
-        "avg_latency_ms": 13.9703,
-        "p50_latency_ms": 13.8717,
-        "p95_latency_ms": 17.4677,
-        "p99_latency_ms": 19.1101,
-        "min_latency_ms": 8.5936,
-        "max_latency_ms": 37.6725,
-        "throughput_qps": 71.58
+        "avg_latency_ms": 22.8315,
+        "p50_latency_ms": 22.7863,
+        "p95_latency_ms": 29.2596,
+        "p99_latency_ms": 34.0939,
+        "min_latency_ms": 15.0448,
+        "max_latency_ms": 38.5709,
+        "throughput_qps": 43.8
       }
     },
     "vulkan": {
       "device": "vulkan",
       "vulkan_enabled": true,
-      "init_time_ms": 144.6,
-      "n_splats": 5000,
-      "ingest_throughput_qps": 1314.18,
+      "init_time_ms": 161.52,
+      "n_splats": 10000,
+      "ingest_throughput_qps": 832.3,
       "standard_training": {
-        "throughput_splats_per_sec": 315758.23,
-        "epoch_time_s": 0.0158,
-        "avg_loss": 2.303227
+        "throughput_splats_per_sec": 311956.03,
+        "epoch_time_s": 0.0321,
+        "avg_loss": 2.302753
       },
       "generative_training": {
-        "throughput_splats_per_sec": 104102.47,
-        "epoch_time_s": 0.048,
-        "avg_loss": 2.302598
+        "throughput_splats_per_sec": 111331.05,
+        "epoch_time_s": 0.0898,
+        "avg_loss": 2.303394
       },
       "retrieval": {
-        "n_queries": 200,
+        "n_queries": 1000,
         "k": 10,
-        "avg_latency_ms": 19.923,
-        "p50_latency_ms": 19.6356,
-        "p95_latency_ms": 25.9221,
-        "p99_latency_ms": 28.7583,
-        "min_latency_ms": 11.8257,
-        "max_latency_ms": 47.1179,
-        "throughput_qps": 50.19
+        "avg_latency_ms": 33.0998,
+        "p50_latency_ms": 32.7556,
+        "p95_latency_ms": 41.6639,
+        "p99_latency_ms": 51.1691,
+        "min_latency_ms": 22.8429,
+        "max_latency_ms": 152.5962,
+        "throughput_qps": 30.21
       }
     }
   }

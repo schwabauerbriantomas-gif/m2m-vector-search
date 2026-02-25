@@ -48,48 +48,92 @@ RESULTS_DIR.mkdir(exist_ok=True)
 # Data loading
 # ═════════════════════════════════════════════════════════════════════════════
 
-def load_real_data(n_target: int = 10_000, latent_dim: int = 640, seed: int = 42):
-    """
-    Load sklearn Handwritten Digits dataset and project to M2M latent space.
+HF_CACHE = RESULTS_DIR / "hf_embeddings_cache.npy"
 
-    The projection from 64D → latent_dim is done with a fixed random matrix
-    (seeded), so results are reproducible across runs.
-
-    Returns
-    -------
-    data    : torch.Tensor  [N, latent_dim]  L2-normalised
-    labels  : np.ndarray   [N]  class labels (0–9)
-    meta    : dict          dataset metadata
+def load_hf_embeddings(n_target: int = 10_000, latent_dim: int = 640, seed: int = 42):
     """
+    Load real semantic embeddings from local Qdrant/dbpedia-entities-openai3 parquet files at C:\\dbpedia_dataset\\data.
+    We truncate the 3072D OpenAI embeddings down to `latent_dim` (default 640).
+
+    Vectors are L2-normalised before returning.
+    Results are cached to benchmarks/results/hf_embeddings_cache_{n_target}_{latent_dim}.npy.
+    """
+    cache = RESULTS_DIR / f"hf_embeddings_cache_{n_target}_{latent_dim}.npy"
+    ds_name = "Local DBpedia OpenAI (3072D)"
+
+    if cache.exists():
+        print(f"  [CACHE] Loading from {cache.name}...")
+        X = np.load(str(cache))
+        data = normalize_sphere(torch.tensor(X))
+        return data, None, {
+            "source": ds_name,
+            "url": "file:///C:/dbpedia_dataset",
+            "latent_dim": X.shape[1],
+            "n_samples": X.shape[0],
+            "normalization": "L2 unit sphere",
+            "cached": True,
+        }
+
+    import pandas as pd
+    from pathlib import Path
+
+    print(f"  [LOCAL] Loading {ds_name} from C:\\dbpedia_dataset\\data ...")
+    data_dir = Path("C:/dbpedia_dataset/data")
+    if not data_dir.exists():
+        raise FileNotFoundError(f"Dataset directory not found: {data_dir}. Please place the DBpedia parquet files there.")
+
+    parquet_files = sorted(data_dir.glob("*.parquet"))
+    if not parquet_files:
+        raise FileNotFoundError(f"No .parquet files found in {data_dir}")
+
+    print(f"  [LOAD] Extracting vectors and truncating 3072D → {latent_dim}D ...")
+    rows = []
+    for p_file in parquet_files:
+        print(f"    -> Reading {p_file.name}")
+        df = pd.read_parquet(p_file, columns=["text-embedding-3-large-3072-embedding"])
+        for vec in df["text-embedding-3-large-3072-embedding"]:
+            rows.append(vec[:latent_dim])
+            if len(rows) >= n_target:
+                break
+        if len(rows) >= n_target:
+            break
+
+    if len(rows) < n_target:
+        print(f"  [WARN] Request n={n_target} but only {len(rows)} vectors available.")
+
+    X = np.array(rows, dtype=np.float32)           # [N, latent_dim]
+    np.save(str(cache), X)
+    print(f"  [CACHE] Saved {cache.name}")
+
+    data = normalize_sphere(torch.tensor(X))
+    return data, None, {
+        "source": ds_name,
+        "url": "file:///C:/dbpedia_dataset",
+        "latent_dim": X.shape[1],
+        "n_samples": X.shape[0],
+        "normalization": "L2 unit sphere",
+        "cached": False,
+    }
+
+
+def load_sklearn_data(n_target: int = 10_000, latent_dim: int = 640, seed: int = 42):
+    """Fallback: sklearn Handwritten Digits (toy dataset, 64D projected to latent_dim)."""
     from sklearn.datasets import load_digits
-    from sklearn.decomposition import PCA
-
     digits = load_digits()
-    X_raw = digits.data.astype(np.float32)      # [1797, 64]
-    y     = digits.target
-
-    # Upsample to n_target via repetition + small noise (same approach as validate_data_lake)
+    X_raw = digits.data.astype(np.float32)
     rng = np.random.default_rng(seed)
-    n_base = len(X_raw)
-    repeats = (n_target // n_base) + 1
+    repeats = (n_target // len(X_raw)) + 1
     X_up = np.tile(X_raw, (repeats, 1))[:n_target]
-    y_up = np.tile(y, repeats)[:n_target]
     X_up += rng.normal(0, 0.01, X_up.shape).astype(np.float32)
-
-    # Project 64D → latent_dim with a fixed random matrix
     rng2 = np.random.default_rng(seed + 1)
     proj = rng2.standard_normal((64, latent_dim)).astype(np.float32)
     proj /= np.linalg.norm(proj, axis=1, keepdims=True) + 1e-8
-    X_proj = X_up @ proj                         # [N, latent_dim]
-
+    X_proj = X_up @ proj
     data = normalize_sphere(torch.tensor(X_proj))
-    return data, y_up, {
-        "source": "sklearn.datasets.load_digits",
-        "original_dim": 64,
+    return data, digits.target[:n_target], {
+        "source": "sklearn.datasets.load_digits (toy fallback)",
         "latent_dim": latent_dim,
         "n_samples": n_target,
-        "n_classes": 10,
-        "projection": f"random matrix 64→{latent_dim}, seeded={seed}",
         "normalization": "L2 unit sphere",
     }
 
@@ -273,22 +317,25 @@ def run_backend(device_name: str, data: torch.Tensor, queries: torch.Tensor,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="M2M Real-Data Benchmark (sklearn Handwritten Digits)",
+        description="M2M Real-Data Benchmark — OpenAI Embeddings via Qdrant DBpedia (HuggingFace)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
     )
     parser.add_argument("--device",   default="both", choices=["cpu", "vulkan", "both"])
+    parser.add_argument("--dataset",  default="hf", choices=["hf", "sklearn"],
+                        help="Dataset source (default: hf = HuggingFace Qdrant/DBpedia embeddings)")
     parser.add_argument("--n-splats", type=int, default=10_000)
     parser.add_argument("--n-queries",type=int, default=1_000)
     parser.add_argument("--k",        type=int, default=10)
-    parser.add_argument("--dim",      type=int, default=640)
+    parser.add_argument("--dim",      type=int, default=640,
+                        help="Latent dimension to use/truncate to (default 640)")
     parser.add_argument("--seed",     type=int, default=42)
     args = parser.parse_args()
 
     ts = time.strftime("%Y%m%d_%H%M")
+    ds_label = f"HuggingFace Qdrant dbpedia ({args.dim}D)" if args.dataset == "hf" else f"sklearn digits ({args.dim}D)"
     print("=" * 70)
     print("  M2M Real-Data Benchmark")
-    print(f"  Dataset: sklearn Handwritten Digits → {args.dim}D")
+    print(f"  Dataset: {ds_label}")
     print(f"  N={args.n_splats:,}  queries={args.n_queries}  K={args.k}")
     print("=" * 70)
 
@@ -299,8 +346,11 @@ def main():
         print(f"  {k_spec}: {v}")
 
     # Load data
-    print(f"\n[DATA] Loading sklearn digits → {args.n_splats:,} × {args.dim}D...")
-    data, labels, data_meta = load_real_data(args.n_splats, args.dim, args.seed)
+    print(f"\n[DATA] Loading {ds_label}  →  {args.n_splats:,} vectors...")
+    if args.dataset == "hf":
+        data, labels, data_meta = load_hf_embeddings(args.n_splats, args.dim, args.seed)
+    else:
+        data, labels, data_meta = load_sklearn_data(args.n_splats, args.dim, args.seed)
     rng = np.random.default_rng(args.seed + 99)
     q_idx = rng.choice(len(data), size=min(args.n_queries, len(data)), replace=False)
     queries = data[q_idx]
