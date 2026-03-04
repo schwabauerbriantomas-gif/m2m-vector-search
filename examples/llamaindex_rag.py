@@ -42,7 +42,7 @@ class LlamaIndexRAG:
             "doc5": "GPU acceleration via Vulkan compute shaders enables massive parallelism for energy calculations and KNN search.",
             "doc6": "The system is optimized for AMD RX 6650XT (8GB VRAM) with full Vulkan support.",
             "doc7": "M2M provides REST/gRPC APIs for external tools and native Python SDK for easy integration.",
-            "doc8": "M2M is licensed under Apache 2.0, allowing commercial use, proprietary modifications, and redistribution.",
+            "doc8": "M2M is licensed under AGPLv3, a strong copyleft license that ensures software freedom.",
             "doc9": "The system is specifically designed for applications requiring persistent, long-term memory with ultra-low latency.",
             "doc10": "M2M can handle 10K-100K dynamic Gaussian Splats with automatic expansion and SOC-based consolidation."
         }

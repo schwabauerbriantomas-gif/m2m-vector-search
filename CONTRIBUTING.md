@@ -538,7 +538,7 @@ Contributors are recognized in:
 
 ## 📄 License
 
-By contributing to M2M, you agree that your contributions will be licensed under the Apache License 2.0.
+By contributing to M2M, you agree that your contributions will be licensed under the AGPLv3.
 
 ---
 

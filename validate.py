@@ -102,7 +102,7 @@ def validate_m2m_files():
     
     files_to_check = [
         ('README.md', 'Main documentation', True),
-        ('LICENSE', 'Apache 2.0 license', True),
+        ('LICENSE', 'AGPLv3 license', True),
         ('m2m.py', 'Main Python module', True),
         ('config.py', 'Configuration module', True),
         ('examples/basic_usage.py', 'Basic usage example', True),
