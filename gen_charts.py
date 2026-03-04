@@ -53,7 +53,7 @@ compat = [0.9, 0.8, 0.6, 0.3]
 colors = ['#00C4B6' if c > 0.5 else '#FF6B6B' for c in compat]
 ax.barh(types, compat, color=colors)
 ax.set_xlabel('Compatibilidad M2M')
-ax.set_title('Cuando usar M2M')
+ax.set_title('When to use M2M')
 ax.axvline(x=0.5, color='black', linestyle='--')
 plt.tight_layout()
 fig.savefig(assets / 'chart_data_types.png', dpi=150)

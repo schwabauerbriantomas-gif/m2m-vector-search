@@ -1,4 +1,4 @@
-"""Loader para datasets transformados."""
+"""Loader for transformed datasets."""
 
 import numpy as np
 import struct

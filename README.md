@@ -114,9 +114,48 @@ removed_count = agent_db.consolidate(threshold=0.85)
 
 ---
 
+## 🔗 Integrations
+
+M2M natively supports the industry-standard frameworks for building RAG applications and Agentic workflows.
+
+### LangChain Integration
+
+```python
+from langchain.vectorstores import M2MVectorStore
+from langchain.embeddings import HuggingFaceEmbeddings
+
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+vectorstore = M2MVectorStore(
+    embedding_function=embeddings.embed_query,
+    splat_capacity=100000,
+    enable_vulkan=True
+)
+
+vectorstore.add_texts(["Document 1", "Document 2"])
+results = vectorstore.similarity_search("Query", k=5)
+```
+
+### LlamaIndex Integration
+
+```python
+from llamaindex import VectorStoreIndex, SimpleDirectoryReader
+from m2m.integrations.llamaindex import M2MVectorStore
+
+documents = SimpleDirectoryReader("./docs").load_data()
+
+vectorstore = M2MVectorStore(latent_dim=640, max_splats=100000, enable_vulkan=True)
+index = VectorStoreIndex.from_documents(documents, vector_store=vectorstore)
+
+query_engine = index.as_query_engine()
+response = query_engine.query("Your search query")
+```
+
+---
+
 ## 🏗 Architecture
 
-![Architecture](assets/chart_architecture.png)
+![Architecture](./assets/chart_architecture.png)
 
 ### The 3-Tier Memory Hierarchy (Advanced Mode)
 
@@ -135,7 +174,7 @@ removed_count = agent_db.consolidate(threshold=0.85)
 
 ## 📊 Benchmarks
 
-![Benchmark Comparison](assets/chart_benchmark_comparison.png)
+![Benchmark Comparison](./assets/chart_benchmark_comparison.png)
 
 ### Test Configuration
 

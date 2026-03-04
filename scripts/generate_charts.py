@@ -3,7 +3,7 @@
 """
 M2M Chart Generator
 
-Genera graficos profesionales para el README usando datos REALES.
+Generates professional charts for the README using REAL data.
 No simula ni inventa datos - solo usa lo que existe.
 """
 
@@ -135,7 +135,7 @@ def chart_architecture():
     ax.set_ylim(0, 10)
     ax.axis('off')
     
-    # Colores para capas
+    # Colors for layers
     layer_colors = ['#3498DB', '#2ECC71', '#E74C3C']
     
     # Capa 1: Application
@@ -226,7 +226,7 @@ def chart_data_types():
     
     ax.set_xlim(0, 1)
     ax.set_xlabel('Compatibilidad con M2M', fontweight='bold')
-    ax.set_title('Cuando usar M2M vs Linear Scan', fontweight='bold', pad=15)
+    ax.set_title('When to use M2M vs Linear Scan', fontweight='bold', pad=15)
     
     # Linea de decision
     ax.axvline(x=0.5, color='#333', linestyle='--', linewidth=2, label='Umbral de decision')

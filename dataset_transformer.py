@@ -1,8 +1,8 @@
 """
-Dataset Transformer para M2M Vector Search.
+Dataset Transformer for M2M Vector Search.
 
-Convierte embeddings planos en Gaussian Splats estructurados que 
-aprovechan la arquitectura jerárquica de M2M.
+Converts flat embeddings into structured Gaussian Splats that 
+leverage M2M's hierarchical architecture.
 """
 
 import numpy as np
@@ -15,17 +15,17 @@ import json
 
 @dataclass
 class GaussianSplat:
-    """Representación gaussiana de un cluster de vectores."""
-    mu: np.ndarray        # Centroide [D]
-    alpha: float          # Peso del splat
-    kappa: float          # Concentración
-    n_vectors: int        # Vectores originales
-    indices: np.ndarray   # Índices originales
+    """Gaussian representation of a vector cluster."""
+    mu: np.ndarray        # Centroid [D]
+    alpha: float          # Splat weight
+    kappa: float          # Concentration
+    n_vectors: int        # Original vectors
+    indices: np.ndarray   # Original indices
 
 
 @dataclass 
 class HRM2Node:
-    """Nodo de la jerarquía HRM2."""
+    """Node of the HRM2 hierarchy."""
     splat: GaussianSplat
     children: List['HRM2Node']
     level: int
@@ -34,13 +34,13 @@ class HRM2Node:
 
 class M2MDatasetTransformer:
     """
-    Transforma datasets de embeddings para optimizar M2M.
+    Transforms embedding datasets to optimize M2M.
     
-    Proceso:
-    1. Clustering jerárquico con AgglomerativeClustering (Ward linkage)
-    2. Conversión de clusters a Gaussian Splats
-    3. Construcción de jerarquía HRM2
-    4. Particionado para memoria 3-tier (hot/warm/cold)
+    Process:
+    1. Hierarchical clustering with AgglomerativeClustering (Ward linkage)
+    2. Conversion from clusters to Gaussian Splats
+    3. Construction of HRM2 hierarchy
+    4. Partitioning for 3-tier memory (hot/warm/cold)
     
     Usage:
         transformer = M2MDatasetTransformer(vectors, n_clusters_base=200)
@@ -58,11 +58,11 @@ class M2MDatasetTransformer:
     ):
         """
         Args:
-            vectors: Array [N, D] de embeddings
-            metadata: Metadatos opcionales por vector
-            n_clusters_base: Clusters en nivel hoja
-            hierarchy_levels: Profundidad del árbol HRM2
-            min_cluster_size: Tamaño mínimo de cluster
+            vectors: Array [N, D] of embeddings
+            metadata: Optional metadata per vector
+            n_clusters_base: Clusters at leaf level
+            hierarchy_levels: Depth of the HRM2 tree
+            min_cluster_size: Minimum cluster size
         """
         self.vectors = vectors.astype(np.float32)
         self.metadata = metadata or [{} for _ in range(len(vectors))]
@@ -75,7 +75,7 @@ class M2MDatasetTransformer:
         self.access_patterns: np.ndarray = None
     
     def transform(self) -> dict:
-        """Ejecuta transformación completa y retorna resultado."""
+        """Executes full transformation and returns result."""
         cluster_tree = self._build_cluster_tree()
         self.splats = self._clusters_to_splats(cluster_tree)
         self.hierarchy = self._build_hrm2_hierarchy(cluster_tree)
@@ -90,7 +90,7 @@ class M2MDatasetTransformer:
         }
     
     def _build_cluster_tree(self) -> dict:
-        """Construye árbol de clusters jerárquicos."""
+        """Builds hierarchical cluster tree."""
         
         def cluster_recursive(vectors, indices, level=0):
             node = {
@@ -131,7 +131,7 @@ class M2MDatasetTransformer:
         return cluster_recursive(self.vectors, np.arange(len(self.vectors)))
     
     def _clusters_to_splats(self, cluster_tree: dict) -> List[GaussianSplat]:
-        """Convierte clusters hoja a Gaussian Splats."""
+        """Converts leaf clusters to Gaussian Splats."""
         splats = []
         
         def extract(node):
@@ -160,7 +160,7 @@ class M2MDatasetTransformer:
         return splats
     
     def _build_hrm2_hierarchy(self, cluster_tree: dict) -> HRM2Node:
-        """Construye jerarquía HRM2 explícita."""
+        """Builds explicit HRM2 hierarchy."""
         
         def build(node, level=0, parent=None):
             vectors = node['vectors']
@@ -186,18 +186,18 @@ class M2MDatasetTransformer:
         return build(cluster_tree)
     
     def _simulate_access_patterns(self) -> np.ndarray:
-        """Simula patrones de acceso para particionado."""
+        """Simulates access patterns for partitioning."""
         n_splats = len(self.splats)
         access = np.zeros(n_splats)
         
-        # Simular 1000 queries
+        # Simulate 1000 queries
         for _ in range(1000):
             q_idx = np.random.randint(len(self.vectors))
             q = self.vectors[q_idx]
             distances = [np.linalg.norm(q - s.mu) for s in self.splats]
             access[np.argmin(distances)] += 1
         
-        # Combinar con tamaño y concentración
+        # Combine with size and concentration
         sizes = np.array([s.n_vectors for s in self.splats])
         kappas = np.array([s.kappa for s in self.splats])
         
@@ -207,7 +207,7 @@ class M2MDatasetTransformer:
         return result / result.sum() if result.sum() > 0 else np.ones(n_splats) / n_splats
     
     def _partition_for_memory_tiers(self) -> dict:
-        """Particiona splats en hot/warm/cold."""
+        """Partitions splats into hot/warm/cold."""
         sorted_idx = np.argsort(self.access_patterns)[::-1]
         n = len(self.splats)
         
@@ -218,7 +218,7 @@ class M2MDatasetTransformer:
         }
     
     def _compute_stats(self) -> dict:
-        """Computa estadísticas del resultado."""
+        """Computes results statistics."""
         original_size = self.vectors.nbytes
         compressed_size = sum(
             s.mu.nbytes + 16 + s.indices.nbytes 
@@ -235,7 +235,7 @@ class M2MDatasetTransformer:
         }
     
     def save_for_m2m(self, output_path: str) -> dict:
-        """Guarda dataset en formato binario M2M."""
+        """Saves dataset in M2M binary format."""
         result = self.transform()
         
         with open(output_path, 'wb') as f:
@@ -244,19 +244,19 @@ class M2MDatasetTransformer:
             # Header: 4 ints
             f.write(struct.pack('IIII', len(self.splats), dim, len(self.vectors), self.hierarchy_levels))
             
-            # Cada splat
+            # Each splat
             for s in self.splats:
                 f.write(s.mu.tobytes())
                 f.write(struct.pack('ffI', s.alpha, s.kappa, s.n_vectors))
                 f.write(s.indices.astype(np.int32).tobytes())
         
-        # Metadatos JSON
+        # JSON metadata
         with open(output_path.replace('.bin', '_meta.json'), 'w') as f:
             json.dump(result['stats'], f, indent=2)
         
-        print(f"✅ Guardado: {output_path}")
+        print(f"✅ Saved: {output_path}")
         print(f"   Splats: {len(self.splats):,}")
-        print(f"   Compresión: {result['stats']['compression_ratio']:.1f}x")
-        print(f"   Ahorro: {result['stats']['memory_savings_pct']:.1f}%")
+        print(f"   Compression: {result['stats']['compression_ratio']:.1f}x")
+        print(f"   Savings: {result['stats']['memory_savings_pct']:.1f}%")
         
         return result
