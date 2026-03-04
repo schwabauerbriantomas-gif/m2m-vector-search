@@ -1,0 +1,86 @@
+// moe_batch.comp — Batch L2 distance kernel with shared memory + chunk indexing
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Memory layout:
+//   Binding 0 — Index buffer   [N_total × D]  float32  (PERSISTENT — full index)
+//   Binding 1 — Query buffer   [B × D]        float32  (dynamic   — batch of queries)
+//   Binding 2 — Result buffer  [B × chunk_n]  float32  (output    — chunk distances)
+//
+// Dispatch: vkCmdDispatch(ceil(chunk_n/256), B, 1)
+//   grid.x = ceil(chunk_n / local_size_x)  — covers chunk_n vectors
+//   grid.y = batch_size (B)                — each row processes one query
+//
+// Push constants:
+//   chunk_n     (uint32) — number of vectors in this chunk
+//   dim         (uint32) — vector dimension
+//   chunk_start (uint32) — start offset into the full index buffer
+//
+// Shared memory:
+//   Each workgroup loads its query into shared_query[] once per dispatch.
+//   All 256 threads read distance components from L1 — no repeated global load.
+//
+// Output:
+//   result[query_idx * chunk_n + local_vec_idx] = L2 distance
+// ─────────────────────────────────────────────────────────────────────────────
+#version 450
+
+layout(local_size_x = 256) in;
+
+// ── Persistent full index (never re-uploaded) ─────────────────────────────
+layout(std430, binding = 0) readonly buffer IndexBuffer {
+    float vectors[];   // [N_total × D] flattened
+};
+
+// ── Dynamic: only queries are copied per batch_search() call ──────────────
+layout(std430, binding = 1) readonly buffer QueryBuffer {
+    float queries[];   // [B × D] flattened
+};
+
+// ── Output: distances for this chunk only ────────────────────────────────
+// Size: B × chunk_n × 4 bytes (bounded, never grows with full N)
+layout(std430, binding = 2) writeonly buffer ResultBuffer {
+    float distances[];  // [B × chunk_n] flattened
+};
+
+layout(push_constant) uniform PushConstants {
+    uint chunk_n;      // number of vectors in this dispatch chunk
+    uint dim;          // vector dimension D
+    uint chunk_start;  // start offset in the full index buffer (in vectors)
+} push;
+
+// Shared memory: cache the query for this workgroup
+// Max supported dim = 1024  (1024 × 4B = 4 KB per workgroup, well within 32 KB)
+shared float shared_query[1024];
+
+void main() {
+    uint local_vec_idx = gl_GlobalInvocationID.x;  // local index within chunk
+    uint query_idx     = gl_GlobalInvocationID.y;  // which query in batch
+    uint tid           = gl_LocalInvocationID.x;   // thread within workgroup
+
+    // ── Load query into shared memory (cooperative, one per workgroup) ────
+    uint query_base = query_idx * push.dim;
+    for (uint i = tid; i < push.dim; i += 256u) {
+        shared_query[i] = queries[query_base + i];
+    }
+    barrier();
+
+    // ── Out-of-bounds guard ───────────────────────────────────────────────
+    if (local_vec_idx >= push.chunk_n) {
+        return;
+    }
+
+    // ── Global index into the full persistent index buffer ────────────────
+    uint global_vec_idx = push.chunk_start + local_vec_idx;
+    uint vec_base = global_vec_idx * push.dim;
+
+    // ── L2 distance: index_vector[global_vec_idx] vs shared_query ────────
+    float dist_sq = 0.0;
+    for (uint d = 0u; d < push.dim; d++) {
+        float diff = vectors[vec_base + d] - shared_query[d];
+        dist_sq += diff * diff;
+    }
+
+    // ── Write to result buffer: [query_idx, local_vec_idx] ───────────────
+    // Layout: distances[query_idx × chunk_n + local_vec_idx]
+    distances[query_idx * push.chunk_n + local_vec_idx] = sqrt(dist_sq);
+}

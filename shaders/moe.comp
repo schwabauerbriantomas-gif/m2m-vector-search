@@ -1,0 +1,36 @@
+#version 450
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer QueryBuffer {
+    float query[];
+};
+
+layout(std430, binding = 1) readonly buffer ExpertBuffer {
+    float experts[];
+};
+
+layout(std430, binding = 2) writeonly buffer OutputBuffer {
+    float distances[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint num_experts;
+    uint dim;
+} push;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= push.num_experts) {
+        return;
+    }
+    
+    float distSq = 0.0;
+    uint base_idx = gid * push.dim;
+    
+    for (uint i = 0; i < push.dim; i++) {
+        float diff = experts[base_idx + i] - query[i];
+        distSq += diff * diff;
+    }
+    
+    distances[gid] = sqrt(distSq);
+}

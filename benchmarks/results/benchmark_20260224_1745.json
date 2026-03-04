@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-02-24 17:45:26",
+  "system_specs": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
+    "python_version": "3.12.10",
+    "torch_version": "2.10.0+cpu",
+    "numpy_version": "2.3.5",
+    "cpu_cores_physical": 4,
+    "cpu_cores_logical": 8,
+    "ram_total_gb": 15.93,
+    "vulkan_gpu": "AMD Radeon RX 6650 XT",
+    "vulkan_api": "1.4.315"
+  },
+  "data_meta": {
+    "source": "sklearn.datasets.load_digits",
+    "original_dim": 64,
+    "latent_dim": 640,
+    "n_samples": 5000,
+    "n_classes": 10,
+    "projection": "random matrix 64\u2192640, seeded=42",
+    "normalization": "L2 unit sphere"
+  },
+  "config": {
+    "n_splats": 5000,
+    "n_queries": 200,
+    "k": 10,
+    "latent_dim": 640,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "avg_latency_ms": 5.1819,
+    "p50_latency_ms": 5.0548,
+    "p95_latency_ms": 6.0196,
+    "p99_latency_ms": 6.7003,
+    "throughput_qps": 192.98
+  },
+  "backends": {
+    "cpu": {
+      "error": "'M2MEngine' object has no attribute 'splats'"
+    },
+    "vulkan": {
+      "error": "'M2MEngine' object has no attribute 'splats'"
+    }
+  }
+}

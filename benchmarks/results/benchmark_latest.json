@@ -1,0 +1,48 @@
+{
+  "timestamp": "2026-02-25 07:32:52",
+  "system_specs": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 23 Model 24 Stepping 1, AuthenticAMD",
+    "python_version": "3.12.10",
+    "torch_version": "2.10.0+cpu",
+    "numpy_version": "2.3.5",
+    "cpu_cores_physical": 4,
+    "cpu_cores_logical": 8,
+    "ram_total_gb": 15.93,
+    "vulkan_gpu": "AMD Radeon RX 6650 XT",
+    "vulkan_api": "1.4.315"
+  },
+  "data_meta": {
+    "source": "Local DBpedia OpenAI (3072D)",
+    "url": "file:///C:/dbpedia_dataset",
+    "latent_dim": 640,
+    "n_samples": 2000,
+    "normalization": "L2 unit sphere",
+    "cached": false
+  },
+  "config": {
+    "n_splats": 2000,
+    "n_queries": 100,
+    "k": 10,
+    "latent_dim": 640,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "avg_latency_ms": 2.2614,
+    "p50_latency_ms": 2.1108,
+    "p95_latency_ms": 3.0996,
+    "p99_latency_ms": 3.6682,
+    "throughput_qps": 442.19
+  },
+  "backends": {
+    "cpu": {
+      "error": "cannot access local variable 't0' where it is not associated with a value"
+    },
+    "vulkan": {
+      "error": "cannot access local variable 't0' where it is not associated with a value"
+    },
+    "transformed": {
+      "error": "cannot access local variable 't0' where it is not associated with a value"
+    }
+  }
+}
