@@ -127,9 +127,21 @@ def load_sklearn_data(n_target: int = 10_000, latent_dim: int = 640, seed: int =
     rng2 = np.random.default_rng(seed + 1)
     proj = rng2.standard_normal((64, latent_dim)).astype(np.float32)
     proj /= np.linalg.norm(proj, axis=1, keepdims=True) + 1e-8
-    X_proj = X_up @ proj
-    data = normalize_sphere(X_proj)
-    return data, digits.target[:n_target], {
+    
+    repeats_target_idx = np.tile(np.arange(len(digits.target)), repeats)
+    # Chunked projection and normalization to save RAM on edge devices
+    data = np.zeros((n_target, latent_dim), dtype=np.float32)
+    chunk_size = 5000
+    for i in range(0, n_target, chunk_size):
+        end = min(i + chunk_size, n_target)
+        chunk_raw = X_up[i:end]
+        chunk_proj = chunk_raw @ proj
+        # Normalize chunk
+        norm = np.linalg.norm(chunk_proj, axis=1, keepdims=True)
+        norm = np.clip(norm, 1e-8, None)
+        data[i:end] = chunk_proj / norm
+        
+    return data, digits.target[repeats_target_idx][:n_target], {
         "source": "sklearn.datasets.load_digits (toy fallback)",
         "latent_dim": latent_dim,
         "n_samples": n_target,
@@ -184,8 +196,17 @@ def linear_baseline(data: np.ndarray, queries: np.ndarray, k: int) -> Dict:
         q  = queries[i:i+1]
         t0 = time.perf_counter()
         
-        diff = data - q
-        d = np.linalg.norm(diff, axis=1)
+        # Chunked to avoid MemoryError on 2GB edge machines
+        chunk_size = 10000
+        d_chunks = []
+        for j in range(0, len(data), chunk_size):
+            end = min(len(data), j + chunk_size)
+            diff = data[j:end] - q
+            # Calculate distance efficiently without breaking RAM
+            d_chunk = np.linalg.norm(diff, axis=1)
+            d_chunks.append(d_chunk)
+            
+        d = np.concatenate(d_chunks)
         idx = np.argpartition(d, k)[:k]
         
         latencies.append((time.perf_counter() - t0) * 1000)

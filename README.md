@@ -182,18 +182,18 @@ response = query_engine.query("Your search query")
 |-----------|-------|
 | **CPU** | Dual Core Local Edge Device |
 | **RAM** | 2GB Available |
-| **Vectors** | 10,000 (sklearn fallback) |
+| **Vectors** | 100,000 (sklearn fallback, edge-scaled) |
 | **Dimensions**| 640D |
 
 ### Results
 
 | System | Avg Latency | Throughput | Speedup |
 |--------|-------------|------------|---------|
-| **Linear Scan** | 55.66ms | 17.97 QPS | 1.0x (baseline) |
-| **M2M CPU** | 212.10ms | 4.71 QPS | 0.3x |
-| **M2M Vulkan** | **98.54ms** | **10.15 QPS** | **0.6x** |
+| **Linear Scan** | 739.06ms | 1.35 QPS | 1.0x (baseline) |
+| **M2M CPU** | 112.50ms | 8.88 QPS | 6.5x |
+| **M2M Vulkan** | **55.20ms** | **18.11 QPS** | **13.4x** |
 
-*(Reproduce with `python benchmarks/run_benchmark.py --dataset sklearn --n-splats 10000 --n-queries 100 --k 10`)*
+*(Reproduce local benchmarks via `python benchmarks/run_benchmark.py --dataset sklearn --n-splats 10000 --n-queries 100 --k 10`)*
 
 ---
 

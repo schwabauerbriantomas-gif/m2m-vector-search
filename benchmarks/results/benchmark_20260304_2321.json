@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-03-04 23:25:07",
+  "system_specs": {
+    "platform": "Windows-10-10.0.19042-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 9, GenuineIntel",
+    "python_version": "3.11.8",
+    "numpy_version": "2.4.2",
+    "cpu_cores_physical": 2,
+    "cpu_cores_logical": 4,
+    "ram_total_gb": 2.13,
+    "vulkan_gpu": "N/A"
+  },
+  "data_meta": {
+    "source": "sklearn.datasets.load_digits (toy fallback)",
+    "latent_dim": 640,
+    "n_samples": 10000,
+    "normalization": "L2 unit sphere"
+  },
+  "config": {
+    "n_splats": 10000,
+    "n_queries": 100,
+    "k": 10,
+    "latent_dim": 640,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "avg_latency_ms": 71.0862,
+    "p50_latency_ms": 57.9694,
+    "p95_latency_ms": 138.2769,
+    "p99_latency_ms": 180.16,
+    "throughput_qps": 14.07
+  },
+  "backends": {
+    "cpu": {
+      "device": "cpu",
+      "vulkan_enabled": false,
+      "init_time_ms": 13.06,
+      "n_splats": 10000,
+      "ingest_throughput_qps": 109.65,
+      "standard_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "generative_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "retrieval": {
+        "n_queries": 100,
+        "k": 10,
+        "avg_latency_ms": 196.1584,
+        "p50_latency_ms": 103.4787,
+        "p95_latency_ms": 351.2983,
+        "p99_latency_ms": 890.9675,
+        "min_latency_ms": 65.023,
+        "max_latency_ms": 5681.673,
+        "throughput_qps": 5.1
+      }
+    },
+    "vulkan": {
+      "device": "vulkan",
+      "vulkan_enabled": true,
+      "init_time_ms": 291.66,
+      "n_splats": 10000,
+      "ingest_throughput_qps": 199.18,
+      "standard_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "generative_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "retrieval": {
+        "n_queries": 100,
+        "k": 10,
+        "avg_latency_ms": 88.0003,
+        "p50_latency_ms": 80.1831,
+        "p95_latency_ms": 136.7822,
+        "p99_latency_ms": 176.6396,
+        "min_latency_ms": 53.3488,
+        "max_latency_ms": 312.9884,
+        "throughput_qps": 11.36
+      }
+    },
+    "transformed": {
+      "error": "Unable to allocate 381. MiB for an array with shape (49995000,) and data type float64"
+    }
+  }
+}

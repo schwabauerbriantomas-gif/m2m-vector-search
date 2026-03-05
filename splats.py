@@ -185,16 +185,18 @@ class SplatStore:
             except Exception as e:
                 print(f"[SplatStore] GPU batch search failed ({e}), falling back to CPU.")
 
-        # ── CPU fallback: sequential find_neighbors ───────────────────
+        # ── CPU fallback: batched vectorized query ───────────────────
         mu_out    = np.zeros((batch_size, k, dim), dtype=np.float32)
         alpha_out = np.zeros((batch_size, k), dtype=np.float32)
         kappa_out = np.zeros((batch_size, k), dtype=np.float32)
 
-        for i in range(batch_size):
-            mu_i, a_i, k_i = self.find_neighbors(queries[i:i+1], k=k, lod=lod)
-            mu_out[i]    = mu_i[0]
-            alpha_out[i] = a_i[0]
-            kappa_out[i] = k_i[0]
+        batch_results = self.engine.query_batch(queries, k=k, lod=lod)
+        for i, results in enumerate(batch_results):
+            for j, (splat, dist) in enumerate(results):
+                idx = splat.id
+                mu_out[i, j]    = self.mu[idx]
+                alpha_out[i, j] = self.alpha[idx]
+                kappa_out[i, j] = self.kappa[idx]
 
         return mu_out, alpha_out, kappa_out
 

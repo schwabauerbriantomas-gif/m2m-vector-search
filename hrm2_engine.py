@@ -108,6 +108,10 @@ class HRM2Engine:
         self.fine_models: Dict[int, KMeans] = {}
         self.fine_assignments: Dict[int, np.ndarray] = {}
         
+        # Fast caching
+        self.coarse_cluster_indices: Dict[int, np.ndarray] = {}
+        self.coarse_cluster_embeddings: Dict[int, np.ndarray] = {}
+        
         # Encoder
         self.encoder = FullEmbeddingBuilder()
         
@@ -172,17 +176,23 @@ class HRM2Engine:
         # Level 2: Fine clustering within each coarse cluster
         self.fine_models = {}
         self.fine_assignments = {}
+        self.coarse_cluster_indices = {}
+        self.coarse_cluster_embeddings = {}
         
         for coarse_id in range(n_coarse_effective):
             mask = self.coarse_assignments == coarse_id
             cluster_indices = np.where(mask)[0]
             
+            self.coarse_cluster_indices[coarse_id] = cluster_indices
+            
             if len(cluster_indices) < 2:
                 self.fine_models[coarse_id] = None
                 self.fine_assignments[coarse_id] = np.zeros(len(cluster_indices), dtype=np.int32)
+                self.coarse_cluster_embeddings[coarse_id] = np.zeros((0, self.embedding_dim), dtype=np.float32)
                 continue
             
             cluster_embeddings = np.ascontiguousarray(self.embeddings[mask].astype(np.float32))
+            self.coarse_cluster_embeddings[coarse_id] = cluster_embeddings
             
             # Dynamic n_fine based on cluster size
             n_fine_effective = min(self.n_fine, len(cluster_indices) // 5)
@@ -441,6 +451,72 @@ class HRM2Engine:
             SearchResult(splat_id=sid, distance=d, coarse_cluster=c, fine_cluster=f)
             for sid, d, c, f in candidates[:k]
         ]
+        
+    def query_batch(
+        self,
+        query_vectors: np.ndarray,
+        k: int = 10,
+        lod: int = 2
+    ) -> List[List[Tuple[GaussianSplat, float]]]:
+        """
+        Batched query for higher CPU throughput.
+        """
+        if not self._is_indexed:
+            raise RuntimeError("Index not built. Call index() first.")
+            
+        B = query_vectors.shape[0]
+        results_batch = []
+        query_start = time.time()
+        
+        # Fast batched coarse distances
+        coarse_distances = self.coarse_model.transform(query_vectors)
+        # Use argpartition to get top n_probe quickly
+        if coarse_distances.shape[1] > self.n_probe:
+            closest_coarse_batch = np.argpartition(coarse_distances, self.n_probe - 1, axis=1)[:, :self.n_probe]
+        else:
+            closest_coarse_batch = np.argsort(coarse_distances, axis=1)
+            
+        for b in range(B):
+            query_vector = query_vectors[b]
+            closest_coarse = closest_coarse_batch[b]
+            
+            if lod == 0 or lod == 1:
+                # Keep non-exact modes identical for now, just delegate
+                results_batch.append(self.query(query_vector, k=k, lod=lod))
+                continue
+                
+            # LOD 2 (Exact CPU routing)
+            # Create list of indices
+            expert_indices_list = [self.coarse_cluster_indices[c] for c in closest_coarse if len(self.coarse_cluster_indices[c]) > 0]
+            if not expert_indices_list:
+                results_batch.append([])
+                continue
+                
+            expert_indices = np.concatenate(expert_indices_list)
+            # Advanced indexing (Zero copying until extraction)
+            expert_embeddings = self.embeddings[expert_indices]
+            
+            # Vectorized squared distance (no sqrt, skips overhead)
+            diff = expert_embeddings - query_vector
+            distances_sq = np.einsum('ij,ij->i', diff, diff)
+            
+            # Fast top-K
+            if len(distances_sq) > k:
+                topk_idx = np.argpartition(distances_sq, k - 1)[:k]
+                # Sort exactly within the k subset
+                subset_dists = distances_sq[topk_idx]
+                sort_idx = np.argsort(subset_dists)
+                topk_idx = topk_idx[sort_idx]
+            else:
+                topk_idx = np.argsort(distances_sq)
+                
+            # Return real distances for interface
+            local_res = [(self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i]))) for i in topk_idx]
+            results_batch.append(local_res)
+            
+            self._stats.total_queries += 1
+            
+        return results_batch
     
     def get_stats(self) -> HRM2Stats:
         """Get engine statistics."""
@@ -454,6 +530,8 @@ class HRM2Engine:
         self.coarse_assignments = None
         self.fine_models = {}
         self.fine_assignments = {}
+        self.coarse_cluster_indices = {}
+        self.coarse_cluster_embeddings = {}
         self._is_indexed = False
         self._stats = HRM2Stats()
 
