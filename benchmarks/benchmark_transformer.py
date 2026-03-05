@@ -3,7 +3,7 @@
 import numpy as np
 import time
 import argparse
-from dataset_transformer import M2MDatasetTransformer
+from m2m.dataset_transformer import M2MDatasetTransformer
 from m2m import M2MEngine, M2MConfig, normalize_sphere
 
 

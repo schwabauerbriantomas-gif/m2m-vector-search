@@ -10,10 +10,10 @@ from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass, field
 import time
 
-from splat_types import GaussianSplat, SplatEmbedding, SplatCluster
-from encoding import FullEmbeddingBuilder
-from clustering import KMeans, assign_clusters
-from engine import M2MEngine
+from .splat_types import GaussianSplat, SplatEmbedding, SplatCluster
+from .encoding import FullEmbeddingBuilder
+from .clustering import KMeans, assign_clusters
+from .engine import M2MEngine
 
 
 @dataclass

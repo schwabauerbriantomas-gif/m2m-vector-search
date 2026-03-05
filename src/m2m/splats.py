@@ -3,8 +3,8 @@ import numpy as np
 import time
 from typing import Tuple, Dict, Any
 
-from hrm2_engine import HRM2Engine
-from splat_types import GaussianSplat
+from .hrm2_engine import HRM2Engine
+from .splat_types import GaussianSplat
 
 class SplatStore:
     """Wrapper around the CPU-optimized HRM2Engine to interface with NumPy."""

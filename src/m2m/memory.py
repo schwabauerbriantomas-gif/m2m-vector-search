@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import time
 
-from splat_types import GaussianSplat
+from .splat_types import GaussianSplat
 
 
 @dataclass

@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-from gpu_vector_index import GPUVectorIndex
+from m2m.gpu_vector_index import GPUVectorIndex
 
 def validate_vulkan():
     print("Testing Vulkan Initialization and Compute Shader Execution...")

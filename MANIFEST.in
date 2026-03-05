@@ -1,0 +1,3 @@
+include README.md
+include LICENSE
+recursive-include src/m2m/shaders *.spv *.comp

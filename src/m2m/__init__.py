@@ -13,23 +13,21 @@ import time
 
 # M2M Core Modules
 try:
-    from geometry import (
+    from .geometry import (
         normalize_sphere,
         geodesic_distance,
         exp_map,
         log_map,
         project_to_tangent
     )
-    from splats import SplatStore
-    from energy import EnergyFunction
-    from engine import M2MEngine
-    from config import M2MConfig
-    from config import M2MConfig
+    from .splats import SplatStore
+    from .energy import EnergyFunction
+    from .engine import M2MEngine
+    from .config import M2MConfig
 except ImportError:
     # Forward declarations for type hinting if core modules aren't available
     M2MEngine = None
-    from config import M2MConfig
-    from config import M2MConfig
+    from .config import M2MConfig
 
 # Create dummy functions
 def normalize_sphere(x, dim=-1):

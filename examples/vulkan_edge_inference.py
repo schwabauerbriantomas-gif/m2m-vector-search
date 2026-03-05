@@ -14,7 +14,7 @@ import numpy as np
 # Add parent directory to path to import m2m modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gpu_vector_index import GPUVectorIndex
+from m2m.gpu_vector_index import GPUVectorIndex
 
 def main():
     print("==========================================")
