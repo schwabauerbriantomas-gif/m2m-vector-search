@@ -1,14 +1,14 @@
-import torch
+import numpy as np
 
 def normalize_sphere(x):
     """Normalize vectors to unit hypersphere."""
-    return x / (torch.norm(x, dim=-1, keepdim=True) + 1e-8)
+    return x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-8)
 
 def geodesic_distance(x, y):
     """Calculate geodesic distance between vectors."""
-    dot = (x * y).sum(dim=-1)
-    dot = torch.clamp(dot, -1.0 + 1e-7, 1.0 - 1e-7)
-    return torch.acos(dot)
+    dot = np.sum(x * y, axis=-1)
+    dot = np.clip(dot, -1.0 + 1e-7, 1.0 - 1e-7)
+    return np.arccos(dot)
 
 def exp_map(x, v):
     """Exponential map on sphere."""

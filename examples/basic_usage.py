@@ -9,7 +9,7 @@ Demonstrates basic functionality of M2M (Machine-to-Memory):
 - Retrieving nearest neighbors
 """
 
-import torch
+
 import numpy as np
 from pathlib import Path
 
@@ -57,7 +57,7 @@ def main():
     
     # Generate random embeddings
     print("Generating random embeddings (100 vectors)...")
-    embeddings = torch.randn(100, config.latent_dim)
+    embeddings = np.random.randn(100, config.latent_dim).astype(np.float32)
     print("[INFO] Embeddings shape:", embeddings.shape)
     print()
     
@@ -86,7 +86,7 @@ def main():
     print("Computing energy for queries...")
     energy = energy_fn(query)
     print(f"[INFO] Energy shape: {energy.shape}")
-    print(f"  Mean energy: {energy.mean().item():.4f}")
+    print(f"  Mean energy: {float(np.mean(energy)):.4f}")
     print()
     
     # Statistics

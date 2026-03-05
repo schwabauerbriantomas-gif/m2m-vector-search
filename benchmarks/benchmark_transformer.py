@@ -37,18 +37,18 @@ def benchmark_transformed(vectors: np.ndarray, queries: np.ndarray, k: int = 10)
     print("[2] M2M Original...")
     config_orig = M2MConfig(device='cpu', latent_dim=vectors.shape[1], max_splats=len(vectors)+1000)
     index_orig = M2MEngine(config=config_orig)
-    index_orig.add_splats(torch.tensor(vectors))
+    index_orig.add_splats(vectors)
     
     start = time.perf_counter()
     for q in queries:
-        _ = index_orig.search(torch.tensor(q).unsqueeze(0), k=k)
+        _ = index_orig.search(q[np.newaxis, :], k=k)
     m2m_orig_time = (time.perf_counter() - start) / len(queries) * 1000
     m2m_orig_qps = len(queries) / (len(queries) * m2m_orig_time / 1000)
     
     # 3. Transformar datos
     print("[3] Transformando dataset...")
     # Normalize before transforming to match what M2M assumes
-    vectors_norm = normalize_sphere(torch.tensor(vectors)).numpy()
+    vectors_norm = normalize_sphere(vectors)
     transformer = M2MDatasetTransformer(vectors_norm, n_clusters_base=200, hierarchy_levels=4)
     result = transformer.transform()
     transformer.save_for_m2m('m2m_transformed.bin')
@@ -61,7 +61,7 @@ def benchmark_transformed(vectors: np.ndarray, queries: np.ndarray, k: int = 10)
     
     start = time.perf_counter()
     for q in queries:
-        _ = index_trans.search(torch.tensor(q).unsqueeze(0), k=k)
+        _ = index_trans.search(q[np.newaxis, :], k=k)
     m2m_trans_time = (time.perf_counter() - start) / len(queries) * 1000
     m2m_trans_qps = len(queries) / (len(queries) * m2m_trans_time / 1000)
     

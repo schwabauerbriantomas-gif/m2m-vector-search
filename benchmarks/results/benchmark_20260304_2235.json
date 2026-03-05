@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-03-04 22:35:18",
+  "system_specs": {
+    "platform": "Windows-10-10.0.19042-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 9, GenuineIntel",
+    "python_version": "3.11.8",
+    "numpy_version": "2.4.2",
+    "cpu_cores_physical": 2,
+    "cpu_cores_logical": 4,
+    "ram_total_gb": 2.13,
+    "vulkan_gpu": "N/A"
+  },
+  "data_meta": {
+    "source": "sklearn.datasets.load_digits (toy fallback)",
+    "latent_dim": 640,
+    "n_samples": 10000,
+    "normalization": "L2 unit sphere"
+  },
+  "config": {
+    "n_splats": 10000,
+    "n_queries": 100,
+    "k": 10,
+    "latent_dim": 640,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "avg_latency_ms": 61.5432,
+    "p50_latency_ms": 57.7418,
+    "p95_latency_ms": 96.7221,
+    "p99_latency_ms": 128.9581,
+    "throughput_qps": 16.25
+  },
+  "backends": {
+    "cpu": {
+      "error": "cannot access local variable 't0' where it is not associated with a value"
+    },
+    "vulkan": {
+      "error": "cannot access local variable 't0' where it is not associated with a value"
+    },
+    "transformed": {
+      "error": "'numpy.ndarray' object has no attribute 'detach'"
+    }
+  }
+}

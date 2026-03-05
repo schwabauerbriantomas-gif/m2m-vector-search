@@ -180,19 +180,20 @@ response = query_engine.query("Your search query")
 
 | Parameter | Value |
 |-----------|-------|
-| **CPU** | AMD Ryzen 5 3400G |
-| **RAM** | 32GB DDR4-3200 |
-| **Vectors** | 100,000 (DBpedia/OpenAI) |
+| **CPU** | Dual Core Local Edge Device |
+| **RAM** | 2GB Available |
+| **Vectors** | 10,000 (sklearn fallback) |
 | **Dimensions**| 640D |
 
 ### Results
 
 | System | Avg Latency | Throughput | Speedup |
 |--------|-------------|------------|---------|
-| **Linear Scan** | 94.79ms | 10.55 QPS | 1.0x (baseline) |
-| **M2M (HRM2)** | **0.99ms** | **1,012.77 QPS** | **32.4x** |
+| **Linear Scan** | 55.66ms | 17.97 QPS | 1.0x (baseline) |
+| **M2M CPU** | 212.10ms | 4.71 QPS | 0.3x |
+| **M2M Vulkan** | **98.54ms** | **10.15 QPS** | **0.6x** |
 
-*(Reproduce with `python benchmarks/benchmark_m2m.py --n-splats 100000 --queries 1000 --k 64`)*
+*(Reproduce with `python benchmarks/run_benchmark.py --dataset sklearn --n-splats 10000 --n-queries 100 --k 10`)*
 
 ---
 

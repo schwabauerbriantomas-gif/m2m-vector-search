@@ -1,12 +1,10 @@
-import torch
-from torch.utils.data import IterableDataset
 import numpy as np
 import threading
 import queue
 
-class M2MDataLake(IterableDataset):
+class M2MDataLake:
     """
-    M2M Data Lake for PyTorch Training.
+    M2M Data Lake for Numpy Streaming.
     Provides Tier-Aware Streaming, SOC Importance Sampling, and Langevin Generative Augmentation.
     """
     def __init__(
@@ -28,19 +26,13 @@ class M2MDataLake(IterableDataset):
         self.prefetch_batches = prefetch_batches
         
     def __iter__(self):
-        worker_info = torch.utils.data.get_worker_info()
         total_splats = self.m2m.splats.n_active
         
         if total_splats == 0:
             return iter([])
             
-        if worker_info is None:
-            start_idx = 0
-            end_idx = total_splats
-        else:
-            per_worker = int(np.ceil(total_splats / float(worker_info.num_workers)))
-            start_idx = worker_info.id * per_worker
-            end_idx = min(start_idx + per_worker, total_splats)
+        start_idx = 0
+        end_idx = total_splats
             
         indices = list(range(start_idx, end_idx))
         
@@ -48,7 +40,7 @@ class M2MDataLake(IterableDataset):
         if self.importance_sampling:
             # Sort indices by kappa (concentration) to prioritize important memories
             # High kappa = more concentrated/certain = more important
-            kappas = self.m2m.splats.kappa[start_idx:end_idx].cpu().numpy()
+            kappas = self.m2m.splats.kappa[start_idx:end_idx]
             sorted_relative_indices = np.argsort(kappas)[::-1] 
             indices = [indices[int(i)] for i in sorted_relative_indices]
             
@@ -65,7 +57,7 @@ class M2MDataLake(IterableDataset):
                 # Fetch mu from Hot Tier (VRAM)
                 # In a real integrated Memory Manager, we'd trigger `prefetch_to_warm` here
                 # Here we directly clone the active tensor segment.
-                batch_mu = self.m2m.splats.mu[batch_indices].clone()
+                batch_mu = self.m2m.splats.mu[batch_indices].copy()
                 
                 preload_queue.put(batch_mu)
             preload_queue.put(None) # Sentinel
@@ -84,12 +76,12 @@ class M2MDataLake(IterableDataset):
                     # Generate novel variations of the splat
                     try:
                         generated = self.m2m.sample(batch_mu, n_steps=self.langevin_steps)
-                        if not isinstance(generated, torch.Tensor):
+                        if not isinstance(generated, np.ndarray):
                             raise ValueError("DummyModule detected")
                         batch_mu = generated
                     except Exception:
                         # Fallback if sample is a dummy module
-                        batch_mu = batch_mu + torch.randn_like(batch_mu) * 0.01
+                        batch_mu = batch_mu + np.random.randn(*batch_mu.shape).astype(np.float32) * 0.01
                     
                 yield batch_mu
         finally:

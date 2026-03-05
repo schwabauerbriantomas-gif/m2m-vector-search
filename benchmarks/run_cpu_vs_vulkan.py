@@ -14,7 +14,6 @@ sys.path.insert(0, str(project_root))
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
-import torch
 import numpy as np
 
 from m2m import M2MConfig, M2MEngine, normalize_sphere
@@ -45,8 +44,8 @@ def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=6
     print(f"[INIT] Engine initialized in {init_time:.3f}s")
     
     # Generate data
-    torch.manual_seed(42)
-    data = torch.randn(n_splats, latent_dim)
+    np.random.seed(42)
+    data = np.random.randn(n_splats, latent_dim).astype(np.float32)
     data = normalize_sphere(data)
     
     # Add splats
@@ -56,18 +55,18 @@ def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=6
     print(f"[ADD] Added {n_added} splats in {add_time:.3f}s ({n_added/add_time:.0f} splats/s)")
     
     # Generate queries
-    queries = torch.randn(n_queries, latent_dim)
+    queries = np.random.randn(n_queries, latent_dim).astype(np.float32)
     queries = normalize_sphere(queries)
     
     # Warmup
     for i in range(min(3, n_queries)):
-        q = queries[i].unsqueeze(0)
+        q = queries[i][np.newaxis, :]
         engine.search(q, k=k)
     
     # Benchmark search
     latencies = []
     for i in range(n_queries):
-        q = queries[i].unsqueeze(0)
+        q = queries[i][np.newaxis, :]
         t0 = time.perf_counter()
         result = engine.search(q, k=k)
         latency = (time.perf_counter() - t0) * 1000  # ms
@@ -112,18 +111,18 @@ def linear_search_baseline(n_splats=10000, n_queries=100, k=1, latent_dim=128):
     print(f"  Splats={n_splats}, Queries={n_queries}, Dim={latent_dim}")
     print(f"{'='*60}\n")
     
-    torch.manual_seed(42)
-    splats = torch.randn(n_splats, latent_dim)
-    splats = splats / (torch.norm(splats, dim=-1, keepdim=True) + 1e-8)
+    np.random.seed(42)
+    splats = np.random.randn(n_splats, latent_dim).astype(np.float32)
+    splats = splats / (np.linalg.norm(splats, axis=-1, keepdims=True) + 1e-8)
     
-    queries = torch.randn(n_queries, latent_dim)
-    queries = queries / (torch.norm(queries, dim=-1, keepdim=True) + 1e-8)
+    queries = np.random.randn(n_queries, latent_dim).astype(np.float32)
+    queries = queries / (np.linalg.norm(queries, axis=-1, keepdims=True) + 1e-8)
     
     latencies = []
     for i in range(n_queries):
         t0 = time.perf_counter()
-        dists = torch.cdist(queries[i:i+1], splats, p=2)
-        topk = torch.topk(dists.squeeze(0), k, largest=False)
+        dists = np.linalg.norm(splats - queries[i:i+1], axis=1)
+        topk = np.partition(dists, k)[:k]
         latency = (time.perf_counter() - t0) * 1000
         latencies.append(latency)
     

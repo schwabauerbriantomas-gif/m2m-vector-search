@@ -5,9 +5,6 @@ M2M (Machine-to-Memory) - High-performance Gaussian Splat Storage and Retrieval
 High-performance Gaussian Splat storage and retrieval for AI systems
 """
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
@@ -27,24 +24,20 @@ try:
     from energy import EnergyFunction
     from engine import M2MEngine
     from config import M2MConfig
+    from config import M2MConfig
 except ImportError:
     # Forward declarations for type hinting if core modules aren't available
-    class DummyModule:
-        def __init__(self, *args, **kwargs):
-            pass
-    sample_langevin = DummyModule
-    HistoryBuffer = DummyModule
-    compute_order_parameter = lambda *args, **kwargs: torch.tensor([0])
-    EBMDecoder = DummyModule
-    M2MEngine = DummyModule
+    M2MEngine = None
+    from config import M2MConfig
     from config import M2MConfig
 
 # Create dummy functions
 def normalize_sphere(x, dim=-1):
-    return x / (torch.norm(x, dim=dim, keepdim=True) + 1e-8)
+    norm = np.linalg.norm(x, axis=dim, keepdims=True)
+    return x / (norm + 1e-8)
 
 def geodesic_distance(x, y):
-    return torch.acos(torch.clamp(torch.matmul(x, y.T), -1, 1))
+    return np.arccos(np.clip(np.dot(x, y.T), -1, 1))
 
 def exp_map(base, tangent):
     return base + tangent
@@ -53,11 +46,11 @@ def log_map(base, point):
     return point - base
 
 def project_to_tangent(base, vector):
-    return vector - torch.matmul(vector, base.unsqueeze(-1)) * base
+    return vector - np.dot(vector, base.T) * base
 
 
 
-class M2MMemory(nn.Module):
+class M2MMemory:
     """
     M2M Memory System
     
@@ -68,7 +61,6 @@ class M2MMemory(nn.Module):
     """
     
     def __init__(self, config: M2MConfig):
-        super().__init__()
         self.config = config
         
         # 3-tier Memory Hierarchy
@@ -80,34 +72,25 @@ class M2MMemory(nn.Module):
         self.splats = SplatStore(config)
         
         # SOC Controller
-        self.soc_history = HistoryBuffer(config)
         self.soc_threshold = config.soc_threshold
         self.phi = 0.0  # Order parameter
         
         # Energy Function
         self.energy_fn = EnergyFunction(config)
         
-        # Langevin Sampler
-        self.sampler = sample_langevin
         
-        # Decoder
-        self.decoder = EBMDecoder(config)
-        
-        # Move to device
-        self.to(config.torch_device)
-        
-        print(f"[INFO] M2M initialized on {config.device} (torch_device={config.torch_device})")
+        print(f"[INFO] M2M initialized on {config.device} (compute_device={config.compute_device})")
         print(f"[INFO] Latent dim: {config.latent_dim}")
         print(f"[INFO] Max splats: {config.max_splats}")
         print(f"[INFO] 3-tier memory: {config.enable_3_tier_memory}")
     
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: np.ndarray) -> np.ndarray:
         """Encode input x to spherical latent space S^639."""
         # Normalize to unit sphere
         x_norm = normalize_sphere(x)
         return x_norm
     
-    def compute_energy(self, x: torch.Tensor) -> torch.Tensor:
+    def compute_energy(self, x: np.ndarray) -> np.ndarray:
         """Compute energy E(x) = E_splats + E_geom + E_comp - H[q(x)]"""
         x_encoded = self.encode(x)
         
@@ -131,7 +114,7 @@ class M2MMemory(nn.Module):
         
         return E
     
-    def retrieve(self, query: torch.Tensor, k: int = None, lod: int = 2) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def retrieve(self, query: np.ndarray, k: int = None, lod: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Retrieve k-nearest neighbors from splat store."""
         if k is None:
             k = self.config.knn_k
@@ -144,31 +127,25 @@ class M2MMemory(nn.Module):
         
         return neighbors_mu, neighbors_alpha, neighbors_kappa
     
-    def sample(self, x: torch.Tensor, n_steps: int = None) -> torch.Tensor:
-        """Generate samples using underdamped Langevin dynamics."""
+    def sample(self, x: np.ndarray, n_steps: int = None) -> np.ndarray:
+        """Generate samples using Langevin dynamics."""
         if n_steps is None:
             n_steps = self.config.langevin_steps
         
-        return self.sampler(
-            x=x,
-            energy_fn=self.compute_energy,
-            dt=self.config.langevin_dt,
-            gamma=self.config.langevin_gamma,
-            T=self.config.langevin_T,
-            n_steps=n_steps
-        )
+        # Simplified native Langevin behavior (diffusion)
+        noise = np.random.randn(*x.shape).astype(np.float32) * self.config.langevin_dt
+        return x + noise
     
     def consolidate(self, threshold: float = None) -> int:
         """Run SOC consolidation based on order parameter."""
         if threshold is None:
             threshold = self.soc_threshold
         
-        splats_to_remove = compute_order_parameter(
-            self.splats.mu,
-            self.splats.alpha,
-            self.splats.frequency,
-            threshold=threshold
-        )
+        # Remove low-alpha splats (proxy for order parameter)
+        if self.splats.n_active > 0:
+            splats_to_remove = np.where(self.splats.alpha[:self.splats.n_active] < threshold)[0]
+        else:
+            splats_to_remove = []
         
         # Remove splats
         n_removed = 0
@@ -195,7 +172,7 @@ class M2MMemory(nn.Module):
             'soc_phi': self.phi.item()
         }
     
-    def forward(self, x: torch.Tensor, mode: str = 'energy') -> torch.Tensor:
+    def forward(self, x: np.ndarray, mode: str = 'energy') -> np.ndarray:
         """Forward pass of M2M system."""
         if mode == 'energy':
             return self.compute_energy(x)
@@ -206,7 +183,7 @@ class M2MMemory(nn.Module):
             raise ValueError(f"Unknown mode: {mode}")
 
 
-class M2MEngine(nn.Module):
+class M2MEngine:
     """
     M2M High-Performance Engine with REST/gRPC APIs
     """
@@ -230,13 +207,11 @@ class M2MEngine(nn.Module):
             self.vulkan_engine = None
             print("[INFO] Vulkan acceleration disabled")
         
-        # Move to device
-        self.to(config.torch_device)
         
-        print(f"[INFO] M2M Engine initialized on {config.device} (torch_device={config.torch_device})")
+        print(f"[INFO] M2M Engine initialized on {config.device} (compute_device={config.compute_device})")
         print(f"[INFO] Vulkan GPU Compute: {'Enabled' if config.enable_vulkan else 'Disabled'}")
     
-    def add_splats(self, vectors: torch.Tensor, labels: List[str] = None) -> int:
+    def add_splats(self, vectors: np.ndarray, labels: List[str] = None) -> int:
         """Add new splats to the system."""
         # Normalize vectors to sphere
         vectors_norm = normalize_sphere(vectors)
@@ -256,11 +231,11 @@ class M2MEngine(nn.Module):
         print(f"[INFO] Added {n_added} splats and built HRM2 index")
         return n_added
     
-    def search(self, query: torch.Tensor, k: int = None) -> torch.Tensor:
+    def search(self, query: np.ndarray, k: int = None) -> np.ndarray:
         """Search for nearest neighbors."""
         return self.m2m.retrieve(query, k)
     
-    def generate(self, query: torch.Tensor, n_samples: int = 10) -> torch.Tensor:
+    def generate(self, query: np.ndarray, n_samples: int = 10) -> np.ndarray:
         """Generate samples starting from query."""
         return self.m2m.sample(query)
     
@@ -268,11 +243,11 @@ class M2MEngine(nn.Module):
         """Get system statistics."""
         return self.m2m.get_statistics()
     
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: np.ndarray) -> np.ndarray:
         """Encode input to spherical latent space."""
         return self.m2m.encode(x)
     
-    def compute_energy(self, x: torch.Tensor) -> torch.Tensor:
+    def compute_energy(self, x: np.ndarray) -> np.ndarray:
         """Compute energy of input."""
         return self.m2m.compute_energy(x)
         
@@ -289,7 +264,7 @@ class M2MEngine(nn.Module):
         )
         return DataLoader(dataset, batch_size=None, num_workers=num_workers)
     
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: np.ndarray) -> np.ndarray:
         """Forward pass (energy computation)."""
         return self.m2m(x)
 
@@ -323,11 +298,11 @@ class SimpleVectorDB:
         config.latent_dim = latent_dim
         self.engine = M2MEngine(config)
 
-    def add(self, vectors: torch.Tensor) -> int:
+    def add(self, vectors: np.ndarray) -> int:
         """Add vectors to the database."""
         return self.engine.add_splats(vectors)
 
-    def search(self, query: torch.Tensor, k: int = 64):
+    def search(self, query: np.ndarray, k: int = 64):
         """Search nearest neighbors."""
         return self.engine.search(query, k)
 
@@ -350,15 +325,15 @@ class AdvancedVectorDB:
         config.latent_dim = latent_dim
         self.engine = M2MEngine(config)
 
-    def add(self, vectors: torch.Tensor) -> int:
+    def add(self, vectors: np.ndarray) -> int:
         """Add vectors to the database."""
         return self.engine.add_splats(vectors)
 
-    def search(self, query: torch.Tensor, k: int = 64):
+    def search(self, query: np.ndarray, k: int = 64):
         """Search nearest neighbors."""
         return self.engine.search(query, k)
 
-    def generate(self, query: torch.Tensor, n_steps: int = 10) -> torch.Tensor:
+    def generate(self, query: np.ndarray, n_steps: int = 10) -> np.ndarray:
         """Perform Langevin dynamics generative exploration starting from query."""
         return self.engine.generate(query, n_samples=n_steps)
 
@@ -466,7 +441,7 @@ def main():
     else:
         # Example: Add random splats
         print("[EXAMPLE] Adding 100 random splats...")
-        random_vectors = torch.randn(100, config.latent_dim).to(config.torch_device)
+        random_vectors = np.random.randn(100, config.latent_dim).astype(np.float32)
     n_added = m2m.add_splats(random_vectors)
     print(f"[EXAMPLE] Added {n_added} splats")
     print()

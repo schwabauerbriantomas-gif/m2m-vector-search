@@ -7,7 +7,7 @@ Centralized configuration for M2M system.
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-import torch
+import numpy as np
 
 
 @dataclass
@@ -17,8 +17,8 @@ class M2MConfig:
     """
     
     # --- System Configuration ---
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype: torch.dtype = torch.float32
+    device: str = "cpu"
+    dtype: Any = np.float32
 
     def __post_init__(self):
         """Handle 'vulkan' device: enable Vulkan GPU compute shaders."""
@@ -26,15 +26,9 @@ class M2MConfig:
             self.enable_vulkan = True
     
     @property
-    def torch_device(self) -> str:
-        """PyTorch-compatible device for tensor allocation.
-        
-        When device='vulkan', tensors are stored on CPU but heavy compute
-        (distances, MoE routing) runs on the GPU via Vulkan compute shaders.
-        """
-        if self.device == 'vulkan':
-            return 'cpu'
-        return self.device
+    def compute_device(self) -> str:
+        """Device for allocations (usually cpu unless specifically handling GPU buffers)."""
+        return 'cpu'
             
     # --- Latent Space Configuration ---
     latent_dim: int = 640  # S^639 hyper-sphere

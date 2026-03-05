@@ -2,7 +2,7 @@ import sys
 import uuid
 from typing import Any, Iterable, List, Optional, Sequence, Dict
 
-import torch
+import numpy as np
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
@@ -58,7 +58,7 @@ class M2MVectorStore(VectorStore):
         embeddings_list = self._embeddings.embed_documents(texts_list)
         
         # Convert embeddings to tensor batch
-        emb_tensor = torch.tensor(embeddings_list, dtype=torch.float32)
+        emb_tensor = np.array(embeddings_list, dtype=np.float32)
         
         from m2m import normalize_sphere
         emb_tensor = normalize_sphere(emb_tensor)
@@ -91,13 +91,13 @@ class M2MVectorStore(VectorStore):
         Return k most similar documents to the query.
         """
         query_emb = self._embeddings.embed_query(query)
-        query_tensor = torch.tensor(query_emb, dtype=torch.float32)
+        query_tensor = np.array(query_emb, dtype=np.float32)
         
         from m2m import normalize_sphere
         query_tensor = normalize_sphere(query_tensor)
         
         # We need to unsqueeze to make it a batch of 1
-        query_batch = query_tensor.unsqueeze(0)
+        query_batch = query_tensor[np.newaxis, :]
         
         # Run search using M2MEngine public API
         neighbors_mu, neighbors_alpha, neighbors_kappa = self._m2m.search(
@@ -105,7 +105,7 @@ class M2MVectorStore(VectorStore):
         )
         
         # Get the top-k indices
-        top_k_indices = torch.topk(neighbors_kappa.squeeze(0), k).indices.tolist()
+        top_k_indices = np.argsort(neighbors_kappa[0])[-k:][::-1].tolist()
         
         results = []
         for idx in top_k_indices:

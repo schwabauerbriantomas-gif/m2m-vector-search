@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-03-04 22:45:11",
+  "system_specs": {
+    "platform": "Windows-10-10.0.19042-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 9, GenuineIntel",
+    "python_version": "3.11.8",
+    "numpy_version": "2.4.2",
+    "cpu_cores_physical": 2,
+    "cpu_cores_logical": 4,
+    "ram_total_gb": 2.13,
+    "vulkan_gpu": "N/A"
+  },
+  "data_meta": {
+    "source": "sklearn.datasets.load_digits (toy fallback)",
+    "latent_dim": 640,
+    "n_samples": 10000,
+    "normalization": "L2 unit sphere"
+  },
+  "config": {
+    "n_splats": 10000,
+    "n_queries": 100,
+    "k": 10,
+    "latent_dim": 640,
+    "seed": 42
+  },
+  "linear_baseline": {
+    "avg_latency_ms": 55.661,
+    "p50_latency_ms": 53.7269,
+    "p95_latency_ms": 73.401,
+    "p99_latency_ms": 113.7215,
+    "throughput_qps": 17.97
+  },
+  "backends": {
+    "cpu": {
+      "device": "cpu",
+      "vulkan_enabled": false,
+      "init_time_ms": 1.19,
+      "n_splats": 10000,
+      "ingest_throughput_qps": 102.46,
+      "standard_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "generative_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "retrieval": {
+        "n_queries": 100,
+        "k": 10,
+        "avg_latency_ms": 212.0972,
+        "p50_latency_ms": 117.103,
+        "p95_latency_ms": 396.3457,
+        "p99_latency_ms": 1341.6599,
+        "min_latency_ms": 73.4232,
+        "max_latency_ms": 5471.7632,
+        "throughput_qps": 4.71
+      }
+    },
+    "vulkan": {
+      "device": "vulkan",
+      "vulkan_enabled": true,
+      "init_time_ms": 203.55,
+      "n_splats": 10000,
+      "ingest_throughput_qps": 145.43,
+      "standard_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "generative_training": {
+        "throughput_splats_per_sec": 0,
+        "epoch_time_s": 0,
+        "avg_loss": 0
+      },
+      "retrieval": {
+        "n_queries": 100,
+        "k": 10,
+        "avg_latency_ms": 98.5412,
+        "p50_latency_ms": 95.3442,
+        "p95_latency_ms": 134.7472,
+        "p99_latency_ms": 147.7773,
+        "min_latency_ms": 70.6183,
+        "max_latency_ms": 166.7632,
+        "throughput_qps": 10.15
+      }
+    },
+    "transformed": {
+      "error": "unable to allocate array data."
+    }
+  }
+}

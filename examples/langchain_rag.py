@@ -7,7 +7,7 @@ Demonstrates Retrieval-Augmented Generation (RAG) using M2M (Machine-to-Memory)
 as the vectorstore.
 """
 
-import torch
+
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any

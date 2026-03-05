@@ -1,4 +1,4 @@
-import torch
+
 import numpy as np
 import time
 from typing import Tuple, Dict, Any
@@ -7,11 +7,11 @@ from hrm2_engine import HRM2Engine
 from splat_types import GaussianSplat
 
 class SplatStore:
-    """Wrapper around the CPU-optimized HRM2Engine to interface with PyTorch."""
+    """Wrapper around the CPU-optimized HRM2Engine to interface with NumPy."""
 
     def __init__(self, config):
         self.config = config
-        self.device = config.torch_device
+
         self.max_splats = config.max_splats
         self.n_active = 0
         
@@ -28,10 +28,10 @@ class SplatStore:
         )
         
         # Keep track of tensors for Energy / SOC functions that access properties directly
-        self.mu = torch.zeros((self.max_splats, config.latent_dim), device=self.device)
-        self.alpha = torch.ones((self.max_splats,), device=self.device) * config.init_alpha
-        self.kappa = torch.ones((self.max_splats,), device=self.device) * config.init_kappa
-        self.frequency = torch.zeros((self.max_splats,), device=self.device)
+        self.mu = np.zeros((self.max_splats, config.latent_dim), dtype=np.float32)
+        self.alpha = np.ones((self.max_splats,), dtype=np.float32) * config.init_alpha
+        self.kappa = np.ones((self.max_splats,), dtype=np.float32) * config.init_kappa
+        self.frequency = np.zeros((self.max_splats,), dtype=np.float32)
         
         # Internal splat counter for ID generation
         self._next_id = 0
@@ -41,17 +41,17 @@ class SplatStore:
         self._gpu_index = None
         self._gpu_index_dirty = True
 
-    def add_splat(self, x: torch.Tensor) -> bool:
+    def add_splat(self, x: np.ndarray) -> bool:
         """Add a batch of splats or a single splat."""
-        if x.dim() == 1:
-            x = x.unsqueeze(0)
+        if x.ndim == 1:
+            x = x[np.newaxis, :]
             
         n_new = x.shape[0]
         if self.n_active + n_new > self.max_splats:
             return False
             
-        # Convert to numpy
-        x_np = x.detach().cpu().numpy()
+        # Data is already numpy
+        x_np = x
         
         new_splats = []
         for i in range(n_new):
@@ -82,15 +82,15 @@ class SplatStore:
         if self.n_active == 0:
             return
         # Pass raw active vectors directly into HRM2 so we bypass the slow encoder
-        embeddings = self.mu[:self.n_active].detach().cpu().numpy()
+        embeddings = self.mu[:self.n_active]
         self.engine.index(precomputed_embeddings=embeddings)
         # Mark GPU index dirty so it is rebuilt on next batch_find_neighbors call
         self._gpu_index_dirty = True
         
-    def find_neighbors(self, query: torch.Tensor, k: int = 64, lod: int = 2) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def find_neighbors(self, query: np.ndarray, k: int = 64, lod: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Find k-nearest neighbors using authentic HRM2 engine semantic routing."""
-        query_np = query.detach().cpu().numpy()
-        if query.dim() == 1:
+        query_np = query
+        if query_np.ndim == 1:
             query_np = query_np.reshape(1, -1)
             
         batch_size = query_np.shape[0]
@@ -100,14 +100,14 @@ class SplatStore:
         
         if not self.engine._is_indexed:
             # Fallback to random if not indexed
-            mu_out = torch.randn((batch_size, k, dim), device=self.device)
-            alpha_out = torch.ones((batch_size, k), device=self.device)
-            kappa_out = torch.ones((batch_size, k), device=self.device) * 10.0
+            mu_out = np.random.randn(batch_size, k, dim).astype(np.float32)
+            alpha_out = np.ones((batch_size, k), dtype=np.float32)
+            kappa_out = np.ones((batch_size, k), dtype=np.float32) * 10.0
             return mu_out, alpha_out, kappa_out
             
-        mu_out = torch.zeros((batch_size, k, dim), device=self.device)
-        alpha_out = torch.zeros((batch_size, k), device=self.device)
-        kappa_out = torch.zeros((batch_size, k), device=self.device)
+        mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
+        alpha_out = np.zeros((batch_size, k), dtype=np.float32)
+        kappa_out = np.zeros((batch_size, k), dtype=np.float32)
         
         for i in range(batch_size):
             # Query the semantic MoE router
@@ -122,11 +122,11 @@ class SplatStore:
 
     def batch_find_neighbors(
         self,
-        queries: torch.Tensor,
+        queries: np.ndarray,
         k: int = 64,
         lod: int = 2,
         max_batch_size: int = 100,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Batch k-NN search — uses GPUVectorIndex (persistent index, single dispatch)
         when Vulkan is enabled, falls back to sequential find_neighbors() on CPU.
@@ -147,8 +147,8 @@ class SplatStore:
             alpha_out [B, k]
             kappa_out [B, k]
         """
-        if queries.dim() == 1:
-            queries = queries.unsqueeze(0)
+        if queries.ndim == 1:
+            queries = queries[np.newaxis, :]
         batch_size = queries.shape[0]
         dim = queries.shape[1]
         k = min(k, max(1, self.n_active))
@@ -160,18 +160,18 @@ class SplatStore:
                 # Lazy init / rebuild when index vectors changed
                 if self._gpu_index is None or self._gpu_index_dirty:
                     from gpu_vector_index import GPUVectorIndex
-                    index_vecs = self.mu[:self.n_active].detach().cpu().numpy()
+                    index_vecs = self.mu[:self.n_active]
                     self._gpu_index = GPUVectorIndex(
                         index_vecs, max_batch_size=max_batch_size
                     )
                     self._gpu_index_dirty = False
 
-                queries_np = queries.detach().cpu().numpy().astype(np.float32)
+                queries_np = queries.astype(np.float32)
                 gpu_ids, gpu_dists = self._gpu_index.batch_search(queries_np, k=k)
 
-                mu_out    = torch.zeros((batch_size, k, dim), device=self.device)
-                alpha_out = torch.zeros((batch_size, k),      device=self.device)
-                kappa_out = torch.zeros((batch_size, k),      device=self.device)
+                mu_out    = np.zeros((batch_size, k, dim), dtype=np.float32)
+                alpha_out = np.zeros((batch_size, k), dtype=np.float32)
+                kappa_out = np.zeros((batch_size, k), dtype=np.float32)
 
                 for i in range(batch_size):
                     for j, idx in enumerate(gpu_ids[i]):
@@ -186,9 +186,9 @@ class SplatStore:
                 print(f"[SplatStore] GPU batch search failed ({e}), falling back to CPU.")
 
         # ── CPU fallback: sequential find_neighbors ───────────────────
-        mu_out    = torch.zeros((batch_size, k, dim), device=self.device)
-        alpha_out = torch.zeros((batch_size, k),      device=self.device)
-        kappa_out = torch.zeros((batch_size, k),      device=self.device)
+        mu_out    = np.zeros((batch_size, k, dim), dtype=np.float32)
+        alpha_out = np.zeros((batch_size, k), dtype=np.float32)
+        kappa_out = np.zeros((batch_size, k), dtype=np.float32)
 
         for i in range(batch_size):
             mu_i, a_i, k_i = self.find_neighbors(queries[i:i+1], k=k, lod=lod)
@@ -199,7 +199,7 @@ class SplatStore:
         return mu_out, alpha_out, kappa_out
 
     def entropy(self, x=None):
-        return torch.tensor(0.5, device=self.device)
+        return 0.5
         
     def compact(self):
         pass
@@ -221,7 +221,7 @@ class SplatStore:
             
         new_splats = []
         for i, s in enumerate(splats):
-            self.mu[i] = torch.tensor(s.mu, device=self.device)
+            self.mu[i] = np.array(s.mu, dtype=np.float32)
             self.alpha[i] = s.alpha
             self.kappa[i] = s.kappa
             self.frequency[i] = 1.0
@@ -237,6 +237,6 @@ class SplatStore:
         self.engine.add_splats(new_splats)
         
         # Bypass encoder
-        embeddings = self.mu[:self.n_active].detach().cpu().numpy()
+        embeddings = self.mu[:self.n_active]
         self.engine.index(precomputed_embeddings=embeddings)
         self._gpu_index_dirty = True

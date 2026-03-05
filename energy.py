@@ -1,4 +1,4 @@
-import torch
+import numpy as np
 
 class EnergyFunction:
     """Computes various energy potentials for the Gaussian Splats."""
@@ -6,13 +6,13 @@ class EnergyFunction:
         self.config = config
         
     def E_splats(self, x, splats):
-        return torch.zeros(x.shape[0], device=self.config.torch_device)
+        return np.zeros(x.shape[0], dtype=np.float32)
         
     def E_geom(self, x):
-        return torch.zeros(x.shape[0], device=self.config.torch_device)
+        return np.zeros(x.shape[0], dtype=np.float32)
         
     def E_comp(self, x):
-        return torch.zeros(x.shape[0], device=self.config.torch_device)
+        return np.zeros(x.shape[0], dtype=np.float32)
         
     def __call__(self, x):
         # M2M config usually adds these up based on weights

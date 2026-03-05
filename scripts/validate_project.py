@@ -209,21 +209,21 @@ class ProjectValidator:
         # Test 2: Geometry operations
         print("  [TEST] Geometry operations...")
         try:
-            import torch
+            import numpy as np
             from geometry import normalize_sphere
 
-            x = torch.randn(10, 640)
+            x = np.random.randn(10, 640).astype(np.float32)
             x_norm = normalize_sphere(x)
 
             # Check normalization
-            norms = torch.norm(x_norm, dim=1)
-            all_normalized = torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
+            norms = np.linalg.norm(x_norm, axis=1)
+            all_normalized = np.allclose(norms, np.ones_like(norms), atol=1e-5)
 
             tests["geometry_normalization"] = {
                 "status": "SUCCESS" if all_normalized else "FAILED",
                 "input_shape": list(x.shape),
-                "output_norm_mean": float(norms.mean()),
-                "output_norm_std": float(norms.std())
+                "output_norm_mean": float(np.mean(norms)),
+                "output_norm_std": float(np.std(norms))
             }
             print(f"    [OK] Geometry: shape={list(x.shape)}, normalized={all_normalized}")
         except Exception as e:
@@ -241,7 +241,8 @@ class ProjectValidator:
             store = SplatStore(config)
 
             # Add some splats
-            embeddings = torch.randn(50, 640)
+            import numpy as np
+            embeddings = np.random.randn(50, 640).astype(np.float32)
             embeddings_norm = normalize_sphere(embeddings)
 
             added = 0
@@ -337,7 +338,8 @@ class ProjectValidator:
             # Use already created store if available
             if "splatstore_basic" in tests and tests["splatstore_basic"]["status"] == "SUCCESS":
                 # Create query
-                query = torch.randn(1, 640)
+                import numpy as np
+                query = np.random.randn(1, 640).astype(np.float32)
                 query_norm = normalize_sphere(query)
 
                 # Search

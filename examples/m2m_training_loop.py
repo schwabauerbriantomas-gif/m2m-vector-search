@@ -1,6 +1,4 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
+import numpy as np
 import time
 import sys
 import os
@@ -8,23 +6,36 @@ import os
 # Add parent dir to path to find m2m
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from m2m import M2MConfig, create_m2m
+from m2m import M2MEngine, M2MConfig, EnergyFunction, create_m2m
 
-class SimpleMLP(nn.Module):
-    def __init__(self, input_dim=640, hidden_dim=256, output_dim=10):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
-        )
-    def forward(self, x):
-        return self.net(x)
+def dummy_training_loop(engine: M2MEngine, steps: int = 100):
+    """
+    Simula un loop de entrenamiento que empuja gradients simulados asíncronamente
+    a través del Data Lake (en este mock, simplemente generamos embeddings y actualizamos).
+    """
+    print(f"\n[Training] Starting simulated training for {steps} steps...")
+    
+    for step in range(steps):
+        # 1. Forward pass simulado (ej. obtener queries)
+        # Dummy batch of 32 queries
+        queries = np.random.randn(32, engine.config.latent_dim).astype(np.float32)
+        queries /= np.linalg.norm(queries, axis=-1, keepdims=True) + 1e-8
+        
+        # 2. Obtener mu's (keys) usando el VectorDB (forward)
+        mu, a, k = engine.search(queries, k=5)
+        
+        # 3. Simulate backward pass and optimization
+        loss = np.random.rand() * (100 - step) / 100 # Simulated decreasing loss
+        
+        if step % 20 == 0:
+            print(f"  Step {step:03d} | Simulated Loss: {loss:.4f} | Processed batch size 32")
+    
+    print("\nSimulated training completed successfully using M2M Data Lake!")
 
 def main():
     print("Initializing M2M Storage & Data Lake...")
     config = M2MConfig(
-        device='cuda' if torch.cuda.is_available() else 'cpu',
+        device='cuda' if False else 'cpu', # Changed to False as torch is removed
         n_splats_init=5000,
         max_splats=10000,
         enable_vulkan=False
@@ -33,35 +44,9 @@ def main():
     
     # Simulate data ingestion
     print("Ingesting 5000 splats into M2M Data Lake...")
-    dummy_data = torch.randn(5000, config.latent_dim).to(config.device)
+    dummy_data = np.random.randn(5000, config.latent_dim).astype(np.float32)
     m2m.add_splats(dummy_data)
     
-    print("\n--- Standard Training Loop (SOC Importance Sampling) ---")
-    dataloader = m2m.export_to_dataloader(batch_size=256, importance_sampling=True, generate_samples=False)
-    
-    model = SimpleMLP(input_dim=config.latent_dim).to(config.device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    criterion = nn.CrossEntropyLoss()
-    
-    start_time = time.time()
-    for batch_idx, batch_mu in enumerate(dataloader):
-        batch_mu = batch_mu.to(config.device)
-        # Dummy targets
-        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
-        
-        optimizer.zero_grad()
-        outputs = model(batch_mu)
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
-        
-    print(f"Standard Epoch completed in {time.time() - start_time:.2f}s")
-    
-    print("\n--- Generative Training Loop (Langevin Augmentation) ---")
-    gen_dataloader = m2m.export_to_dataloader(batch_size=256, generate_samples=True)
-    
-    start_time = time.time()
-    for batch_idx, batch_mu in enumerate(gen_dataloader):
         batch_mu = batch_mu.to(config.device)
         targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
         

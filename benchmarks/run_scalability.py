@@ -18,8 +18,8 @@ import json
 import platform
 import psutil
 from pathlib import Path
+import argparse
 
-import torch
 import numpy as np
 
 # ── Project imports ──────────────────────────────────────────────────────────
@@ -86,20 +86,20 @@ def get_system_specs() -> dict:
 
 def generate_data(n_vectors: int, dim: int, seed: int):
     """Generate deterministic, L2-normalised test vectors and queries."""
-    torch.manual_seed(seed)
-    data    = normalize_sphere(torch.randn(n_vectors, dim))
-    queries = normalize_sphere(torch.randn(N_QUERIES, dim))
+    np.random.seed(seed)
+    data    = normalize_sphere(np.random.randn(n_vectors, dim).astype(np.float32))
+    queries = normalize_sphere(np.random.randn(N_QUERIES, dim).astype(np.float32))
     return data, queries
 
 
-def linear_baseline(data: torch.Tensor, queries: torch.Tensor, k: int) -> dict:
-    """Brute-force linear search baseline via torch.cdist."""
+def linear_baseline(data: np.ndarray, queries: np.ndarray, k: int) -> dict:
+    """Brute-force linear search baseline via numpy."""
     latencies = []
     for i in range(len(queries)):
-        q = queries[i].unsqueeze(0)
+        q = queries[i:i+1]
         t0 = time.perf_counter()
-        dists = torch.cdist(q, data, p=2)
-        _ = torch.topk(dists.squeeze(0), k, largest=False)
+        dists = np.linalg.norm(data - q, axis=1)
+        _ = np.partition(dists, k)[:k]
         latencies.append((time.perf_counter() - t0) * 1000)
 
     lat = np.array(latencies)
@@ -119,7 +119,7 @@ def linear_baseline(data: torch.Tensor, queries: torch.Tensor, k: int) -> dict:
 # Core benchmark runner
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_engine_benchmark(device_name: str, data: torch.Tensor, queries: torch.Tensor,
+def run_engine_benchmark(device_name: str, data: np.ndarray, queries: np.ndarray,
                          k: int, scale: int) -> dict:
     """Benchmark M2MEngine on a given backend for a given dataset."""
     is_vulkan = (device_name == "vulkan")
@@ -146,12 +146,12 @@ def run_engine_benchmark(device_name: str, data: torch.Tensor, queries: torch.Te
 
     # Warmup
     for i in range(min(WARMUP, len(queries))):
-        engine.search(queries[i].unsqueeze(0), k=k)
+        engine.search(queries[i][np.newaxis, :], k=k)
 
     # Timed search
     latencies = []
     for i in range(len(queries)):
-        q = queries[i].unsqueeze(0)
+        q = queries[i][np.newaxis, :]
         t0 = time.perf_counter()
         engine.search(q, k=k)
         latencies.append((time.perf_counter() - t0) * 1000)

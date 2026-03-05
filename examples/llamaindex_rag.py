@@ -7,7 +7,7 @@ Demonstrates Retrieval-Augmented Generation (RAG) using M2M (Machine-to-Memory)
 as vectorstore with LlamaIndex.
 """
 
-import torch
+
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any
@@ -55,11 +55,11 @@ class LlamaIndexRAG:
         for i in range(len(self.documents)):
             # In real system, use BERT/GPT-2 to embed text
             # Here we use random embeddings on S^639 for demonstration
-            doc_vec = torch.randn(self.config.latent_dim)
+            doc_vec = np.random.randn(self.config.latent_dim).astype(np.float32)
             doc_vec_normalized = normalize_sphere(doc_vec)
             self.doc_embeddings.append(doc_vec_normalized)
         
-        self.doc_embeddings_tensor = torch.stack(self.doc_embeddings)
+        self.doc_embeddings_tensor = np.stack(self.doc_embeddings)
         print(f"[INFO] Created document embeddings: {self.doc_embeddings_tensor.shape}")
         
         # Add documents to M2M
@@ -71,9 +71,9 @@ class LlamaIndexRAG:
         """Embed query to spherical space."""
         # In real system, use BERT/GPT-2 to embed query text
         # Here we use a random embedding on S^639 for demonstration
-        query_vec = torch.randn(self.config.latent_dim)
+        query_vec = np.random.randn(self.config.latent_dim).astype(np.float32)
         query_vec_normalized = normalize_sphere(query_vec)
-        return query_vec_normalized.unsqueeze(0)
+        return query_vec_normalized[np.newaxis, :]
     
     def retrieve_relevant_docs(self, query: str, k: int = 3) -> List[str]:
         """Retrieve k-relevant documents for query."""
@@ -90,7 +90,8 @@ class LlamaIndexRAG:
         n_docs = len(doc_list)
 
         # Get document indices from top-K kappa (clamped to valid range)
-        top_k_indices = torch.topk(neighbors_kappa, min(k, neighbors_kappa.shape[-1])).indices
+        k = min(k, neighbors_kappa.shape[-1])
+        top_k_indices = np.argsort(neighbors_kappa, axis=-1)[:, -k:][:, ::-1]
         retrieved_docs = [doc_list[int(i) % n_docs] for i in top_k_indices[0].tolist()]
 
         return retrieved_docs

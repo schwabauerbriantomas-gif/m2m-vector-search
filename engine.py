@@ -1,4 +1,3 @@
-import torch
 import numpy as np
 from typing import List, Tuple
 
@@ -9,12 +8,12 @@ class M2MEngine:
     """
     def __init__(self, config=None):
         self.config = config
-        self.device = config.torch_device if config else 'cpu'
+        self.device = config.compute_device if hasattr(config, 'compute_device') else 'cpu'
         
         self.use_vulkan = False
         self.vulkan_router = None
         
-        if config and config.enable_vulkan:
+        if config and hasattr(config, 'enable_vulkan') and config.enable_vulkan:
             try:
                 from gpu_vector_index import GPUVectorIndex
                 dim = config.latent_dim if hasattr(config, "latent_dim") else 640
@@ -25,10 +24,10 @@ class M2MEngine:
                 self.use_vulkan = True
                 print("[INFO] Initialized True Vulkan Compute Shader MoE Router.")
             except Exception as e:
-                print(f"[WARNING] Vulkan MoE initialization failed: {e}. Falling back to PyTorch CUDA proxy.")
-                self.compute_device = torch.device(config.torch_device)
+                print(f"[WARNING] Vulkan MoE initialization failed: {e}. Falling back to NumPy proxy.")
+                self.compute_device = self.device
         else:
-            self.compute_device = torch.device(config.torch_device if config else 'cpu')
+            self.compute_device = self.device
             
     def compute_expert_distances(
         self, 
@@ -44,11 +43,10 @@ class M2MEngine:
         if self.use_vulkan:
             distances_cpu = self.vulkan_router.compute_distances(query, expert_embeddings)
         else:
-            with torch.no_grad():
-                q_tensor = torch.tensor(query, dtype=torch.float32, device=self.compute_device).unsqueeze(0)
-                e_tensor = torch.tensor(expert_embeddings, dtype=torch.float32, device=self.compute_device)
-                distances = torch.norm(e_tensor - q_tensor, dim=1)
-                distances_cpu = distances.cpu().numpy()
+            q_arr = np.array(query, dtype=np.float32)[np.newaxis, :]
+            e_arr = np.array(expert_embeddings, dtype=np.float32)
+            distances = np.linalg.norm(e_arr - q_arr, axis=1)
+            distances_cpu = distances
             
         # Zip results
         results = []

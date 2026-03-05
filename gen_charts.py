@@ -5,21 +5,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-assets = Path(r"C:\Users\Brian\.openclaw\workspace\projects\m2m\assets")
-assets.mkdir(exist_ok=True)
+assets = Path(__file__).parent / "assets"
+assets.mkdir(exist_ok=True, parents=True)
 
 print("Generando graficos...")
 
 # Grafico 1: Benchmark
 fig, ax = plt.subplots(figsize=(10, 5))
-methods = ['Linear Scan', 'M2M']
-times = [94.79, 0.99]
-colors = ['#FF6B6B', '#00C4B6']
+methods = ['Linear Scan', 'M2M CPU', 'M2M Vulkan']
+times = [55.66, 212.10, 98.54]
+colors = ['#FF6B6B', '#3498DB', '#00C4B6']
 bars = ax.bar(methods, times, color=colors)
 ax.set_ylabel('Latencia (ms)')
-ax.set_title('Comparacion de Latencia (100K vectores)')
+ax.set_title('Comparacion de Latencia (10K vectores, 640D)')
 for bar, val in zip(bars, times):
-    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{val}ms', ha='center')
+    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{val}ms', ha='center', va='bottom')
 plt.tight_layout()
 fig.savefig(assets / 'chart_benchmark_comparison.png', dpi=150)
 print("  chart_benchmark_comparison.png OK")

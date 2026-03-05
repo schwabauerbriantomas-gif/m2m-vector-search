@@ -208,7 +208,7 @@ def test_splat_store_batch():
     print(SEP)
 
     try:
-        import torch
+        import numpy as np
         from config import M2MConfig
         from splats import SplatStore
         from geometry import normalize_sphere
@@ -231,19 +231,20 @@ def test_splat_store_batch():
         store = SplatStore(config)
 
         # Add splats
-        torch.manual_seed(SEED)
-        vecs = normalize_sphere(torch.randn(n, DIM))
+        import numpy as np
+        np.random.seed(SEED)
+        vecs = normalize_sphere(np.random.randn(n, DIM).astype(np.float32))
         store.add_splat(vecs)
         store.build_index()
 
         # Single-query baseline
-        q_single = normalize_sphere(torch.randn(1, DIM))
+        q_single = normalize_sphere(np.random.randn(1, DIM).astype(np.float32))
         t0 = time.perf_counter()
         mu1, a1, k1 = store.find_neighbors(q_single, k=K)
         single_ms = (time.perf_counter() - t0) * 1000
 
         # Batch query
-        q_batch = normalize_sphere(torch.randn(B, DIM))
+        q_batch = normalize_sphere(np.random.randn(B, DIM).astype(np.float32))
         t0 = time.perf_counter()
         mu_b, a_b, k_b = store.batch_find_neighbors(q_batch, k=K, max_batch_size=B)
         batch_ms = (time.perf_counter() - t0) * 1000
