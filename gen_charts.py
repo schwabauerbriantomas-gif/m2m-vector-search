@@ -13,11 +13,11 @@ print("Generando graficos...")
 # Grafico 1: Benchmark
 fig, ax = plt.subplots(figsize=(10, 5))
 methods = ['Linear Scan', 'M2M CPU', 'M2M Vulkan']
-times = [739.06, 112.50, 55.20]
+times = [30.06, 89.24, 51.88]
 colors = ['#FF6B6B', '#3498DB', '#00C4B6']
 bars = ax.bar(methods, times, color=colors)
 ax.set_ylabel('Latencia (ms)')
-ax.set_title('Comparacion de Latencia (100K vectores, 640D en Edge)')
+ax.set_title('Comparacion de Latencia (10K vectores, 640D)')
 for bar, val in zip(bars, times):
     ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{val}ms', ha='center', va='bottom')
 plt.tight_layout()

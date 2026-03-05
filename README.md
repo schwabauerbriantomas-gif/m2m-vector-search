@@ -182,16 +182,16 @@ response = query_engine.query("Your search query")
 |-----------|-------|
 | **CPU** | Dual Core Local Edge Device |
 | **RAM** | 2GB Available |
-| **Vectors** | 100,000 (sklearn fallback, edge-scaled) |
+| **Vectors** | 10,000 (sklearn fallback) |
 | **Dimensions**| 640D |
 
 ### Results
 
 | System | Avg Latency | Throughput | Speedup |
 |--------|-------------|------------|---------|
-| **Linear Scan** | 739.06ms | 1.35 QPS | 1.0x (baseline) |
-| **M2M CPU** | 112.50ms | 8.88 QPS | 6.5x |
-| **M2M Vulkan** | **55.20ms** | **18.11 QPS** | **13.4x** |
+| **Linear Scan** | 30.06ms | 33.26 QPS | 1.0x (baseline) |
+| **M2M CPU** | 89.24ms | 11.20 QPS | 0.3x |
+| **M2M Vulkan** | **51.88ms** | **19.28 QPS** | **0.6x** |
 
 *(Reproduce local benchmarks via `python benchmarks/run_benchmark.py --dataset sklearn --n-splats 10000 --n-queries 100 --k 10`)*
 
@@ -199,10 +199,22 @@ response = query_engine.query("Your search query")
 
 ## 🚀 Installation
 
+### System Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **OS** | Windows 10, Linux, macOS | Linux / Windows |
+| **CPU** | 2 Cores | 4+ Cores |
+| **RAM** | 2 GB | 8+ GB |
+| **GPU** | Optional (Any Vulkan 1.0+ compatible device) | Dedicated GPU (NVIDIA/AMD) with Vulkan support |
+
+> **Note on Homogeneous Distributions vs Latency**: 
+> If vectors are perfectly homogeneous (a highly dense cluster without clear boundaries), the internal K-Means index struggles to separate them into distinct semantic paths. Consequently, the HRM2 engine must probe multiple overlapping clusters, forcing the latency closer to `O(N)` linear time as opposed to the ideal `O(sqrt(N))` logarithmic speedup seen in normally distributed or distinctly grouped datasets.
+
 ### Prerequisites
 
 - Python 3.8+
-- PyTorch 2.0+
+- PyTorch 2.0+ (Optional, only for external embedders)
 - NumPy 1.21+
 
 ### From Source
