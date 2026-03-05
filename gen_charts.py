@@ -25,26 +25,6 @@ fig.savefig(assets / 'chart_benchmark_comparison.png', dpi=150)
 print("  chart_benchmark_comparison.png OK")
 plt.close()
 
-# Grafico 2: Arquitectura
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 10)
-ax.axis('off')
-
-# Cajas
-ax.add_patch(plt.Rectangle((1, 7), 8, 2, fill=True, color='#3498DB'))
-ax.text(5, 8, 'CAPA APLICACION', ha='center', va='center', color='white', fontsize=12, fontweight='bold')
-
-ax.add_patch(plt.Rectangle((1, 4), 8, 2.5, fill=True, color='#2ECC71'))
-ax.text(5, 5.25, 'M2M CORE ENGINE', ha='center', va='center', color='white', fontsize=12, fontweight='bold')
-
-ax.add_patch(plt.Rectangle((1, 1), 8, 2.5, fill=True, color='#E74C3C'))
-ax.text(5, 2.25, 'MEMORIA (VRAM/RAM/SSD)', ha='center', va='center', color='white', fontsize=12, fontweight='bold')
-
-plt.tight_layout()
-fig.savefig(assets / 'chart_architecture.png', dpi=150)
-print("  chart_architecture.png OK")
-plt.close()
 
 # Grafico 3: Tipos de datos
 fig, ax = plt.subplots(figsize=(10, 5))
