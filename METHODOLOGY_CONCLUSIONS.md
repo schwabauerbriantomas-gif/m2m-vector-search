@@ -74,7 +74,7 @@ Designed for **autonomous agents**. Enables the full cognitive suite:
 
 ```python
 from m2m import AdvancedVectorDB
-db = AdvancedVectorDB(device='cuda')
+db = AdvancedVectorDB(device='vulkan')
 db.add(vectors)
 nearest = db.search(query, k=10)
 samples = db.generate(query, n_steps=20)   # ← Underdamped Langevin walk
@@ -295,7 +295,7 @@ Silhouette > 0.2 AND CV > 0.2?
 | `energy.py` | Energy function for SOC / Langevin dynamics |
 | `geometry.py` | Spherical geometry utilities |
 | `memory.py` | 3-tier memory hierarchy implementation |
-| `data_lake.py` | PyTorch DataLoader export |
+| `data_lake.py` | NumPy batch iterable export |
 | `shaders/moe_batch.comp` | GLSL compute shader (Vulkan MoE distance kernel) |
 | `shaders/moe_batch.spv` | Compiled SPIR-V compute shader (auto-built at runtime) |
 | `integrations/` | LangChain & LlamaIndex adapters |

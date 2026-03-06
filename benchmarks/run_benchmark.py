@@ -402,7 +402,7 @@ def main():
     print(f"  Queries: {queries.shape}")
 
     # Linear baseline
-    print(f"\n[BASELINE] Linear brute-force (torch.cdist)  K={args.k}...")
+    print(f"\n[BASELINE] Linear brute-force (np.linalg.norm)  K={args.k}...")
     baseline = linear_baseline(data, queries, args.k)
     print(f"  Avg: {baseline['avg_latency_ms']:.2f} ms  |  QPS: {baseline['throughput_qps']:.2f}")
 

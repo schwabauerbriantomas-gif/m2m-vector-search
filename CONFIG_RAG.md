@@ -47,18 +47,18 @@ M2M (Machine-to-Memory) is configured to act as a vectorstore in RAG systems:
 ### Direct Python API (Recommended)
 
 ```python
-import torch
+import numpy as np
 from m2m import SimpleVectorDB, normalize_sphere
 
 # 1. Initialize M2M in Simple Mode (SQLite style)
-db = SimpleVectorDB(device='cuda', latent_dim=640)
+db = SimpleVectorDB(device='cpu', latent_dim=640)
 
 # 2. Create embeddings (use real model in production)
-doc_embeddings = torch.randn(1000, 640)  # 1000 documents
+doc_embeddings = np.random.randn(1000, 640).astype(np.float32)  # 1000 documents
 db.add(doc_embeddings)
 
 # 3. Fast Retrieval
-query_embedding = normalize_sphere(torch.randn(1, 640))
+query_embedding = normalize_sphere(np.random.randn(1, 640).astype(np.float32))
 neighbors_mu, neighbors_alpha, neighbors_kappa = db.search(query_embedding, k=10)
 ```
 

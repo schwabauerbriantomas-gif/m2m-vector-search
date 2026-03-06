@@ -60,7 +60,7 @@ What actually happened.
 **Environment**
 - OS: [e.g., Windows 10, Ubuntu 22.04]
 - Python: [e.g., 3.12]
-- PyTorch: [e.g., 2.0.1]
+- NumPy: [e.g., 1.24.0]
 - Vulkan SDK: [e.g., 1.3.268]
 - GPU: [e.g., AMD RX 6650 XT]
 
@@ -206,12 +206,12 @@ splat_count = 10000  # Good
 x = 10000  # Bad
 
 # Use type hints
-def search(query: torch.Tensor, k: int = 64) -> Tuple[torch.Tensor, torch.Tensor]:
+def search(query: np.ndarray, k: int = 64) -> Tuple[np.ndarray, np.ndarray]:
     """Search for k nearest neighbors."""
     pass
 
 # Use docstrings (Google style)
-def add_splats(embeddings: torch.Tensor) -> int:
+def add_splats(embeddings: np.ndarray) -> int:
     """Add Gaussian splats to the store.
     
     Args:
@@ -369,7 +369,7 @@ Before submitting, ensure:
 ```python
 # tests/test_splats.py
 import pytest
-import torch
+import numpy as np
 from m2m import M2MConfig, SplatStore
 
 class TestSplatStore:
@@ -385,7 +385,7 @@ class TestSplatStore:
     
     def test_add_splat(self, store):
         """Test adding a single splat."""
-        embedding = torch.randn(640)
+        embedding = np.random.randn(640).astype(np.float32)
         result = store.add_splat(embedding)
         assert result == True
         assert store.n_active == 1
@@ -396,7 +396,7 @@ class TestSplatStore:
         store = SplatStore(config)
         
         for i in range(15):
-            embedding = torch.randn(640)
+            embedding = np.random.randn(640).astype(np.float32)
             store.add_splat(embedding)
         
         assert store.n_active == 10
@@ -404,10 +404,10 @@ class TestSplatStore:
     @pytest.mark.parametrize("k", [1, 10, 64])
     def test_search_k_values(self, store, k):
         """Test search with different k values."""
-        embeddings = torch.randn(100, 640)
+        embeddings = np.random.randn(100, 640).astype(np.float32)
         store.add_splats(embeddings)
         
-        query = torch.randn(1, 640)
+        query = np.random.randn(1, 640).astype(np.float32)
         results = store.find_neighbors(query, k=k)
         
         assert len(results) == k
@@ -460,7 +460,7 @@ python benchmarks/benchmark_m2m.py --report
 - Provide usage examples
 
 ```python
-def search(query: torch.Tensor, k: int = 64) -> SearchResults:
+def search(query: np.ndarray, k: int = 64) -> SearchResults:
     """Search for k nearest neighbors.
     
     Performs hierarchical search through HRM2 clustering
@@ -485,12 +485,12 @@ def search(query: torch.Tensor, k: int = 64) -> SearchResults:
     Example:
         >>> config = M2MConfig(device='cpu')
         >>> m2m = M2MEngine(config)
-        >>> embeddings = torch.randn(1000, 640)
+        >>> embeddings = np.random.randn(1000, 640).astype(np.float32)
         >>> m2m.add_splats(embeddings)
-        >>> query = torch.randn(1, 640)
+        >>> query = np.random.randn(1, 640).astype(np.float32)
         >>> results = m2m.search(query, k=10)
-        >>> print(results.neighbors_mu.shape)
-        torch.Size([10, 640])
+        >>> print(results[0].shape)
+        (10, 640)
     
     Note:
         Search is performed using HRM2 hierarchical clustering

@@ -173,33 +173,33 @@ class ProjectValidator:
             tests["config_creation"] = {
                 "status": "SUCCESS",
                 "device": config.device,
-                "torch_device": config.torch_device,
+                "compute_device": config.compute_device,
                 "max_splats": config.max_splats,
                 "latent_dim": config.latent_dim
             }
-            print(f"    [OK] Config: device={config.device}, torch_device={config.torch_device}")
+            print(f"    [OK] Config: device={config.device}, compute_device={config.compute_device}")
         except Exception as e:
             tests["config_creation"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
 
-        # Test 1b: Vulkan config (device='vulkan' → torch_device='cpu', enable_vulkan=True)
+        # Test 1b: Vulkan config (device='vulkan' -> compute_device='cpu', enable_vulkan=True)
         print("  [TEST] Vulkan config...")
         try:
             from m2m import M2MConfig as M2MConfigFull
             vk_config = M2MConfigFull(device='vulkan', max_splats=1000)
             vulkan_ok = (
                 vk_config.device == 'vulkan' and
-                vk_config.torch_device == 'cpu' and
+                vk_config.compute_device == 'cpu' and
                 vk_config.enable_vulkan == True
             )
             tests["vulkan_config"] = {
                 "status": "SUCCESS" if vulkan_ok else "FAILED",
                 "device": vk_config.device,
-                "torch_device": vk_config.torch_device,
+                "compute_device": vk_config.compute_device,
                 "enable_vulkan": vk_config.enable_vulkan
             }
             if vulkan_ok:
-                print(f"    [OK] Vulkan config: device={vk_config.device}, torch_device={vk_config.torch_device}, enable_vulkan={vk_config.enable_vulkan}")
+                print(f"    [OK] Vulkan config: device={vk_config.device}, compute_device={vk_config.compute_device}, enable_vulkan={vk_config.enable_vulkan}")
             else:
                 print(f"    [FAIL] Vulkan config mapping incorrect")
         except Exception as e:

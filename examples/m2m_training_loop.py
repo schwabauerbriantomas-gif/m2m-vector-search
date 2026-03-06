@@ -35,7 +35,7 @@ def dummy_training_loop(engine: M2MEngine, steps: int = 100):
 def main():
     print("Initializing M2M Storage & Data Lake...")
     config = M2MConfig(
-        device='cuda' if False else 'cpu', # Changed to False as torch is removed
+        device='cpu',
         n_splats_init=5000,
         max_splats=10000,
         enable_vulkan=False
@@ -47,16 +47,10 @@ def main():
     dummy_data = np.random.randn(5000, config.latent_dim).astype(np.float32)
     m2m.add_splats(dummy_data)
     
-        batch_mu = batch_mu.to(config.device)
-        targets = torch.randint(0, 10, (batch_mu.shape[0],)).to(config.device)
-        
-        optimizer.zero_grad()
-        outputs = model(batch_mu)
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
-        
-    print(f"Generative Epoch completed in {time.time() - start_time:.2f}s")
+    # Run simulated training loop
+    start_time = time.time()
+    dummy_training_loop(m2m, steps=100)
+    print(f"\nTraining completed in {time.time() - start_time:.2f}s")
     print("\nTraining completed successfully using M2M Data Lake!")
 
 if __name__ == '__main__':

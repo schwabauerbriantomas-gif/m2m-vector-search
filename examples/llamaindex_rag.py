@@ -67,7 +67,7 @@ class LlamaIndexRAG:
         n_added = self.m2m.add_splats(self.doc_embeddings_tensor)
         print(f"[INFO] Added {n_added} documents to M2M")
     
-    def embed_query(self, query: str) -> torch.Tensor:
+    def embed_query(self, query: str) -> np.ndarray:
         """Embed query to spherical space."""
         # In real system, use BERT/GPT-2 to embed query text
         # Here we use a random embedding on S^639 for demonstration

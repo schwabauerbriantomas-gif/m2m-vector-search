@@ -250,9 +250,12 @@ class M2MEngine:
         return self.m2m.compute_energy(x)
         
     def export_to_dataloader(self, batch_size=32, num_workers=0, importance_sampling=False, generate_samples=False):
-        """Export M2M Data Lake as a PyTorch DataLoader."""
-        from data_lake import M2MDataLake
-        from torch.utils.data import DataLoader
+        """Export M2M Data Lake as a numpy-based iterable of batches.
+        
+        Returns an iterable that yields numpy arrays of splat μ-vectors
+        in batches. Compatible with standard Python iteration.
+        """
+        from .data_lake import M2MDataLake
         
         dataset = M2MDataLake(
             m2m_engine=self,
@@ -260,7 +263,7 @@ class M2MEngine:
             importance_sampling=importance_sampling,
             generate_samples=generate_samples
         )
-        return DataLoader(dataset, batch_size=None, num_workers=num_workers)
+        return dataset
     
     def forward(self, x: np.ndarray) -> np.ndarray:
         """Forward pass (energy computation)."""
@@ -403,7 +406,7 @@ def main():
     # Determine device
     device = args.device
     if device is None:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = 'cpu'  # Default to CPU; use --device vulkan for GPU acceleration
     
     # Create configuration
     config = M2MConfig(

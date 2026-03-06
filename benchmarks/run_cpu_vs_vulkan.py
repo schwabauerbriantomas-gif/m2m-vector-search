@@ -35,7 +35,7 @@ def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=6
         enable_vulkan=(device_name == 'vulkan')
     )
     
-    print(f"[CONFIG] device={config.device}, torch_device={config.torch_device}, vulkan={config.enable_vulkan}")
+    print(f"[CONFIG] device={config.device}, compute_device={config.compute_device}, vulkan={config.enable_vulkan}")
     
     # Initialize engine
     t0 = time.perf_counter()

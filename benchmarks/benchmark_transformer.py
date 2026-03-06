@@ -29,9 +29,7 @@ def benchmark_transformed(vectors: np.ndarray, queries: np.ndarray, k: int = 10)
     linear_time = (time.perf_counter() - start) / len(queries) * 1000
     linear_qps = len(queries) / (len(queries) * linear_time / 1000)
     
-    # Normalize inputs for M2M which works on sphere S^d-1
-    # Actually the transformer already clusters them. Let's provide them to the transformer and index.
-    import torch
+
     
     # 2. M2M con datos originales
     print("[2] M2M Original...")
@@ -102,7 +100,7 @@ def main():
     from benchmarks.run_benchmark import load_hf_embeddings
 
     data, _, _ = load_hf_embeddings(n_target=10000, latent_dim=640)
-    data = data.numpy()
+    data = data  # already numpy from load_hf_embeddings
     
     # Generate random queries from data
     rng = np.random.default_rng(42)

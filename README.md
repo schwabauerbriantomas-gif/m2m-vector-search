@@ -34,7 +34,7 @@
 |---------|-------------|
 | **Hierarchical Retrieval (HRM2)** | Two-level clustering (Level 1 Coarse, Level 2 Fine) for sub-millisecond searches. |
 | **Gaussian Splats** | Full latent representation (μ, α, κ). |
-| **Local-First** | No cloud dependencies, pure local Python/PyTorch logic. |
+| **Local-First** | No cloud dependencies, pure local Python/NumPy logic. |
 | **GPU Acceleration** | Optional true Vulkan compute shader acceleration for MoE routers. |
 
 ---
@@ -67,17 +67,17 @@ Designed for raw edge computing and pure embedding retrieval. It strips away all
 **Best for**: RAG workflows, embedding lookup, static local vector caches.
 
 ```python
-import torch
+import numpy as np
 from m2m import SimpleVectorDB
 
 # Zero-configuration initialization
 db = SimpleVectorDB(device='cpu')
 
 # Add embeddings dynamically
-db.add(torch.randn(10000, 640))
+db.add(np.random.randn(10000, 640).astype(np.float32))
 
 # Blazing fast hierarchical search
-results = db.search(torch.randn(1, 640), k=10)
+results = db.search(np.random.randn(1, 640).astype(np.float32), k=10)
 
 # Save/Load your index instantly
 # db.load("vector_cache.bin")
@@ -91,19 +91,19 @@ Designed for Autonomous Agents. Enables the **3-Tier Memory Manager** (VRAM -> R
 **Best for**: Long-running Agents, dynamic memory systems, associative reasoning.
 
 ```python
-import torch
+import numpy as np
 from m2m import AdvancedVectorDB
 
 # Initialize Full Cognitive Suite
-agent_db = AdvancedVectorDB(device='cuda')
-agent_db.add(torch.randn(50000, 640))
+agent_db = AdvancedVectorDB(device='vulkan')
+agent_db.add(np.random.randn(50000, 640).astype(np.float32))
 
 # 1. Standard Search
-nearest = agent_db.search(torch.randn(1, 640), k=10)
+nearest = agent_db.search(np.random.randn(1, 640).astype(np.float32), k=10)
 
 # 2. Generative Latent Exploration
 # Uses Underdamped Langevin Dynamics to explicitly walk the energy manifold
-creative_samples = agent_db.generate(query=torch.randn(1, 640), n_steps=20)
+creative_samples = agent_db.generate(query=np.random.randn(1, 640).astype(np.float32), n_steps=20)
 
 # 3. Consolidate Memory via Self-Organized Criticality
 # Automatically removes near-duplicate or useless splats based on access frequency
@@ -214,8 +214,8 @@ response = query_engine.query("Your search query")
 ### Prerequisites
 
 - Python 3.8+
-- PyTorch 2.0+ (Optional, only for external embedders)
-- NumPy 1.21+
+- NumPy 1.24+
+- scikit-learn 1.2+
 
 ### From Source
 

@@ -55,7 +55,6 @@ def get_system_specs() -> dict:
         "cpu_cores_logical": psutil.cpu_count(logical=True),
         "ram_total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
         "python_version": platform.python_version(),
-        "torch_version": torch.__version__,
         "numpy_version": np.__version__,
     }
 
@@ -208,8 +207,8 @@ def main():
     }
 
     dataset_info = {
-        "type":          "Synthetic (torch.randn), deterministic seed",
-        "source":        "torch.manual_seed(42)",
+        "type":          "Synthetic (np.random.randn), deterministic seed",
+        "source":        "np.random.seed(42)",
         "distribution":  "Standard Normal, L2-normalised to unit sphere",
         "dimensions":    LATENT_DIM,
         "dtype":         "float32",
@@ -230,7 +229,7 @@ def main():
         all_results[scale_key] = {}
 
         # 1 — Linear baseline
-        print(f"\n  [BASELINE] Linear brute-force (torch.cdist)...")
+        print(f"\n  [BASELINE] Linear brute-force (np.linalg.norm)...")
         baseline = linear_baseline(data, queries, K)
         all_results[scale_key]["linear_baseline"] = baseline
         print(f"    Avg latency: {baseline['avg_latency_ms']:.4f} ms  |  QPS: {baseline['throughput_qps']:.2f}")

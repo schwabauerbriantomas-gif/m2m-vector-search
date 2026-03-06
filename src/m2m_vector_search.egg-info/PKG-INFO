@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: m2m-vector-search
-Version: 1.0.0
+Version: 1.0.1
 Summary: Machine-to-Memory Edge-Optimized Vector Search Database with Vulkan Compute API
 Author: Brian Schwabauer
 Project-URL: Homepage, https://github.com/schwabauerbriantomas-gif/m2m-vector-search
