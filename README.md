@@ -1,7 +1,9 @@
 # M2M Vector Search Engine
 
 [![Python](https://img.shields.io/badge/python-3.8%2B-brightgreen.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-passed-brightgreen.svg)](#-benchmarks)
+[![Tests](https://github.com/schwabauerbriantomas-gif/m2m-vector-search/actions/workflows/ci.yml/badge.svg)](https://github.com/schwabauerbriantomas-gif/m2m-vector-search/actions/workflows/ci.yml)
+[![PyPI version](https://badge.fury.io/py/m2m-vector-search.svg)](https://badge.fury.io/py/m2m-vector-search)
+[![Codecov](https://codecov.io/gh/schwabauerbriantomas-gif/m2m-vector-search/branch/main/graph/badge.svg)](https://codecov.io/gh/schwabauerbriantomas-gif/m2m-vector-search)
 
 > **Machine-to-Memory (M2M) Engine & Gaussian Splat Vector Store**
 >
@@ -13,13 +15,15 @@
 ## 📋 Table of Contents
 
 - [Overview](#-overview)
+- [Common Use Cases](#-common-use-cases)
 - [Two Modes of Operation](#-two-modes-of-operation)
   - [SimpleVectorDB (Edge / "SQLite" approach)](#1-simplevectordb)
   - [AdvancedVectorDB (Agentic approach)](#2-advancedvectordb)
 - [Architecture & 3-Tier Memory](#-architecture)
+- [Comparison](#️-comparison-with-other-vector-dbs)
 - [Benchmarks](#-benchmarks)
 - [Installation](#-installation)
-- [Quick Start](#-quick-start)
+- [Troubleshooting](#️-troubleshooting)
 - [License](#-license)
 
 ---
@@ -36,6 +40,14 @@
 | **Gaussian Splats** | Full latent representation (μ, α, κ). |
 | **Local-First** | No cloud dependencies, pure local Python/NumPy logic. |
 | **GPU Acceleration** | Optional true Vulkan compute shader acceleration for MoE routers. |
+
+---
+
+## 🌟 Common Use Cases
+
+- **Edge AI Devices**: Run fast vector searches on resource-constrained devices without internet access.
+- **Autonomous Agents**: Use AdvancedVectorDB for agents that need to dynamically cluster and forget information over time.
+- **Local RAG Pipelines**: Integrate with LangChain/LlamaIndex for private document Q&A without sending data to APIs.
 
 ---
 
@@ -172,6 +184,17 @@ response = query_engine.query("Your search query")
 
 ---
 
+## ⚖️ Comparison with other Vector DBs
+
+| Feature | M2M Vector Search | FAISS | Pinecone | Chroma |
+|---------|-------------------|-------|----------|--------|
+| **Deployment** | Local / Edge | Local | Cloud / Managed | Local / Server |
+| **Engine Focus** | Gaussian Splats, SOC | IVF, HNSW | Proprietary ANN | SQLite / HNSW |
+| **GPU Support** | Vulkan (Cross-platform) | CUDA (NVIDIA only) | N/A | N/A (CPU mostly) |
+| **Agentic Features**| Yes (Memory Tiering, SOC)| No | No | No |
+
+---
+
 ## 📊 Benchmarks
 
 ![Benchmark Comparison](./assets/chart_benchmark_comparison.png)
@@ -229,6 +252,12 @@ Verify your installation:
 ```bash
 python scripts/validate_project.py
 ```
+
+---
+
+## 🛠️ Troubleshooting
+
+Having issues? Check out our [Troubleshooting Guide](docs/TROUBLESHOOTING.md) for solutions to common problems.
 
 ---
 

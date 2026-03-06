@@ -29,3 +29,8 @@ dependencies = [
 [project.urls]
 "Homepage" = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search"
 "Bug Tracker" = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/issues"
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "isort", "mypy", "ruff", "coverage"]
+vulkan = ["vulkan>=1.3.0"]
+docs = ["mkdocs", "mkdocs-material"]
