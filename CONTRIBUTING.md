@@ -15,7 +15,6 @@ M2M is an open-source project, and we welcome contributions from the community. 
 - [Pull Request Process](#pull-request-process)
 - [Testing Guidelines](#testing-guidelines)
 - [Documentation](#documentation)
-- [Community](#community)
 
 ---
 
@@ -524,7 +523,6 @@ python scripts/generate_charts.py
 
 - **GitHub Issues**: For bug reports and feature requests
 - **Discussions**: For questions and general discussion
-- **Discord**: [Join our community](https://discord.com/invite/clawd)
 
 ### Recognition
 
