@@ -3,6 +3,7 @@ import time
 from src.m2m.lsh_index import CrossPolytopeLSH, LSHConfig
 from src.m2m.__init__ import SimpleVectorDB
 
+
 def test_lsh_recall_uniform_data():
     """Verifica que LSH logra >95% recall en datos uniformes."""
     # Generar datos uniformes en S^639
@@ -29,12 +30,7 @@ def test_lsh_recall_uniform_data():
 
     # Test LSH
     config = LSHConfig(
-        dim=dim,
-        n_tables=20,
-        n_bits=18,
-        n_probes=60,
-        n_candidates=600,
-        seed=42
+        dim=dim, n_tables=20, n_bits=18, n_probes=60, n_candidates=600, seed=42
     )
 
     index = CrossPolytopeLSH(config)
@@ -44,6 +40,7 @@ def test_lsh_recall_uniform_data():
 
     print(f"Recall@{k}: {recall:.4f}")
     assert recall >= 0.95, f"Recall {recall} < 0.95"
+
 
 def test_lsh_speedup():
     """Verifica que LSH es más rápido que linear scan."""
@@ -78,17 +75,18 @@ def test_lsh_speedup():
         index.query(q, k=k)
     lsh_time = (time.time() - start) / n_queries * 1000
 
-    speedup = linear_time / max(lsh_time, 1e-10) # avoid division by zero
+    speedup = linear_time / max(lsh_time, 1e-10)  # avoid division by zero
     print(f"Linear Scan: {linear_time:.2f}ms")
     print(f"LSH: {lsh_time:.2f}ms")
     print(f"Speedup: {speedup:.2f}x")
 
     assert speedup >= 1.5, f"Speedup {speedup} < 1.5x"
 
+
 def test_m2m_integration_with_lsh():
     """Verifica integración con M2M SimpleVectorDB."""
-    db = SimpleVectorDB(device='cpu', latent_dim=640, enable_lsh_fallback=True)
-    
+    db = SimpleVectorDB(device="cpu", latent_dim=640, enable_lsh_fallback=True)
+
     np.random.seed(42)
     n_vectors = 2000
     dim = 640

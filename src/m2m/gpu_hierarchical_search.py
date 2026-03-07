@@ -35,8 +35,9 @@ class HierarchicalGPUSearch:
     Each cluster's members are stored contiguously for cache efficiency.
     """
 
-    def __init__(self, n_clusters: int = 100, n_probe: int = 5,
-                 max_batch_size: int = 100):
+    def __init__(
+        self, n_clusters: int = 100, n_probe: int = 5, max_batch_size: int = 100
+    ):
         """
         Args:
             n_clusters:    Number of coarse clusters (C).
@@ -48,10 +49,10 @@ class HierarchicalGPUSearch:
         self.max_batch_size = max_batch_size
 
         self._is_built = False
-        self._gpu_centroids: Optional[object] = None     # GPUVectorIndex of centroids
-        self._cluster_members: list = []                 # list of np arrays per cluster
-        self._cluster_gpu_indices: list = []             # GPUVectorIndex per cluster
-        self._all_original_ids: list = []                # original vector ids per cluster
+        self._gpu_centroids: Optional[object] = None  # GPUVectorIndex of centroids
+        self._cluster_members: list = []  # list of np arrays per cluster
+        self._cluster_gpu_indices: list = []  # GPUVectorIndex per cluster
+        self._all_original_ids: list = []  # original vector ids per cluster
 
     # ─────────────────────────────────────────────────────────────────
     # Index building
@@ -69,8 +70,10 @@ class HierarchicalGPUSearch:
         vectors = np.ascontiguousarray(vectors, dtype=np.float32)
         n, d = vectors.shape
 
-        print(f"[HierarchicalGPUSearch] Building index: {n:,} vectors × {d} dims, "
-              f"C={self.n_clusters}, n_probe={self.n_probe}")
+        print(
+            f"[HierarchicalGPUSearch] Building index: {n:,} vectors × {d} dims, "
+            f"C={self.n_clusters}, n_probe={self.n_probe}"
+        )
 
         # ── KMeans clustering (CPU — done once at build time) ────────
         centroids, labels = self._kmeans(vectors, self.n_clusters)
@@ -94,30 +97,35 @@ class HierarchicalGPUSearch:
             if len(members) == 0:
                 self._cluster_gpu_indices.append(None)
             else:
-                self._cluster_gpu_indices.append(
-                    self._make_gpu_index(members, use_gpu)
-                )
+                self._cluster_gpu_indices.append(self._make_gpu_index(members, use_gpu))
 
         self._is_built = True
         build_time = time.perf_counter() - t0
-        print(f"[HierarchicalGPUSearch] Built in {build_time:.2f}s  "
-              f"| avg cluster size: {n // self.n_clusters}")
+        print(
+            f"[HierarchicalGPUSearch] Built in {build_time:.2f}s  "
+            f"| avg cluster size: {n // self.n_clusters}"
+        )
 
     def _make_gpu_index(self, vectors: np.ndarray, use_gpu: bool):
         """Try to create GPUVectorIndex; fall back to numpy wrapper."""
         if use_gpu:
             try:
                 from gpu_vector_index import GPUVectorIndex
+
                 return GPUVectorIndex(vectors, max_batch_size=self.max_batch_size)
             except Exception as e:
-                print(f"[HierarchicalGPUSearch] GPU init failed ({e}), using CPU fallback.")
+                print(
+                    f"[HierarchicalGPUSearch] GPU init failed ({e}), using CPU fallback."
+                )
         return _CPUFallbackIndex(vectors)
 
     # ─────────────────────────────────────────────────────────────────
     # Search
     # ─────────────────────────────────────────────────────────────────
 
-    def batch_search(self, queries: np.ndarray, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
+    def batch_search(
+        self, queries: np.ndarray, k: int = 10
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Two-stage GPU hierarchical search for a batch of queries.
 
@@ -139,7 +147,7 @@ class HierarchicalGPUSearch:
 
         # ── Stage 2: Fine — queries vs candidate clusters (GPU) ───────
         all_indices = [[] for _ in range(batch_size)]
-        all_dists   = [[] for _ in range(batch_size)]
+        all_dists = [[] for _ in range(batch_size)]
 
         for cluster_id in range(self.n_clusters):
             # Which queries probe this cluster?
@@ -163,27 +171,29 @@ class HierarchicalGPUSearch:
                 all_dists[qi].append(local_dists[i])
 
         # ── Merge and top-k ───────────────────────────────────────────
-        final_ids  = np.zeros((batch_size, k), dtype=np.int64)
+        final_ids = np.zeros((batch_size, k), dtype=np.int64)
         final_dists = np.full((batch_size, k), np.inf, dtype=np.float32)
 
         for qi in range(batch_size):
             if all_indices[qi]:
-                merged_ids  = np.concatenate(all_indices[qi])
+                merged_ids = np.concatenate(all_indices[qi])
                 merged_dists = np.concatenate(all_dists[qi])
                 # Deduplicate by keeping lowest dist per id
                 _, uniq = np.unique(merged_ids, return_index=True)
-                merged_ids  = merged_ids[uniq]
+                merged_ids = merged_ids[uniq]
                 merged_dists = merged_dists[uniq]
                 # Top-k
                 kk = min(k, len(merged_ids))
                 order = np.argpartition(merged_dists, kk - 1)[:kk]
                 order = order[np.argsort(merged_dists[order])]
-                final_ids[qi, :kk]   = merged_ids[order]
+                final_ids[qi, :kk] = merged_ids[order]
                 final_dists[qi, :kk] = merged_dists[order]
 
         return final_ids, final_dists
 
-    def search_single(self, query: np.ndarray, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
+    def search_single(
+        self, query: np.ndarray, k: int = 10
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Single-query convenience wrapper."""
         ids, dists = self.batch_search(query.reshape(1, -1), k=k)
         return ids[0], dists[0]
@@ -192,8 +202,9 @@ class HierarchicalGPUSearch:
     # KMeans (CPU — only at build time)
     # ─────────────────────────────────────────────────────────────────
 
-    def _kmeans(self, vectors: np.ndarray, n_clusters: int,
-                max_iter: int = 30) -> Tuple[np.ndarray, np.ndarray]:
+    def _kmeans(
+        self, vectors: np.ndarray, n_clusters: int, max_iter: int = 30
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Simple Lloyd's KMeans — used once at build time."""
         rng = np.random.default_rng(42)
         n, d = vectors.shape
@@ -205,9 +216,9 @@ class HierarchicalGPUSearch:
 
         for _ in range(max_iter):
             # Assign: find nearest centroid for each vector
-            diffs = vectors[:, None, :] - centroids[None, :, :]   # [N, C, D]
-            dists = np.linalg.norm(diffs, axis=-1)                 # [N, C]
-            labels = np.argmin(dists, axis=-1)                     # [N]
+            diffs = vectors[:, None, :] - centroids[None, :, :]  # [N, C, D]
+            dists = np.linalg.norm(diffs, axis=-1)  # [N, C]
+            labels = np.argmin(dists, axis=-1)  # [N]
 
             # Update centroids
             new_centroids = np.zeros_like(centroids)
@@ -229,17 +240,20 @@ class HierarchicalGPUSearch:
 # CPU fallback (when Vulkan unavailable)
 # ─────────────────────────────────────────────────────────────────
 
+
 class _CPUFallbackIndex:
     """NumPy brute-force fallback when GPU is unavailable."""
 
     def __init__(self, vectors: np.ndarray):
         self._vecs = vectors.astype(np.float32)
 
-    def batch_search(self, queries: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+    def batch_search(
+        self, queries: np.ndarray, k: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
         queries = queries.astype(np.float32)
         # [B, N] distance matrix
-        diff = queries[:, None, :] - self._vecs[None, :, :]   # [B, N, D]
-        dists = np.linalg.norm(diff, axis=-1)                 # [B, N]
+        diff = queries[:, None, :] - self._vecs[None, :, :]  # [B, N, D]
+        dists = np.linalg.norm(diff, axis=-1)  # [B, N]
         k = min(k, self._vecs.shape[0])
         ids = np.argpartition(dists, k - 1, axis=1)[:, :k]
         top_dists = np.take_along_axis(dists, ids, axis=1)

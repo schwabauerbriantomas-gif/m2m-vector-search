@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from m2m.gpu_vector_index import GPUVectorIndex
 
+
 def main():
     print("==========================================")
     print("M2M Edge Computing Node (Vulkan SPIR-V)")
@@ -36,7 +37,9 @@ def main():
         # GPUVectorIndex uploads the full index once at init — never re-uploaded
         gpu_index = GPUVectorIndex(local_embeddings, max_batch_size=1)
     except Exception as e:
-        print(f"[ERROR] Failed to init GPU index. Ensure LunarG SDK is present. Error: {e}")
+        print(
+            f"[ERROR] Failed to init GPU index. Ensure LunarG SDK is present. Error: {e}"
+        )
         return
 
     print("[SUCCESS] Native Vulkan pipeline established.")
@@ -70,6 +73,7 @@ def main():
     print(f"Throughput:    {1000 / np.mean(latencies):.2f} QPS")
     print("-------------------------------")
     print("[SUCCESS] Pure Edge execution capability validated.")
+
 
 if __name__ == "__main__":
     main()

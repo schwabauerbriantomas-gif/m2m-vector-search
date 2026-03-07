@@ -28,6 +28,7 @@ _CHUNK_SIZE = 8192
 # GPUVectorIndex — Persistent index + batch query dispatch
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class GPUVectorIndex:
     """
     Persistent GPU vector index with batch query dispatch.
@@ -68,8 +69,8 @@ class GPUVectorIndex:
         shader_spv = os.path.join(self._base_dir, "shaders", "moe_batch.spv")
         shader_comp = os.path.join(self._base_dir, "shaders", "moe_batch.comp")
         if not os.path.exists(shader_spv) or (
-            os.path.exists(shader_comp) and
-            os.path.getmtime(shader_comp) > os.path.getmtime(shader_spv)
+            os.path.exists(shader_comp)
+            and os.path.getmtime(shader_comp) > os.path.getmtime(shader_spv)
         ):
             print("[GPUVectorIndex] Compiling moe_batch.comp...")
             subprocess.run(["glslc", shader_comp, "-o", shader_spv], check=True)
@@ -98,7 +99,9 @@ class GPUVectorIndex:
         # Result buffer: bounded to [max_batch_size × CHUNK_SIZE] — never full [B×N].
         # Chunked dispatch keeps this ≤ max_batch × CHUNK_SIZE × 4 bytes (≤ ~3 MB).
         self._chunk_size = min(_CHUNK_SIZE, self._n)
-        self._r_buf, self._r_mem = self._create_buffer(max_batch_size * self._chunk_size * 4)
+        self._r_buf, self._r_mem = self._create_buffer(
+            max_batch_size * self._chunk_size * 4
+        )
 
         # ── Descriptor set ────────────────────────────────────────────
         self._desc_pool = self._make_descriptor_pool(3)
@@ -110,9 +113,11 @@ class GPUVectorIndex:
         self._p_cmds = vk.ffi.new("VkCommandBuffer[]", [self._cmd])
         self._p_sets = vk.ffi.new("VkDescriptorSet[]", [self._desc_set])
 
-        print(f"[GPUVectorIndex] Ready — index {self._n:,}×{self._dim}  "
-              f"({index_np.nbytes / 1024**2:.1f} MB persistent on GPU)  "
-              f"chunk_size={self._chunk_size:,}")
+        print(
+            f"[GPUVectorIndex] Ready — index {self._n:,}×{self._dim}  "
+            f"({index_np.nbytes / 1024**2:.1f} MB persistent on GPU)  "
+            f"chunk_size={self._chunk_size:,}"
+        )
 
     # ─────────────────────────────────────────────────────────────────
     # Public API
@@ -124,7 +129,7 @@ class GPUVectorIndex:
 
         Uses chunked dispatch over N to keep the result buffer bounded
         (≤ max_batch × CHUNK_SIZE × 4 bytes ≈ 3 MB).
-        
+
         Args:
             queries: shape [B, D] float32
             k: number of nearest neighbours to return
@@ -146,7 +151,7 @@ class GPUVectorIndex:
         self._upload(self._q_mem, queries)
 
         # Rolling top-K: track best k distances/ids seen so far
-        best_ids   = np.full((batch_size, k), -1,  dtype=np.int64)
+        best_ids = np.full((batch_size, k), -1, dtype=np.int64)
         best_dists = np.full((batch_size, k), np.inf, dtype=np.float32)
 
         chunk = self._chunk_size
@@ -154,8 +159,8 @@ class GPUVectorIndex:
         # Iterate over index in chunks — the index buffer stays persistent;
         # only push constants change to tell the shader which chunk to process.
         for chunk_start in range(0, self._n, chunk):
-            chunk_end  = min(chunk_start + chunk, self._n)
-            chunk_n    = chunk_end - chunk_start
+            chunk_end = min(chunk_start + chunk, self._n)
+            chunk_n = chunk_end - chunk_start
 
             self._dispatch_chunk(batch_size, chunk_start, chunk_n)
 
@@ -169,20 +174,25 @@ class GPUVectorIndex:
 
             # Merge chunk results into rolling top-K
             # Prepend chunk distances with already-accumulated bests
-            combined_ids   = np.concatenate([
-                best_ids,
-                np.arange(chunk_start, chunk_end, dtype=np.int64)[None, :].repeat(batch_size, axis=0)
-            ], axis=1)
+            combined_ids = np.concatenate(
+                [
+                    best_ids,
+                    np.arange(chunk_start, chunk_end, dtype=np.int64)[None, :].repeat(
+                        batch_size, axis=0
+                    ),
+                ],
+                axis=1,
+            )
             combined_dists = np.concatenate([best_dists, chunk_view], axis=1)
 
             # Pick new top-k from combined
             part = np.argpartition(combined_dists, k, axis=1)[:, :k]
             best_dists = np.take_along_axis(combined_dists, part, axis=1)
-            best_ids   = np.take_along_axis(combined_ids,  part, axis=1)
+            best_ids = np.take_along_axis(combined_ids, part, axis=1)
 
         # Final sort within top-k
         order = np.argsort(best_dists, axis=1)
-        best_ids   = np.take_along_axis(best_ids,   order, axis=1)
+        best_ids = np.take_along_axis(best_ids, order, axis=1)
         best_dists = np.take_along_axis(best_dists, order, axis=1)
 
         return best_ids, best_dists
@@ -190,14 +200,16 @@ class GPUVectorIndex:
     def rebuild(self, new_index_vectors: np.ndarray):
         """Re-upload the index (call only when index changes)."""
         new_idx = np.ascontiguousarray(new_index_vectors, dtype=np.float32)
-        assert new_idx.shape == (self._n, self._dim), (
-            "Shape mismatch; create a new GPUVectorIndex for different N or D."
-        )
+        assert new_idx.shape == (
+            self._n,
+            self._dim,
+        ), "Shape mismatch; create a new GPUVectorIndex for different N or D."
         self._upload(self._idx_mem, new_idx)
         print(f"[GPUVectorIndex] Index rebuilt ({self._n:,} vectors)")
 
-    def compute_distances(self, query_np: np.ndarray,
-                          expert_embeddings_np: np.ndarray) -> np.ndarray:
+    def compute_distances(
+        self, query_np: np.ndarray, expert_embeddings_np: np.ndarray
+    ) -> np.ndarray:
         """
         Drop-in replacement for VulkanMoERouter.compute_distances().
 
@@ -214,7 +226,9 @@ class GPUVectorIndex:
         Returns:
             distances: shape [N] float32 — L2 distance from query to each expert
         """
-        query_np = np.ascontiguousarray(query_np.flatten()[:self._dim], dtype=np.float32)
+        query_np = np.ascontiguousarray(
+            query_np.flatten()[: self._dim], dtype=np.float32
+        )
         expert_embeddings_np = np.ascontiguousarray(
             expert_embeddings_np.astype(np.float32)
         )
@@ -279,10 +293,18 @@ class GPUVectorIndex:
         )
         vk.vkBeginCommandBuffer(self._cmd, begin)
 
-        vk.vkCmdBindPipeline(self._cmd, vk.VK_PIPELINE_BIND_POINT_COMPUTE, self._pipeline)
+        vk.vkCmdBindPipeline(
+            self._cmd, vk.VK_PIPELINE_BIND_POINT_COMPUTE, self._pipeline
+        )
         vk.vkCmdBindDescriptorSets(
-            self._cmd, vk.VK_PIPELINE_BIND_POINT_COMPUTE,
-            self._pipeline_layout, 0, 1, self._p_sets, 0, vk.VK_NULL_HANDLE,
+            self._cmd,
+            vk.VK_PIPELINE_BIND_POINT_COMPUTE,
+            self._pipeline_layout,
+            0,
+            1,
+            self._p_sets,
+            0,
+            vk.VK_NULL_HANDLE,
         )
 
         # Push constants: num_vectors=chunk_n, dim
@@ -292,8 +314,12 @@ class GPUVectorIndex:
         # We pass chunk_start as a 3rd push constant (uint32).
         pc = vk.ffi.new("uint32_t[]", [chunk_n, self._dim, chunk_start])
         vk.vkCmdPushConstants(
-            self._cmd, self._pipeline_layout,
-            vk.VK_SHADER_STAGE_COMPUTE_BIT, 0, 12, vk.ffi.cast("void*", pc),
+            self._cmd,
+            self._pipeline_layout,
+            vk.VK_SHADER_STAGE_COMPUTE_BIT,
+            0,
+            12,
+            vk.ffi.cast("void*", pc),
         )
 
         group_x = (chunk_n + 255) // 256
@@ -329,8 +355,8 @@ class GPUVectorIndex:
         refs = []
         bufs_sizes = [
             (self._idx_buf, self._n * self._dim * 4),
-            (self._q_buf,   self._max_batch * self._dim * 4),
-            (self._r_buf,   self._max_batch * self._chunk_size * 4),
+            (self._q_buf, self._max_batch * self._dim * 4),
+            (self._r_buf, self._max_batch * self._chunk_size * 4),
         ]
         for i, (buf, size) in enumerate(bufs_sizes):
             binfo = vk.VkDescriptorBufferInfo(buffer=buf, offset=0, range=size)
@@ -488,7 +514,8 @@ class GPUVectorIndex:
             allocationSize=reqs.size,
             memoryTypeIndex=self._find_memory_type(
                 reqs.memoryTypeBits,
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             ),
         )
         mem = vk.vkAllocateMemory(self._device, alloc, None)

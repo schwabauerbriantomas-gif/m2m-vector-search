@@ -47,7 +47,7 @@ class ProjectValidator:
             exists = path.exists()
             structure[name] = {
                 "exists": exists,
-                "path": str(path.relative_to(PROJECT_ROOT)) if exists else None
+                "path": str(path.relative_to(PROJECT_ROOT)) if exists else None,
             }
             status = "[OK]" if exists else "[MISSING]"
             print(f"  {status} {name}: {path.name if exists else 'MISSING'}")
@@ -75,7 +75,7 @@ class ProjectValidator:
             metrics["python_files"] += 1
 
             try:
-                with open(py_file, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(py_file, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     metrics["total_lines"] += len(lines)
 
@@ -102,7 +102,7 @@ class ProjectValidator:
                             continue
 
                         # Comments
-                        if stripped.startswith('#'):
+                        if stripped.startswith("#"):
                             metrics["comment_lines"] += 1
                             continue
 
@@ -168,15 +168,18 @@ class ProjectValidator:
         print("  [TEST] Config creation (CPU)...")
         try:
             from config import M2MConfig
-            config = M2MConfig(device='cpu', max_splats=1000)
+
+            config = M2MConfig(device="cpu", max_splats=1000)
             tests["config_creation"] = {
                 "status": "SUCCESS",
                 "device": config.device,
                 "compute_device": config.compute_device,
                 "max_splats": config.max_splats,
-                "latent_dim": config.latent_dim
+                "latent_dim": config.latent_dim,
             }
-            print(f"    [OK] Config: device={config.device}, compute_device={config.compute_device}")
+            print(
+                f"    [OK] Config: device={config.device}, compute_device={config.compute_device}"
+            )
         except Exception as e:
             tests["config_creation"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
@@ -185,20 +188,23 @@ class ProjectValidator:
         print("  [TEST] Vulkan config...")
         try:
             from m2m import M2MConfig as M2MConfigFull
-            vk_config = M2MConfigFull(device='vulkan', max_splats=1000)
+
+            vk_config = M2MConfigFull(device="vulkan", max_splats=1000)
             vulkan_ok = (
-                vk_config.device == 'vulkan' and
-                vk_config.compute_device == 'cpu' and
-                vk_config.enable_vulkan
+                vk_config.device == "vulkan"
+                and vk_config.compute_device == "cpu"
+                and vk_config.enable_vulkan
             )
             tests["vulkan_config"] = {
                 "status": "SUCCESS" if vulkan_ok else "FAILED",
                 "device": vk_config.device,
                 "compute_device": vk_config.compute_device,
-                "enable_vulkan": vk_config.enable_vulkan
+                "enable_vulkan": vk_config.enable_vulkan,
             }
             if vulkan_ok:
-                print(f"    [OK] Vulkan config: device={vk_config.device}, compute_device={vk_config.compute_device}, enable_vulkan={vk_config.enable_vulkan}")
+                print(
+                    f"    [OK] Vulkan config: device={vk_config.device}, compute_device={vk_config.compute_device}, enable_vulkan={vk_config.enable_vulkan}"
+                )
             else:
                 print("    [FAIL] Vulkan config mapping incorrect")
         except Exception as e:
@@ -222,9 +228,11 @@ class ProjectValidator:
                 "status": "SUCCESS" if all_normalized else "FAILED",
                 "input_shape": list(x.shape),
                 "output_norm_mean": float(np.mean(norms)),
-                "output_norm_std": float(np.std(norms))
+                "output_norm_std": float(np.std(norms)),
             }
-            print(f"    [OK] Geometry: shape={list(x.shape)}, normalized={all_normalized}")
+            print(
+                f"    [OK] Geometry: shape={list(x.shape)}, normalized={all_normalized}"
+            )
         except Exception as e:
             tests["geometry_normalization"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
@@ -236,11 +244,12 @@ class ProjectValidator:
             from config import M2MConfig
 
             # Use minimal config without enable_vulkan
-            config = M2MConfig(device='cpu', max_splats=100)
+            config = M2MConfig(device="cpu", max_splats=100)
             store = SplatStore(config)
 
             # Add some splats
             import numpy as np
+
             embeddings = np.random.randn(50, 640).astype(np.float32)
             embeddings_norm = normalize_sphere(embeddings)
 
@@ -252,7 +261,7 @@ class ProjectValidator:
             tests["splatstore_basic"] = {
                 "status": "SUCCESS",
                 "splats_added": added,
-                "capacity": config.max_splats
+                "capacity": config.max_splats,
             }
             print(f"    [OK] SplatStore: {added}/{config.max_splats} splats added")
         except Exception as e:
@@ -264,19 +273,14 @@ class ProjectValidator:
         try:
             from hrm2_engine import HRM2Engine
 
-            engine = HRM2Engine(
-                n_coarse=10,
-                n_fine=50,
-                embedding_dim=640,
-                n_probe=2
-            )
+            engine = HRM2Engine(n_coarse=10, n_fine=50, embedding_dim=640, n_probe=2)
 
             # Skip adding splats, just test initialization
             tests["hrm2_engine"] = {
                 "status": "SUCCESS",
                 "n_coarse": engine.n_coarse,
                 "n_fine": engine.n_fine,
-                "embedding_dim": engine.embedding_dim
+                "embedding_dim": engine.embedding_dim,
             }
             print(f"    [OK] HRM2: n_coarse={engine.n_coarse}, n_fine={engine.n_fine}")
         except Exception as e:
@@ -297,7 +301,7 @@ class ProjectValidator:
             tests["encoding"] = {
                 "status": "SUCCESS",
                 "input_shape": list(positions.shape),
-                "output_shape": list(encoded.shape)
+                "output_shape": list(encoded.shape),
             }
             print(f"    [OK] Encoding: {positions.shape} -> {encoded.shape}")
         except Exception as e:
@@ -324,9 +328,11 @@ class ProjectValidator:
                 "status": "SUCCESS",
                 "n_clusters": 10,
                 "unique_labels_found": int(unique_labels),
-                "data_shape": list(data.shape)
+                "data_shape": list(data.shape),
             }
-            print(f"    [OK] Clustering: {data.shape[0]} points -> {unique_labels} clusters")
+            print(
+                f"    [OK] Clustering: {data.shape[0]} points -> {unique_labels} clusters"
+            )
         except Exception as e:
             tests["clustering"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
@@ -335,26 +341,36 @@ class ProjectValidator:
         print("  [TEST] Search functionality...")
         try:
             # Use already created store if available
-            if "splatstore_basic" in tests and tests["splatstore_basic"]["status"] == "SUCCESS":
+            if (
+                "splatstore_basic" in tests
+                and tests["splatstore_basic"]["status"] == "SUCCESS"
+            ):
                 # Create query
                 import numpy as np
+
                 query = np.random.randn(1, 640).astype(np.float32)
                 query_norm = normalize_sphere(query)
 
                 # Search
-                if hasattr(store, 'find_neighbors'):
+                if hasattr(store, "find_neighbors"):
                     store.find_neighbors(query_norm, k=5)
                     tests["search"] = {
                         "status": "SUCCESS",
                         "k": 5,
-                        "results_shape": "available"
+                        "results_shape": "available",
                     }
                     print("    [OK] Search: found k=5 neighbors")
                 else:
-                    tests["search"] = {"status": "SKIPPED", "reason": "find_neighbors not available"}
+                    tests["search"] = {
+                        "status": "SKIPPED",
+                        "reason": "find_neighbors not available",
+                    }
                     print("    [SKIP] Search: method not available")
             else:
-                tests["search"] = {"status": "SKIPPED", "reason": "SplatStore not available"}
+                tests["search"] = {
+                    "status": "SKIPPED",
+                    "reason": "SplatStore not available",
+                }
                 print("    [SKIP] Search: SplatStore not available")
         except Exception as e:
             tests["search"] = {"status": "FAILED", "error": str(e)}
@@ -369,7 +385,10 @@ class ProjectValidator:
 
         # Check for real-data benchmark results
         benchmark_files = [
-            (PROJECT_ROOT / "data_lake_real_metrics.json", "Real Data (sklearn digits)"),
+            (
+                PROJECT_ROOT / "data_lake_real_metrics.json",
+                "Real Data (sklearn digits)",
+            ),
             (PROJECT_ROOT / "benchmark_results.json", "Synthetic benchmark"),
             (PROJECT_ROOT / "benchmark_cpu_vs_vulkan.json", "CPU vs Vulkan"),
         ]
@@ -379,7 +398,7 @@ class ProjectValidator:
             if benchmark_file.exists():
                 found_any = True
                 print(f"  [FOUND] {label}: {benchmark_file.name}")
-                with open(benchmark_file, 'r') as f:
+                with open(benchmark_file, "r") as f:
                     data = json.load(f)
                 self.results["performance_tests"][benchmark_file.stem] = data
                 print(f"  [OK] Loaded: {benchmark_file.name}")
@@ -400,7 +419,9 @@ class ProjectValidator:
         # Structure
         structure = self.results["project_structure"]
         structure_ok = all(s.get("exists", False) for s in structure.values())
-        print(f"\n1. Project Structure: {'[OK] VALID' if structure_ok else '[FAIL] ISSUES'}")
+        print(
+            f"\n1. Project Structure: {'[OK] VALID' if structure_ok else '[FAIL] ISSUES'}"
+        )
 
         # Code metrics
         metrics = self.results["code_metrics"]
@@ -430,7 +451,7 @@ class ProjectValidator:
 
     def save_results(self):
         """Save validation results."""
-        with open(RESULTS_FILE, 'w', encoding='utf-8') as f:
+        with open(RESULTS_FILE, "w", encoding="utf-8") as f:
             json.dump(self.results, f, indent=2)
         print(f"\n[SAVED] Results: {RESULTS_FILE.name}")
 

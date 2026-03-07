@@ -48,6 +48,7 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 HF_CACHE = RESULTS_DIR / "hf_embeddings_cache.npy"
 
+
 def load_hf_embeddings(n_target: int = 10_000, latent_dim: int = 640, seed: int = 42):
     """
     Load real semantic embeddings from local Qdrant/dbpedia-entities-openai3 parquet files at C:\\dbpedia_dataset\\data.
@@ -63,14 +64,18 @@ def load_hf_embeddings(n_target: int = 10_000, latent_dim: int = 640, seed: int 
         print(f"  [CACHE] Loading from {cache.name}...")
         X = np.load(str(cache))
         data = normalize_sphere(X)
-        return data, None, {
-            "source": ds_name,
-            "url": "file:///C:/dbpedia_dataset",
-            "latent_dim": X.shape[1],
-            "n_samples": X.shape[0],
-            "normalization": "L2 unit sphere",
-            "cached": True,
-        }
+        return (
+            data,
+            None,
+            {
+                "source": ds_name,
+                "url": "file:///C:/dbpedia_dataset",
+                "latent_dim": X.shape[1],
+                "n_samples": X.shape[0],
+                "normalization": "L2 unit sphere",
+                "cached": True,
+            },
+        )
 
     import pandas as pd
     from pathlib import Path
@@ -78,7 +83,9 @@ def load_hf_embeddings(n_target: int = 10_000, latent_dim: int = 640, seed: int 
     print(f"  [LOCAL] Loading {ds_name} from C:\\dbpedia_dataset\\data ...")
     data_dir = Path("C:/dbpedia_dataset/data")
     if not data_dir.exists():
-        raise FileNotFoundError(f"Dataset directory not found: {data_dir}. Please place the DBpedia parquet files there.")
+        raise FileNotFoundError(
+            f"Dataset directory not found: {data_dir}. Please place the DBpedia parquet files there."
+        )
 
     parquet_files = sorted(data_dir.glob("*.parquet"))
     if not parquet_files:
@@ -99,24 +106,29 @@ def load_hf_embeddings(n_target: int = 10_000, latent_dim: int = 640, seed: int 
     if len(rows) < n_target:
         print(f"  [WARN] Request n={n_target} but only {len(rows)} vectors available.")
 
-    X = np.array(rows, dtype=np.float32)           # [N, latent_dim]
+    X = np.array(rows, dtype=np.float32)  # [N, latent_dim]
     np.save(str(cache), X)
     print(f"  [CACHE] Saved {cache.name}")
 
     data = normalize_sphere(X)
-    return data, None, {
-        "source": ds_name,
-        "url": "file:///C:/dbpedia_dataset",
-        "latent_dim": X.shape[1],
-        "n_samples": X.shape[0],
-        "normalization": "L2 unit sphere",
-        "cached": False,
-    }
+    return (
+        data,
+        None,
+        {
+            "source": ds_name,
+            "url": "file:///C:/dbpedia_dataset",
+            "latent_dim": X.shape[1],
+            "n_samples": X.shape[0],
+            "normalization": "L2 unit sphere",
+            "cached": False,
+        },
+    )
 
 
 def load_sklearn_data(n_target: int = 10_000, latent_dim: int = 640, seed: int = 42):
     """Fallback: sklearn Handwritten Digits (toy dataset, 64D projected to latent_dim)."""
     from sklearn.datasets import load_digits
+
     digits = load_digits()
     X_raw = digits.data.astype(np.float32)
     rng = np.random.default_rng(seed)
@@ -126,7 +138,7 @@ def load_sklearn_data(n_target: int = 10_000, latent_dim: int = 640, seed: int =
     rng2 = np.random.default_rng(seed + 1)
     proj = rng2.standard_normal((64, latent_dim)).astype(np.float32)
     proj /= np.linalg.norm(proj, axis=1, keepdims=True) + 1e-8
-    
+
     repeats_target_idx = np.tile(np.arange(len(digits.target)), repeats)
     # Chunked projection and normalization to save RAM on edge devices
     data = np.zeros((n_target, latent_dim), dtype=np.float32)
@@ -139,49 +151,61 @@ def load_sklearn_data(n_target: int = 10_000, latent_dim: int = 640, seed: int =
         norm = np.linalg.norm(chunk_proj, axis=1, keepdims=True)
         norm = np.clip(norm, 1e-8, None)
         data[i:end] = chunk_proj / norm
-        
-    return data, digits.target[repeats_target_idx][:n_target], {
-        "source": "sklearn.datasets.load_digits (toy fallback)",
-        "latent_dim": latent_dim,
-        "n_samples": n_target,
-        "normalization": "L2 unit sphere",
-    }
+
+    return (
+        data,
+        digits.target[repeats_target_idx][:n_target],
+        {
+            "source": "sklearn.datasets.load_digits (toy fallback)",
+            "latent_dim": latent_dim,
+            "n_samples": n_target,
+            "normalization": "L2 unit sphere",
+        },
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Benchmark helpers
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def get_system_specs() -> Dict[str, Any]:
     specs: Dict[str, Any] = {
-        "platform":           platform.platform(),
-        "processor":          platform.processor() or "N/A",
-        "python_version":     platform.python_version(),
-        "numpy_version":      np.__version__,
+        "platform": platform.platform(),
+        "processor": platform.processor() or "N/A",
+        "python_version": platform.python_version(),
+        "numpy_version": np.__version__,
     }
     try:
         import psutil
+
         specs["cpu_cores_physical"] = psutil.cpu_count(logical=False)
-        specs["cpu_cores_logical"]  = psutil.cpu_count(logical=True)
-        specs["ram_total_gb"]       = round(psutil.virtual_memory().total / 1024**3, 2)
+        specs["cpu_cores_logical"] = psutil.cpu_count(logical=True)
+        specs["ram_total_gb"] = round(psutil.virtual_memory().total / 1024**3, 2)
     except ImportError:
         pass
     try:
         import vulkan as vk
-        inst = vk.vkCreateInstance(vk.VkInstanceCreateInfo(
-            sType=vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            pApplicationInfo=vk.VkApplicationInfo(
-                sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
-                apiVersion=vk.VK_MAKE_VERSION(1, 0, 0),
+
+        inst = vk.vkCreateInstance(
+            vk.VkInstanceCreateInfo(
+                sType=vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                pApplicationInfo=vk.VkApplicationInfo(
+                    sType=vk.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                    apiVersion=vk.VK_MAKE_VERSION(1, 0, 0),
+                ),
             ),
-        ), None)
+            None,
+        )
         devs = vk.vkEnumeratePhysicalDevices(inst)
         if devs:
             p = vk.vkGetPhysicalDeviceProperties(devs[0])
             specs["vulkan_gpu"] = p.deviceName
-            specs["vulkan_api"] = (f"{vk.VK_VERSION_MAJOR(p.apiVersion)}."
-                                   f"{vk.VK_VERSION_MINOR(p.apiVersion)}."
-                                   f"{vk.VK_VERSION_PATCH(p.apiVersion)}")
+            specs["vulkan_api"] = (
+                f"{vk.VK_VERSION_MAJOR(p.apiVersion)}."
+                f"{vk.VK_VERSION_MINOR(p.apiVersion)}."
+                f"{vk.VK_VERSION_PATCH(p.apiVersion)}"
+            )
         vk.vkDestroyInstance(inst, None)
     except Exception:
         specs["vulkan_gpu"] = "N/A"
@@ -192,9 +216,9 @@ def linear_baseline(data: np.ndarray, queries: np.ndarray, k: int) -> Dict:
     """Brute-force O(N) baseline via numpy."""
     latencies = []
     for i in range(len(queries)):
-        q  = queries[i:i+1]
+        q = queries[i : i + 1]
         t0 = time.perf_counter()
-        
+
         # Chunked to avoid MemoryError on 2GB edge machines
         chunk_size = 10000
         d_chunks = []
@@ -204,10 +228,10 @@ def linear_baseline(data: np.ndarray, queries: np.ndarray, k: int) -> Dict:
             # Calculate distance efficiently without breaking RAM
             d_chunk = np.linalg.norm(diff, axis=1)
             d_chunks.append(d_chunk)
-            
+
         d = np.concatenate(d_chunks)
         np.argpartition(d, k)[:k]
-        
+
         latencies.append((time.perf_counter() - t0) * 1000)
 
     lat = np.array(latencies)
@@ -220,15 +244,16 @@ def linear_baseline(data: np.ndarray, queries: np.ndarray, k: int) -> Dict:
     }
 
 
-def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
-                k: int, n_warmup: int = 5) -> Dict:
+def run_backend(
+    device_name: str, data: np.ndarray, queries: np.ndarray, k: int, n_warmup: int = 5
+) -> Dict:
     """
     Full benchmark for one backend (cpu or vulkan).
     Returns a dict with latency, throughput, ingest, and training metrics.
     """
-    n_splats  = data.shape[0]
+    n_splats = data.shape[0]
     latent_dim = data.shape[1]
-    is_vulkan = (device_name == "vulkan")
+    is_vulkan = device_name == "vulkan"
 
     print(f"\n  ── {device_name.upper()} ─────────────────────────────────────")
 
@@ -247,26 +272,30 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
         print("  Transforming dataset to M2M Format (Hierarchy Levels: 4)...")
         from dataset_transformer import M2MDatasetTransformer
         import os
-        
+
         # Transform offline
         data_np = data.copy()
-        transformer = M2MDatasetTransformer(data_np, n_clusters_base=200, hierarchy_levels=4)
+        transformer = M2MDatasetTransformer(
+            data_np, n_clusters_base=200, hierarchy_levels=4
+        )
         transform_start = time.perf_counter()
         result = transformer.transform()
-        transformer.save_for_m2m('benchmark_temp_transformed.bin')
+        transformer.save_for_m2m("benchmark_temp_transformed.bin")
         add_s = time.perf_counter() - transform_start
-        
+
         # Load directly
         t0 = time.perf_counter()
         engine = create_m2m(config)
-        
+
         # Override the loading mechanism
-        engine.load_optimized('benchmark_temp_transformed.bin')
+        engine.load_optimized("benchmark_temp_transformed.bin")
         init_s = time.perf_counter() - t0
-        print(f"  Transformed Loading: {len(result['splats']):,} splats  |  {add_s:.2f} s")
+        print(
+            f"  Transformed Loading: {len(result['splats']):,} splats  |  {add_s:.2f} s"
+        )
         ingest_qps = 0
-        os.remove('benchmark_temp_transformed.bin')
-        
+        os.remove("benchmark_temp_transformed.bin")
+
     else:
         # Standard Init
         t0 = time.perf_counter()
@@ -283,9 +312,9 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
 
     # Standard training throughput (export_to_dataloader + 1 epoch)
     try:
-        std_dl = engine.export_to_dataloader(batch_size=256,
-                                              importance_sampling=True,
-                                              generate_samples=False)
+        std_dl = engine.export_to_dataloader(
+            batch_size=256, importance_sampling=True, generate_samples=False
+        )
         t0 = time.perf_counter()
         loss_acc, n_batches = 0.0, 0
         for batch_mu in std_dl:
@@ -316,7 +345,7 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
 
     latencies: list[float] = []
     for i in range(len(queries)):
-        q  = queries[i][np.newaxis, :]
+        q = queries[i][np.newaxis, :]
         t0 = time.perf_counter()
         engine.search(q, k=k)
         latencies.append((time.perf_counter() - t0) * 1000)
@@ -324,34 +353,36 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
     lat = np.array(latencies)
     total_s = lat.sum() / 1000
     qps = len(queries) / total_s
-    print(f"  Retrieval QPS: {qps:.2f}  avg={lat.mean():.2f}ms  p95={np.percentile(lat,95):.2f}ms")
+    print(
+        f"  Retrieval QPS: {qps:.2f}  avg={lat.mean():.2f}ms  p95={np.percentile(lat,95):.2f}ms"
+    )
 
     return {
-        "device":               device_name,
-        "vulkan_enabled":       is_vulkan,
-        "init_time_ms":         round(init_s * 1000, 2),
-        "n_splats":             n_splats,
+        "device": device_name,
+        "vulkan_enabled": is_vulkan,
+        "init_time_ms": round(init_s * 1000, 2),
+        "n_splats": n_splats,
         "ingest_throughput_qps": round(ingest_qps, 2),
         "standard_training": {
             "throughput_splats_per_sec": round(std_tp, 2),
-            "epoch_time_s":              round(std_s, 4),
-            "avg_loss":                  round(std_loss, 6),
+            "epoch_time_s": round(std_s, 4),
+            "avg_loss": round(std_loss, 6),
         },
         "generative_training": {
             "throughput_splats_per_sec": round(gen_tp, 2),
-            "epoch_time_s":              round(gen_s, 4),
-            "avg_loss":                  round(gen_loss, 6),
+            "epoch_time_s": round(gen_s, 4),
+            "avg_loss": round(gen_loss, 6),
         },
         "retrieval": {
-            "n_queries":        len(queries),
-            "k":                k,
-            "avg_latency_ms":   round(float(lat.mean()), 4),
-            "p50_latency_ms":   round(float(np.percentile(lat, 50)), 4),
-            "p95_latency_ms":   round(float(np.percentile(lat, 95)), 4),
-            "p99_latency_ms":   round(float(np.percentile(lat, 99)), 4),
-            "min_latency_ms":   round(float(lat.min()), 4),
-            "max_latency_ms":   round(float(lat.max()), 4),
-            "throughput_qps":   round(qps, 2),
+            "n_queries": len(queries),
+            "k": k,
+            "avg_latency_ms": round(float(lat.mean()), 4),
+            "p50_latency_ms": round(float(np.percentile(lat, 50)), 4),
+            "p95_latency_ms": round(float(np.percentile(lat, 95)), 4),
+            "p99_latency_ms": round(float(np.percentile(lat, 99)), 4),
+            "min_latency_ms": round(float(lat.min()), 4),
+            "max_latency_ms": round(float(lat.max()), 4),
+            "throughput_qps": round(qps, 2),
         },
     }
 
@@ -360,24 +391,41 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
 # Main
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="M2M Real-Data Benchmark — OpenAI Embeddings via Qdrant DBpedia (HuggingFace)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--device",   default="both", choices=["cpu", "vulkan", "transformed", "both", "all"])
-    parser.add_argument("--dataset",  default="hf", choices=["hf", "sklearn"],
-                        help="Dataset source (default: hf = HuggingFace Qdrant/DBpedia embeddings)")
+    parser.add_argument(
+        "--device",
+        default="both",
+        choices=["cpu", "vulkan", "transformed", "both", "all"],
+    )
+    parser.add_argument(
+        "--dataset",
+        default="hf",
+        choices=["hf", "sklearn"],
+        help="Dataset source (default: hf = HuggingFace Qdrant/DBpedia embeddings)",
+    )
     parser.add_argument("--n-splats", type=int, default=10_000)
-    parser.add_argument("--n-queries",type=int, default=1_000)
-    parser.add_argument("--k",        type=int, default=10)
-    parser.add_argument("--dim",      type=int, default=640,
-                        help="Latent dimension to use/truncate to (default 640)")
-    parser.add_argument("--seed",     type=int, default=42)
+    parser.add_argument("--n-queries", type=int, default=1_000)
+    parser.add_argument("--k", type=int, default=10)
+    parser.add_argument(
+        "--dim",
+        type=int,
+        default=640,
+        help="Latent dimension to use/truncate to (default 640)",
+    )
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     ts = time.strftime("%Y%m%d_%H%M")
-    ds_label = f"HuggingFace Qdrant dbpedia ({args.dim}D)" if args.dataset == "hf" else f"sklearn digits ({args.dim}D)"
+    ds_label = (
+        f"HuggingFace Qdrant dbpedia ({args.dim}D)"
+        if args.dataset == "hf"
+        else f"sklearn digits ({args.dim}D)"
+    )
     print("=" * 70)
     print("  M2M Real-Data Benchmark")
     print(f"  Dataset: {ds_label}")
@@ -405,7 +453,9 @@ def main():
     # Linear baseline
     print(f"\n[BASELINE] Linear brute-force (np.linalg.norm)  K={args.k}...")
     baseline = linear_baseline(data, queries, args.k)
-    print(f"  Avg: {baseline['avg_latency_ms']:.2f} ms  |  QPS: {baseline['throughput_qps']:.2f}")
+    print(
+        f"  Avg: {baseline['avg_latency_ms']:.2f} ms  |  QPS: {baseline['throughput_qps']:.2f}"
+    )
 
     # Backend benchmarks
     device_map = {
@@ -413,7 +463,7 @@ def main():
         "both": ["cpu", "vulkan", "transformed"],
         "cpu": ["cpu"],
         "vulkan": ["vulkan"],
-        "transformed": ["transformed"]
+        "transformed": ["transformed"],
     }
     devices = device_map[args.device]
     backend_results = {}
@@ -431,36 +481,44 @@ def main():
     hdr = f"{'Metric':<28} | {'Linear':>12} | {'CPU':>12} | {'Vulkan GPU':>12}"
     print(hdr)
     print("-" * len(hdr))
+
     def _v(d, key):
         if d is None or "error" in d:
             return "--"
         return f"{d['retrieval'][key]:.2f}"
+
     cpu_r = backend_results.get("cpu")
-    vk_r  = backend_results.get("vulkan")
-    print(f"{'Avg Latency (ms)':<28} | {baseline['avg_latency_ms']:>12.2f} | {_v(cpu_r,'avg_latency_ms'):>12} | {_v(vk_r,'avg_latency_ms'):>12}")
-    print(f"{'P95 Latency (ms)':<28} | {'—':>12} | {_v(cpu_r,'p95_latency_ms'):>12} | {_v(vk_r,'p95_latency_ms'):>12}")
-    print(f"{'Throughput (QPS)':<28} | {baseline['throughput_qps']:>12.2f} | {_v(cpu_r,'throughput_qps'):>12} | {_v(vk_r,'throughput_qps'):>12}")
+    vk_r = backend_results.get("vulkan")
+    print(
+        f"{'Avg Latency (ms)':<28} | {baseline['avg_latency_ms']:>12.2f} | {_v(cpu_r,'avg_latency_ms'):>12} | {_v(vk_r,'avg_latency_ms'):>12}"
+    )
+    print(
+        f"{'P95 Latency (ms)':<28} | {'—':>12} | {_v(cpu_r,'p95_latency_ms'):>12} | {_v(vk_r,'p95_latency_ms'):>12}"
+    )
+    print(
+        f"{'Throughput (QPS)':<28} | {baseline['throughput_qps']:>12.2f} | {_v(cpu_r,'throughput_qps'):>12} | {_v(vk_r,'throughput_qps'):>12}"
+    )
     if cpu_r and "error" not in cpu_r:
-        sp = baseline['avg_latency_ms'] / cpu_r['retrieval']['avg_latency_ms']
+        sp = baseline["avg_latency_ms"] / cpu_r["retrieval"]["avg_latency_ms"]
         print(f"  CPU speedup vs linear: {sp:.1f}x")
     if vk_r and "error" not in vk_r:
-        sp = baseline['avg_latency_ms'] / vk_r['retrieval']['avg_latency_ms']
+        sp = baseline["avg_latency_ms"] / vk_r["retrieval"]["avg_latency_ms"]
         print(f"  Vulkan speedup vs linear: {sp:.1f}x")
 
     # Save
     output = {
-        "timestamp":      time.strftime("%Y-%m-%d %H:%M:%S"),
-        "system_specs":   specs,
-        "data_meta":      data_meta,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "system_specs": specs,
+        "data_meta": data_meta,
         "config": {
-            "n_splats":    args.n_splats,
-            "n_queries":   args.n_queries,
-            "k":           args.k,
-            "latent_dim":  args.dim,
-            "seed":        args.seed,
+            "n_splats": args.n_splats,
+            "n_queries": args.n_queries,
+            "k": args.k,
+            "latent_dim": args.dim,
+            "seed": args.seed,
         },
         "linear_baseline": baseline,
-        "backends":        backend_results,
+        "backends": backend_results,
     }
 
     latest = RESULTS_DIR / "benchmark_latest.json"

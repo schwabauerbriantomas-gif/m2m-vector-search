@@ -25,10 +25,10 @@ os.chdir(PROJECT_ROOT)
 
 OUTPUT_FILE = PROJECT_ROOT / "gpu_batch_validation_results.json"
 
-SEED   = 42
-DIM    = 128
-K      = 10
-B      = 20   # batch size for batch tests
+SEED = 42
+DIM = 128
+K = 10
+B = 20  # batch size for batch tests
 
 np.random.seed(SEED)
 
@@ -45,21 +45,23 @@ SEP = "─" * 68
 # Helper
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def cpu_brute_force(index: np.ndarray, queries: np.ndarray, k: int):
     """Reference: numpy L2 brute-force. Returns [B, k] ids and dists."""
-    diff  = queries[:, None, :] - index[None, :, :]  # [B, N, D]
-    dists = np.linalg.norm(diff, axis=-1)             # [B, N]
-    ids   = np.argpartition(dists, k, axis=1)[:, :k]
-    top   = np.take_along_axis(dists, ids, axis=1)
+    diff = queries[:, None, :] - index[None, :, :]  # [B, N, D]
+    dists = np.linalg.norm(diff, axis=-1)  # [B, N]
+    ids = np.argpartition(dists, k, axis=1)[:, :k]
+    top = np.take_along_axis(dists, ids, axis=1)
     order = np.argsort(top, axis=1)
-    ids   = np.take_along_axis(ids,  order, axis=1)
-    top   = np.take_along_axis(top,  order, axis=1)
+    ids = np.take_along_axis(ids, order, axis=1)
+    top = np.take_along_axis(top, order, axis=1)
     return ids, top
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test 1 — GPUVectorIndex: correctness + latency at multiple scales
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def test_gpu_vector_index():
     print(f"\n{SEP}")
@@ -80,8 +82,8 @@ def test_gpu_vector_index():
         rng = np.random.default_rng(SEED)
         index_vecs = rng.standard_normal((n, DIM)).astype(np.float32)
         index_vecs /= np.linalg.norm(index_vecs, axis=1, keepdims=True)
-        queries    = rng.standard_normal((B, DIM)).astype(np.float32)
-        queries   /= np.linalg.norm(queries, axis=1, keepdims=True)
+        queries = rng.standard_normal((B, DIM)).astype(np.float32)
+        queries /= np.linalg.norm(queries, axis=1, keepdims=True)
 
         # ── Init (index upload — timed separately) ───────────────────
         t0 = time.perf_counter()
@@ -99,15 +101,17 @@ def test_gpu_vector_index():
         total_ids = B * K
         correct = max_diff < 1e-3
 
-        print(f"    Correctness  max dist diff: {max_diff:.6f}  "
-              f"ids match: {ids_match}/{total_ids}  → {'PASS' if correct else 'FAIL'}")
+        print(
+            f"    Correctness  max dist diff: {max_diff:.6f}  "
+            f"ids match: {ids_match}/{total_ids}  → {'PASS' if correct else 'FAIL'}"
+        )
 
         # ── Latency: single-query loop vs batch dispatch ──────────────
         # Single-query loop (old pattern)
         times_single = []
         for i in range(B):
             t0 = time.perf_counter()
-            gpu_idx.batch_search(queries[i:i+1], k=K)
+            gpu_idx.batch_search(queries[i : i + 1], k=K)
             times_single.append((time.perf_counter() - t0) * 1000)
 
         # Batch dispatch (new pattern)
@@ -118,19 +122,19 @@ def test_gpu_vector_index():
             times_batch.append((time.perf_counter() - t0) * 1000)
 
         single_total = float(np.sum(times_single))
-        batch_avg    = float(np.mean(times_batch))
-        speedup      = single_total / batch_avg if batch_avg > 0 else 0
+        batch_avg = float(np.mean(times_batch))
+        speedup = single_total / batch_avg if batch_avg > 0 else 0
 
         print(f"    Single-query loop {B}×: {single_total:.2f} ms total")
         print(f"    Batch dispatch  {B}q:  {batch_avg:.2f} ms avg")
         print(f"    Batch speedup:         {speedup:.2f}x")
 
         test_results[str(n)] = {
-            "init_ms":         round(init_ms, 2),
+            "init_ms": round(init_ms, 2),
             "correctness_max_diff": round(max_diff, 7),
-            "ids_match":       f"{ids_match}/{total_ids}",
+            "ids_match": f"{ids_match}/{total_ids}",
             "correctness_pass": correct,
-            "single_loop_ms":  round(single_total, 4),
+            "single_loop_ms": round(single_total, 4),
             "batch_dispatch_ms": round(batch_avg, 4),
             "batch_speedup_x": round(speedup, 2),
         }
@@ -141,6 +145,7 @@ def test_gpu_vector_index():
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test 2 — HierarchicalGPUSearch: results subset of brute-force
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def test_hierarchical_search():
     print(f"\n{SEP}")
@@ -158,8 +163,8 @@ def test_hierarchical_search():
     rng = np.random.default_rng(SEED)
     index_vecs = rng.standard_normal((n, DIM)).astype(np.float32)
     index_vecs /= np.linalg.norm(index_vecs, axis=1, keepdims=True)
-    queries    = rng.standard_normal((B, DIM)).astype(np.float32)
-    queries   /= np.linalg.norm(queries, axis=1, keepdims=True)
+    queries = rng.standard_normal((B, DIM)).astype(np.float32)
+    queries /= np.linalg.norm(queries, axis=1, keepdims=True)
 
     print(f"  Building index ({n:,} vectors, C=50, n_probe=5)...")
     h = HierarchicalGPUSearch(n_clusters=50, n_probe=5, max_batch_size=B)
@@ -179,8 +184,8 @@ def test_hierarchical_search():
     # Recall: what fraction of true top-K are in hierarchical results?
     recall_sum = 0
     for i in range(B):
-        true_set  = set(cpu_ids[i].tolist())
-        hier_set  = set(hier_ids[i].tolist())
+        true_set = set(cpu_ids[i].tolist())
+        hier_set = set(hier_ids[i].tolist())
         recall_sum += len(true_set & hier_set) / K
     recall = recall_sum / B
 
@@ -188,12 +193,12 @@ def test_hierarchical_search():
     print(f"  Recall @ {K}: {recall:.3f}  (fraction of true top-{K} found)")
 
     results["tests"]["hierarchical"] = {
-        "status":     "SUCCESS",
-        "n_vectors":  n,
+        "status": "SUCCESS",
+        "n_vectors": n,
         "n_clusters": 50,
-        "n_probe":    5,
-        "build_ms":   round(build_ms, 2),
-        "search_ms":  round(search_ms, 4),
+        "n_probe": 5,
+        "build_ms": round(build_ms, 2),
+        "search_ms": round(search_ms, 4),
         f"recall_at_{K}": round(recall, 4),
     }
 
@@ -201,6 +206,7 @@ def test_hierarchical_search():
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test 3 — SplatStore.batch_find_neighbors
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def test_splat_store_batch():
     print(f"\n{SEP}")
@@ -217,7 +223,7 @@ def test_splat_store_batch():
         results["tests"]["splat_store_batch"] = {"status": "SKIPPED", "reason": str(e)}
         return
 
-    n    = 5_000
+    n = 5_000
     test_results = {}
 
     for backend, use_vulkan in [("cpu", False), ("vulkan", True)]:
@@ -232,6 +238,7 @@ def test_splat_store_batch():
 
         # Add splats
         import numpy as np
+
         np.random.seed(SEED)
         vecs = normalize_sphere(np.random.randn(n, DIM).astype(np.float32))
         store.add_splat(vecs)
@@ -254,18 +261,16 @@ def test_splat_store_batch():
         print(f"    Batch output shape: mu={list(mu_b.shape)}")
 
         shapes_ok = (
-            mu_b.shape == (B, K, DIM) and
-            a_b.shape  == (B, K) and
-            k_b.shape  == (B, K)
+            mu_b.shape == (B, K, DIM) and a_b.shape == (B, K) and k_b.shape == (B, K)
         )
         print(f"    Output shapes correct: {'PASS' if shapes_ok else 'FAIL'}")
 
         test_results[backend] = {
-            "single_query_ms":    round(single_ms, 4),
-            "batch_query_ms":     round(batch_ms, 4),
-            "batch_queries":      B,
-            "mu_shape":           list(mu_b.shape),
-            "shapes_correct":     shapes_ok,
+            "single_query_ms": round(single_ms, 4),
+            "batch_query_ms": round(batch_ms, 4),
+            "batch_queries": B,
+            "mu_shape": list(mu_b.shape),
+            "shapes_correct": shapes_ok,
         }
 
     results["tests"]["splat_store_batch"] = {
@@ -278,6 +283,7 @@ def test_splat_store_batch():
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def main():
     print("=" * 68)
