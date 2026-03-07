@@ -16,7 +16,7 @@ import sys
 # Import M2M modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from m2m import M2MConfig, normalize_sphere, SplatStore, M2MEngine
+    from m2m import M2MConfig, normalize_sphere, M2MEngine
 except ImportError as e:
     print(f"[ERROR] Could not import M2M modules: {e}")
     print("[INFO] Please ensure all M2M modules are in the projects/m2m directory")

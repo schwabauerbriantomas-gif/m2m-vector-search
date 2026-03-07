@@ -14,9 +14,9 @@ sys.path.insert(0, str(project_root))
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
-import numpy as np
+import numpy as np  # noqa: E402
 
-from m2m import M2MConfig, M2MEngine, normalize_sphere
+from m2m import M2MConfig, M2MEngine, normalize_sphere  # noqa: E402
 
 def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=640):
     """Run a single benchmark on a given device."""

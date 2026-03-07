@@ -24,7 +24,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from m2m import M2MConfig, M2MEngine, normalize_sphere
+from m2m import M2MConfig, M2MEngine, normalize_sphere  # noqa: E402
 
 # ── Constants ────────────────────────────────────────────────────────────────
 SCALES       = [10_000, 50_000, 100_000]

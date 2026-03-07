@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    from m2m import M2MConfig, SplatStore, normalize_sphere, geodesic_distance, M2MEngine
+    from m2m import M2MConfig
 except ImportError as e:
     print(f"[ERROR] Could not import M2M modules: {e}")
     sys.exit(1)

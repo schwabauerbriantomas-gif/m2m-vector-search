@@ -35,7 +35,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from m2m import M2MConfig, create_m2m, normalize_sphere
+from m2m import M2MConfig, create_m2m, normalize_sphere  # noqa: E402
 
 # ── Results directory (relative → portable) ──────────────────────────────────
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -289,7 +289,8 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
         t0 = time.perf_counter()
         loss_acc, n_batches = 0.0, 0
         for batch_mu in std_dl:
-            loss_acc += float(np.random.rand()) * 1.5; n_batches += 1
+            loss_acc += float(np.random.rand()) * 1.5
+            n_batches += 1
         std_s = time.perf_counter() - t0
         std_tp = n_splats / std_s if std_s > 0 else 0
         std_loss = loss_acc / n_batches if n_batches > 0 else 0.0
@@ -300,7 +301,8 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
         t0 = time.perf_counter()
         gen_loss_acc, gen_batches = 0.0, 0
         for batch_mu in gen_dl:
-            gen_loss_acc += float(np.random.rand()) * 2.0; gen_batches += 1
+            gen_loss_acc += float(np.random.rand()) * 2.0
+            gen_batches += 1
         gen_s = time.perf_counter() - t0
         gen_tp = n_splats / gen_s if gen_s > 0 else 0
         gen_loss = gen_loss_acc / gen_batches if gen_batches > 0 else 0.0
@@ -430,7 +432,8 @@ def main():
     print(hdr)
     print("-" * len(hdr))
     def _v(d, key):
-        if d is None or "error" in d: return "--"
+        if d is None or "error" in d:
+            return "--"
         return f"{d['retrieval'][key]:.2f}"
     cpu_r = backend_results.get("cpu")
     vk_r  = backend_results.get("vulkan")
