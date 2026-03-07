@@ -294,17 +294,88 @@ class SimpleVectorDB:
     on edge devices. Disables expensive agentic logic (like SOC or generative dynamics).
     """
 
-    def __init__(self, device: Optional[str] = None, latent_dim: int = 640):
+    def __init__(
+        self,
+        device: Optional[str] = None,
+        latent_dim: int = 640,
+        enable_lsh_fallback: bool = True,
+        lsh_threshold: float = 0.15
+    ):
         config = M2MConfig.simple(device=device)
         config.latent_dim = latent_dim
         self.engine = M2MEngine(config)
+        
+        self.enable_lsh_fallback = enable_lsh_fallback
+        self.lsh_threshold = lsh_threshold
+        self.lsh = None
+        self._use_lsh = False
+
+    def _compute_silhouette(self, vectors: np.ndarray, sample_size: int = 1000) -> float:
+        try:
+            from sklearn.cluster import KMeans
+            from sklearn.metrics import silhouette_score
+            
+            sample_idx = np.random.choice(
+                len(vectors), 
+                min(sample_size, len(vectors)), 
+                replace=False
+            )
+            sample = vectors[sample_idx]
+            
+            # K-Means con k = sqrt(N)
+            n_clusters = max(2, int(np.sqrt(len(sample))))
+            kmeans = KMeans(n_clusters=n_clusters, n_init=1, random_state=42)
+            labels = kmeans.fit_predict(sample)
+            
+            return silhouette_score(sample, labels)
+        except ImportError:
+            print("[WARNING] scikit-learn is required for data distribution analysis. LSH fallback will not activate automatically.")
+            return 1.0 # High value to bypass LSH fallback
 
     def add(self, vectors: np.ndarray) -> int:
         """Add vectors to the database."""
+        
+        if self.enable_lsh_fallback:
+            silhouette = self._compute_silhouette(vectors)
+            
+            if silhouette < self.lsh_threshold:
+                print(f"[M2M] Distribución uniforme (silhouette={silhouette:.4f})")
+                print("[M2M] Activando LSH fallback...")
+                
+                try:
+                    from .lsh_index import CrossPolytopeLSH, LSHConfig
+                    config = LSHConfig(
+                        dim=self.engine.config.latent_dim,
+                        n_tables=15,
+                        n_bits=18,
+                        n_probes=50,
+                        n_candidates=500
+                    )
+                    self.lsh = CrossPolytopeLSH(config)
+                    self.lsh.index(vectors)
+                    self._use_lsh = True
+                    return len(vectors)
+                except ImportError as e:
+                    print(f"[WARNING] Could not load LSH module: {e}. Falling back to normal HRM2.")
+        
+        self._use_lsh = False
         return self.engine.add_splats(vectors)
 
     def search(self, query: np.ndarray, k: int = 64):
         """Search nearest neighbors."""
+        if self._use_lsh and self.lsh is not None:
+            # LSH query returns coordinates and distances, we just need indices for engine compatibility
+            # Let's align the LSH output with the expected format
+            indices, distances = self.lsh.query(query, k=k)
+            # The engine search normally returns mu, alpha, kappa
+            # For this fallback, we can fetch exactly what is needed or return the raw vectors
+            # SimpleVectorDB engine.search(query, k) returns neighbors_mu, neighbors_alpha, neighbors_kappa
+            # We'll just return the vector elements + dummy alpha and kappa to preserve the signature
+            candidate_vectors = self.lsh.vectors[indices]
+            dummy_alpha = np.ones(len(indices), dtype=np.float32)
+            dummy_kappa = np.ones(len(indices), dtype=np.float32) * 10.0
+            return candidate_vectors, dummy_alpha, dummy_kappa
+            
         return self.engine.search(query, k)
 
     def load(self, path: str):
