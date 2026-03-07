@@ -1,5 +1,4 @@
 import numpy as np
-import time
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 import itertools
@@ -74,7 +73,6 @@ class CrossPolytopeLSH:
             parts.append(part_hashes)
             
         probe_candidates = []
-        import itertools
         for combo in itertools.product(*parts):
             hash_tuple = tuple(c[0] for c in combo)
             total_score = sum(c[1] for c in combo)

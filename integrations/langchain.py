@@ -1,6 +1,5 @@
-import sys
 import uuid
-from typing import Any, Iterable, List, Optional, Sequence, Dict
+from typing import Any, Iterable, List, Optional
 
 import numpy as np
 from langchain_core.documents import Document

@@ -14,12 +14,9 @@ HierarchicalGPUSearch — Two-stage GPU search:
 """
 
 import vulkan as vk
-import ctypes
 import numpy as np
 import os
 import subprocess
-import time
-from typing import Optional
 
 # Max vectors per GPU dispatch chunk.
 # Result buffer size = MAX_BATCH × CHUNK_SIZE × 4 bytes.

@@ -6,7 +6,7 @@ optimized for Gaussian splat embeddings using Mini-batch approach.
 """
 
 import numpy as np
-from typing import Tuple, Optional
+from typing import Optional
 from dataclasses import dataclass
 from sklearn.cluster import MiniBatchKMeans, KMeans as SKLearnKMeans
 
@@ -122,4 +122,5 @@ class KMeans:
 
 # Alias for backward compatibility
 KMeansJIT = KMeans
-assign_clusters = lambda data, centroids: np.argmin(np.linalg.norm(data[:, None] - centroids, axis=2), axis=1)
+def assign_clusters(data, centroids):
+    return np.argmin(np.linalg.norm(data[:, None] - centroids, axis=2), axis=1)

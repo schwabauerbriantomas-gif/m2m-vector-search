@@ -5,9 +5,8 @@ Implements hierarchical memory management for efficient
 storage and retrieval of large-scale splat datasets.
 """
 
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass, field
-import numpy as np
+from typing import Dict, List, Optional
+from dataclasses import dataclass
 import time
 
 from .splat_types import GaussianSplat

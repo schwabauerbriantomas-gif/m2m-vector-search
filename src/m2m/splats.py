@@ -1,7 +1,6 @@
 
 import numpy as np
-import time
-from typing import Tuple, Dict, Any
+from typing import Tuple
 
 from .hrm2_engine import HRM2Engine
 from .splat_types import GaussianSplat
@@ -51,7 +50,6 @@ class SplatStore:
             return False
             
         # Data is already numpy
-        x_np = x
         
         new_splats = []
         for i in range(n_new):

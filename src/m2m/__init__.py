@@ -7,9 +7,6 @@ High-performance Gaussian Splat storage and retrieval for AI systems
 
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
-from dataclasses import dataclass
-from pathlib import Path
-import time
 
 # M2M Core Modules
 try:
@@ -451,7 +448,7 @@ def main():
     if args.transform_dataset:
         input_path, output_path = args.transform_dataset
         print("=" * 60)
-        print(f"M2M Dataset Transformer")
+        print("M2M Dataset Transformer")
         print("=" * 60)
         print(f"Input: {input_path}")
         print(f"Output: {output_path}")
@@ -463,7 +460,7 @@ def main():
         try:
             vectors = np.load(input_path)
             if not isinstance(vectors, np.ndarray):
-                print(f"[ERROR] Input must be a valid numpy array.")
+                print("[ERROR] Input must be a valid numpy array.")
                 return
         except Exception as e:
             print(f"[ERROR] Failed to load {input_path}: {e}")
@@ -506,7 +503,7 @@ def main():
         print(f"[LOAD] Loading optimized dataset from {args.load_optimized}...")
         try:
             m2m.load_optimized(args.load_optimized)
-            print(f"[LOAD] Successfully booted from pre-computed hierarchy.")
+            print("[LOAD] Successfully booted from pre-computed hierarchy.")
         except Exception as e:
             print(f"[ERROR] Failed to load optimized dataset: {e}")
             return

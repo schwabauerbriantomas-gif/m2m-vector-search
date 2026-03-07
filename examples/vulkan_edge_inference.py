@@ -25,8 +25,8 @@ def main():
     n_splats = 10000
     n_queries = 100
 
-    print(f"[INFO] Initializing GPU Vector Index (Vulkan persistent buffers)...")
-    print(f"[INFO] Target: Native GPU / Edge Accelerator")
+    print("[INFO] Initializing GPU Vector Index (Vulkan persistent buffers)...")
+    print("[INFO] Target: Native GPU / Edge Accelerator")
 
     # Build a persistent index over the local embedding store
     np.random.seed(42)
@@ -39,7 +39,7 @@ def main():
         print(f"[ERROR] Failed to init GPU index. Ensure LunarG SDK is present. Error: {e}")
         return
 
-    print(f"[SUCCESS] Native Vulkan pipeline established.")
+    print("[SUCCESS] Native Vulkan pipeline established.")
     print(f"[INFO] Running {n_queries} batched queries from Edge Sensor into M2M...")
 
     latencies = []
@@ -53,7 +53,7 @@ def main():
         query = np.random.randn(latent_dim).astype(np.float32)
 
         start = time.perf_counter()
-        distances = gpu_index.compute_distances(query, local_embeddings)
+        gpu_index.compute_distances(query, local_embeddings)
         end = time.perf_counter()
 
         latencies.append((end - start) * 1000)
@@ -61,7 +61,7 @@ def main():
     latencies = np.array(latencies)
 
     print("\n--- EDGE PERFORMANCE REPORT ---")
-    print(f"Device Driver: Vulkan FFI (GPUVectorIndex)")
+    print("Device Driver: Vulkan FFI (GPUVectorIndex)")
     print(f"Dataset Size:  {n_splats} (D={latent_dim})")
     print(f"Total Queries: {n_queries}")
     print(f"Avg Latency:   {np.mean(latencies):.2f} ms")

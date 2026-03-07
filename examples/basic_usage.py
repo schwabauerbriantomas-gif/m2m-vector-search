@@ -41,7 +41,7 @@ def main():
         knn_k=64  # Retrieve 64 nearest neighbors
     )
     
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  Device: {config.device}")
     print(f"  Latent dim: {config.latent_dim}")
     print(f"  Max splats: {config.max_splats}")
@@ -77,7 +77,7 @@ def main():
     print("Retrieving nearest neighbors (K=64)...")
     query = embeddings_sphere[:5]  # Use first 5 as queries
     neighbors_mu, neighbors_alpha, neighbors_kappa = splat_store.find_neighbors(query, k=64)
-    print(f"[SUCCESS] Retrieved neighbors")
+    print("[SUCCESS] Retrieved neighbors")
     print(f"  Query shape: {query.shape}")
     print(f"  Neighbors shape: {neighbors_mu.shape}")
     print()

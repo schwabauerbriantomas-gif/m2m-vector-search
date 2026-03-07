@@ -26,7 +26,6 @@ import time
 import json
 import platform
 import argparse
-import shutil
 from pathlib import Path
 from typing import Dict, Any
 
@@ -207,7 +206,7 @@ def linear_baseline(data: np.ndarray, queries: np.ndarray, k: int) -> Dict:
             d_chunks.append(d_chunk)
             
         d = np.concatenate(d_chunks)
-        idx = np.argpartition(d, k)[:k]
+        np.argpartition(d, k)[:k]
         
         latencies.append((time.perf_counter() - t0) * 1000)
 
@@ -245,7 +244,7 @@ def run_backend(device_name: str, data: np.ndarray, queries: np.ndarray,
     # Init — use create_m2m (M2MSystem) which exposes add_splats, export_to_dataloader, search
     # Transformed data bypasses standard ingestion
     if device_name == "transformed":
-        print(f"  Transforming dataset to M2M Format (Hierarchy Levels: 4)...")
+        print("  Transforming dataset to M2M Format (Hierarchy Levels: 4)...")
         from dataset_transformer import M2MDatasetTransformer
         import os
         

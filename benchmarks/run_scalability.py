@@ -12,13 +12,11 @@ Output: scalability_results.json
 """
 
 import sys
-import os
 import time
 import json
 import platform
 import psutil
 from pathlib import Path
-import argparse
 
 import numpy as np
 
@@ -229,13 +227,13 @@ def main():
         all_results[scale_key] = {}
 
         # 1 — Linear baseline
-        print(f"\n  [BASELINE] Linear brute-force (np.linalg.norm)...")
+        print("\n  [BASELINE] Linear brute-force (np.linalg.norm)...")
         baseline = linear_baseline(data, queries, K)
         all_results[scale_key]["linear_baseline"] = baseline
         print(f"    Avg latency: {baseline['avg_latency_ms']:.4f} ms  |  QPS: {baseline['throughput_qps']:.2f}")
 
         # 2 — CPU-only
-        print(f"\n  [CPU] Running M2MEngine (CPU-only)...")
+        print("\n  [CPU] Running M2MEngine (CPU-only)...")
         try:
             cpu_res = run_engine_benchmark("cpu", data, queries, K, scale)
             all_results[scale_key]["cpu"] = cpu_res
@@ -247,7 +245,7 @@ def main():
             print(f"    [ERROR] {e}")
 
         # 3 — CPU + Vulkan
-        print(f"\n  [VULKAN] Running M2MEngine (CPU+Vulkan GPU)...")
+        print("\n  [VULKAN] Running M2MEngine (CPU+Vulkan GPU)...")
         try:
             vulkan_res = run_engine_benchmark("vulkan", data, queries, K, scale)
             all_results[scale_key]["cpu_vulkan"] = vulkan_res

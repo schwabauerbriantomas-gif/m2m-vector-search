@@ -1,6 +1,5 @@
 import numpy as np
 import time
-import pytest
 from src.m2m.lsh_index import CrossPolytopeLSH, LSHConfig
 from src.m2m.__init__ import SimpleVectorDB
 
@@ -99,7 +98,7 @@ def test_m2m_integration_with_lsh():
     db.add(vectors)
 
     # Should use LSH because data is random/uniform
-    assert db._use_lsh == True
+    assert db._use_lsh
     assert db.lsh is not None
 
     query = np.random.randn(dim).astype(np.float32)

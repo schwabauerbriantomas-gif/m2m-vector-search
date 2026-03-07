@@ -23,12 +23,12 @@ def validate_vulkan():
         
         indices, distances = gpu_index.batch_search(queries, k=5)
         
-        print(f"\n[SUCCESS] Vulkan shader executed properly!")
+        print("\n[SUCCESS] Vulkan shader executed properly!")
         print(f"Indices returned shape: {indices.shape} (Expected: (2, 5))")
         print(f"Distances returned shape: {distances.shape} (Expected: (2, 5))")
         
     except Exception as e:
-        print(f"\n[ERROR] Vulkan Validation Failed:")
+        print("\n[ERROR] Vulkan Validation Failed:")
         print(str(e))
         print("Please ensure your GPU supports Vulkan and you have the Vulkan SDK installed if compiling shaders.")
 

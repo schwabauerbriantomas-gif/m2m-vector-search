@@ -2,7 +2,6 @@
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import numpy as np
 from pathlib import Path
 
 assets = Path(__file__).parent / "assets"

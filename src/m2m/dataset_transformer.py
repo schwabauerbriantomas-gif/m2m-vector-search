@@ -8,7 +8,7 @@ leverage M2M's hierarchical architecture.
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional
 import struct
 import json
 

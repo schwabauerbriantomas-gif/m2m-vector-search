@@ -8,9 +8,8 @@ as the vectorstore.
 """
 
 
-import numpy as np
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List
 import sys
 
 # Import M2M modules
@@ -84,7 +83,7 @@ class LangChainRAG:
         
         # In real system, pass query + context to LLM
         # Here we provide a simple template response
-        response = f"Based on the following relevant documents:\n\n"
+        response = "Based on the following relevant documents:\n\n"
         for i, doc in enumerate(context_docs, 1):
             response += f"{i}. {doc}\n"
         

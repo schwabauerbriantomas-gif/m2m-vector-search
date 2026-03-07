@@ -6,13 +6,13 @@ in large-scale Gaussian splat datasets.
 """
 
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Any
-from dataclasses import dataclass, field
+from typing import List, Tuple, Optional, Dict
+from dataclasses import dataclass
 import time
 
-from .splat_types import GaussianSplat, SplatEmbedding, SplatCluster
+from .splat_types import GaussianSplat
 from .encoding import FullEmbeddingBuilder
-from .clustering import KMeans, assign_clusters
+from .clustering import KMeans
 from .engine import M2MEngine
 
 
@@ -466,7 +466,6 @@ class HRM2Engine:
             
         B = query_vectors.shape[0]
         results_batch = []
-        query_start = time.time()
         
         # Fast batched coarse distances
         coarse_distances = self.coarse_model.transform(query_vectors)

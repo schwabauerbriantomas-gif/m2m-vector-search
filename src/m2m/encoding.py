@@ -6,7 +6,6 @@ Gaussian splat attributes into embedding vectors for indexing.
 """
 
 import numpy as np
-from typing import Tuple, Optional
 
 try:
     from numba import njit, prange
@@ -153,7 +152,6 @@ def _color_histogram_encoding_numba(
         (N, 512) array of color encodings
     """
     N = colors.shape[0]
-    n_bins_cubed = n_bins * n_bins * n_bins  # 512 for n_bins=8
     encodings = np.zeros((N, 512), dtype=np.float32)
     
     for i in prange(N):

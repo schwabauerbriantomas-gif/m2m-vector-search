@@ -11,9 +11,8 @@ import os
 import sys
 import time
 import json
-import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, Any
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -190,7 +189,7 @@ class ProjectValidator:
             vulkan_ok = (
                 vk_config.device == 'vulkan' and
                 vk_config.compute_device == 'cpu' and
-                vk_config.enable_vulkan == True
+                vk_config.enable_vulkan
             )
             tests["vulkan_config"] = {
                 "status": "SUCCESS" if vulkan_ok else "FAILED",
@@ -201,7 +200,7 @@ class ProjectValidator:
             if vulkan_ok:
                 print(f"    [OK] Vulkan config: device={vk_config.device}, compute_device={vk_config.compute_device}, enable_vulkan={vk_config.enable_vulkan}")
             else:
-                print(f"    [FAIL] Vulkan config mapping incorrect")
+                print("    [FAIL] Vulkan config mapping incorrect")
         except Exception as e:
             tests["vulkan_config"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
@@ -287,7 +286,7 @@ class ProjectValidator:
         # Test 5: Encoding
         print("  [TEST] Encoding...")
         try:
-            from encoding import SinusoidalPositionEncoder, FullEmbeddingBuilder
+            from encoding import SinusoidalPositionEncoder
             import numpy as np
 
             # Test position encoder
@@ -344,19 +343,19 @@ class ProjectValidator:
 
                 # Search
                 if hasattr(store, 'find_neighbors'):
-                    neighbors = store.find_neighbors(query_norm, k=5)
+                    store.find_neighbors(query_norm, k=5)
                     tests["search"] = {
                         "status": "SUCCESS",
                         "k": 5,
                         "results_shape": "available"
                     }
-                    print(f"    [OK] Search: found k=5 neighbors")
+                    print("    [OK] Search: found k=5 neighbors")
                 else:
                     tests["search"] = {"status": "SKIPPED", "reason": "find_neighbors not available"}
-                    print(f"    [SKIP] Search: method not available")
+                    print("    [SKIP] Search: method not available")
             else:
                 tests["search"] = {"status": "SKIPPED", "reason": "SplatStore not available"}
-                print(f"    [SKIP] Search: SplatStore not available")
+                print("    [SKIP] Search: SplatStore not available")
         except Exception as e:
             tests["search"] = {"status": "FAILED", "error": str(e)}
             print(f"    [FAIL] Failed: {e}")
@@ -405,7 +404,7 @@ class ProjectValidator:
 
         # Code metrics
         metrics = self.results["code_metrics"]
-        print(f"\n2. Code Metrics:")
+        print("\n2. Code Metrics:")
         print(f"   Files: {metrics['python_files']}")
         print(f"   Lines: {metrics['total_lines']:,}")
         print(f"   Code: {metrics['code_lines']:,}")
@@ -423,9 +422,9 @@ class ProjectValidator:
         perf = self.results["performance_tests"]
         has_benchmarks = any(v is not None for v in perf.values())
         if has_benchmarks:
-            print(f"\n5. Benchmarks: [OK] EXISTS")
+            print("\n5. Benchmarks: [OK] EXISTS")
         else:
-            print(f"\n5. Benchmarks: [FAIL] NOT RUN")
+            print("\n5. Benchmarks: [FAIL] NOT RUN")
 
         print("\n" + "=" * 70)
 

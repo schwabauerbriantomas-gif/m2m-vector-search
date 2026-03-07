@@ -68,7 +68,7 @@ def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=6
     for i in range(n_queries):
         q = queries[i][np.newaxis, :]
         t0 = time.perf_counter()
-        result = engine.search(q, k=k)
+        engine.search(q, k=k)
         latency = (time.perf_counter() - t0) * 1000  # ms
         latencies.append(latency)
     
@@ -107,7 +107,7 @@ def run_benchmark(device_name, n_splats=10000, n_queries=100, k=64, latent_dim=6
 def linear_search_baseline(n_splats=10000, n_queries=100, k=1, latent_dim=128):
     """Run a linear brute-force search as baseline."""
     print(f"\n{'='*60}")
-    print(f"  BASELINE: LINEAR SEARCH (Brute Force)")
+    print("  BASELINE: LINEAR SEARCH (Brute Force)")
     print(f"  Splats={n_splats}, Queries={n_queries}, Dim={latent_dim}")
     print(f"{'='*60}\n")
     
@@ -122,7 +122,7 @@ def linear_search_baseline(n_splats=10000, n_queries=100, k=1, latent_dim=128):
     for i in range(n_queries):
         t0 = time.perf_counter()
         dists = np.linalg.norm(splats - queries[i:i+1], axis=1)
-        topk = np.partition(dists, k)[:k]
+        np.partition(dists, k)[:k]
         latency = (time.perf_counter() - t0) * 1000
         latencies.append(latency)
     
@@ -137,7 +137,7 @@ def linear_search_baseline(n_splats=10000, n_queries=100, k=1, latent_dim=128):
         'search_throughput_qps': round(n_queries / (latencies_np.sum() / 1000), 2),
     }
     
-    print(f"[RESULTS] LINEAR BASELINE")
+    print("[RESULTS] LINEAR BASELINE")
     print(f"  Avg latency:  {results['search_avg_latency_ms']:.4f} ms")
     print(f"  Throughput:   {results['search_throughput_qps']:.2f} QPS")
     

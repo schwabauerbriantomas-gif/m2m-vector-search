@@ -9,7 +9,6 @@ Executes this script manually from CMD/PowerShell to see results.
 
 import os
 import json
-import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -131,13 +130,13 @@ def validate_m2m_files():
             print(f"  [OK] File exists ({result['size_bytes']} bytes)")
             
             if result['is_file']:
-                print(f"  [OK] Valid file")
+                print("  [OK] Valid file")
                 
                 if check_content and result['content_preview']:
                     print(f"  [OK] Content preview: {result['content_preview'][:100]}")
                 
                 if check_content and result['has_syntax_error']:
-                    print(f"  [WARNING] Possible syntax error (fewer 'def ')")
+                    print("  [WARNING] Possible syntax error (fewer 'def ')")
                     report['summary']['files_failed'].append(filename)
                 else:
                     report['summary']['files_created'].append(filename)
@@ -145,7 +144,7 @@ def validate_m2m_files():
             if description in ['README.md', 'LICENSE', 'm2m.py']:
                 report['summary']['critical_files'][filename] = result
         else:
-            print(f"  [FAILED] File NOT FOUND")
+            print("  [FAILED] File NOT FOUND")
             report['summary']['files_failed'].append(filename)
         
         print()
