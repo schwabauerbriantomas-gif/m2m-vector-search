@@ -4,6 +4,9 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pytest
+
+pytest.importorskip("langchain_core")
 from langchain_core.embeddings import FakeEmbeddings
 
 from integrations.langchain import M2MVectorStore
