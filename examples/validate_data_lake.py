@@ -1,8 +1,9 @@
-import time
-import sys
-import os
-import json
 import argparse
+import json
+import os
+import sys
+import time
+
 import numpy as np
 
 # Add parent dir to path to find m2m
@@ -16,8 +17,8 @@ def load_real_dataset(num_samples=10000, dim=640):
         print(
             "[INFO] Loading real-world structured dataset (Handwritten Digits) via scikit-learn..."
         )
-        from sklearn.datasets import load_digits
         import numpy as np
+        from sklearn.datasets import load_digits
 
         # Real-world data: 1797 images of 8x8 handwritten digits
         digits = load_digits()

@@ -4,8 +4,9 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from integrations.langchain import M2MVectorStore
 from langchain_core.embeddings import FakeEmbeddings
+
+from integrations.langchain import M2MVectorStore
 from m2m import M2MConfig
 
 

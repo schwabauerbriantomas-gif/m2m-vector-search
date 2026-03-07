@@ -5,12 +5,13 @@ Converts flat embeddings into structured Gaussian Splats that
 leverage M2M's hierarchical architecture.
 """
 
-import numpy as np
-from sklearn.cluster import AgglomerativeClustering
+import json
+import struct
 from dataclasses import dataclass
 from typing import List, Optional
-import struct
-import json
+
+import numpy as np
+from sklearn.cluster import AgglomerativeClustering
 
 
 @dataclass

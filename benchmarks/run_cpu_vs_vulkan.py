@@ -4,9 +4,9 @@ M2M CPU vs Vulkan GPU Benchmark Runner
 Runs benchmarks on both backends and outputs comparison results.
 """
 
+import json
 import sys
 import time
-import json
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent

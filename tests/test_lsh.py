@@ -1,7 +1,9 @@
-import numpy as np
 import time
-from src.m2m.lsh_index import CrossPolytopeLSH, LSHConfig
+
+import numpy as np
+
 from src.m2m.__init__ import SimpleVectorDB
+from src.m2m.lsh_index import CrossPolytopeLSH, LSHConfig
 
 
 def test_lsh_recall_uniform_data():

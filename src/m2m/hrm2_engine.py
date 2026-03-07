@@ -5,15 +5,16 @@ Implements a two-level hierarchical index for fast similarity search
 in large-scale Gaussian splat datasets.
 """
 
-import numpy as np
-from typing import List, Tuple, Optional, Dict
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
-from .splat_types import GaussianSplat
-from .encoding import FullEmbeddingBuilder
+import numpy as np
+
 from .clustering import KMeans
+from .encoding import FullEmbeddingBuilder
 from .engine import M2MEngine
+from .splat_types import GaussianSplat
 
 
 @dataclass

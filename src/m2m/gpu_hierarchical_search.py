@@ -8,9 +8,10 @@ Both stages use GPUVectorIndex for persistent GPU buffers.
 Follows the pattern in the reference code provided by the user.
 """
 
-import numpy as np
 import time
 from typing import Optional, Tuple
+
+import numpy as np
 
 
 class HierarchicalGPUSearch:

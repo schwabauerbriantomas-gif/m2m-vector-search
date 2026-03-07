@@ -5,22 +5,23 @@ M2M (Machine-to-Memory) - High-performance Gaussian Splat Storage and Retrieval
 High-performance Gaussian Splat storage and retrieval for AI systems
 """
 
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Any
 
 # M2M Core Modules
 try:
+    from .config import M2MConfig
+    from .energy import EnergyFunction
+    from .engine import M2MEngine
     from .geometry import (
-        normalize_sphere,
-        geodesic_distance,
         exp_map,
+        geodesic_distance,
         log_map,
+        normalize_sphere,
         project_to_tangent,
     )
     from .splats import SplatStore
-    from .energy import EnergyFunction
-    from .engine import M2MEngine
-    from .config import M2MConfig
 except ImportError:
     # Forward declarations for type hinting if core modules aren't available
     M2MEngine = None

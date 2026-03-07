@@ -21,13 +21,13 @@ Usage
   python benchmarks/run_benchmark.py --n-queries 500 --k 10
 """
 
-import sys
-import time
+import argparse
 import json
 import platform
-import argparse
+import sys
+import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 import numpy as np
 
@@ -77,8 +77,9 @@ def load_hf_embeddings(n_target: int = 10_000, latent_dim: int = 640, seed: int 
             },
         )
 
-    import pandas as pd
     from pathlib import Path
+
+    import pandas as pd
 
     print(f"  [LOCAL] Loading {ds_name} from C:\\dbpedia_dataset\\data ...")
     data_dir = Path("C:/dbpedia_dataset/data")
@@ -270,8 +271,9 @@ def run_backend(
     # Transformed data bypasses standard ingestion
     if device_name == "transformed":
         print("  Transforming dataset to M2M Format (Hierarchy Levels: 4)...")
-        from dataset_transformer import M2MDatasetTransformer
         import os
+
+        from dataset_transformer import M2MDatasetTransformer
 
         # Transform offline
         data_np = data.copy()

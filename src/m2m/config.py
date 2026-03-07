@@ -6,7 +6,8 @@ Centralized configuration for M2M system.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any, Optional
+
 import numpy as np
 
 

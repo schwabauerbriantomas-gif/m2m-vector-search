@@ -6,7 +6,8 @@ Gaussian splats and their embeddings.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 import numpy as np
 
 

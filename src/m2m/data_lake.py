@@ -1,6 +1,7 @@
-import numpy as np
-import threading
 import queue
+import threading
+
+import numpy as np
 
 
 class M2MDataLake:

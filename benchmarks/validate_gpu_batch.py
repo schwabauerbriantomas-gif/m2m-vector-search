@@ -12,12 +12,13 @@ Tests:
 Output: gpu_batch_validation_results.json
 """
 
-import sys
-import os
-import time
 import json
-import numpy as np
+import os
+import sys
+import time
 from pathlib import Path
+
+import numpy as np
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -216,8 +217,8 @@ def test_splat_store_batch():
     try:
         import numpy as np
         from config import M2MConfig
-        from splats import SplatStore
         from geometry import normalize_sphere
+        from splats import SplatStore
     except Exception as e:
         print(f"  [SKIP] SplatStore deps not available: {e}")
         results["tests"]["splat_store_batch"] = {"status": "SKIPPED", "reason": str(e)}

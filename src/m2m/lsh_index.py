@@ -1,7 +1,8 @@
-import numpy as np
-from typing import List, Tuple, Optional
-from dataclasses import dataclass
 import itertools
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+import numpy as np
 
 
 @dataclass

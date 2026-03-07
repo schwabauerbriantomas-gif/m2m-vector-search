@@ -7,12 +7,12 @@ Validates real project metrics without simulation.
 Only measures what actually exists and works.
 """
 
+import json
 import os
 import sys
 import time
-import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -240,8 +240,8 @@ class ProjectValidator:
         # Test 3: SplatStore (simplified without enable_vulkan)
         print("  [TEST] SplatStore...")
         try:
-            from splats import SplatStore
             from config import M2MConfig
+            from splats import SplatStore
 
             # Use minimal config without enable_vulkan
             config = M2MConfig(device="cpu", max_splats=100)
@@ -290,8 +290,8 @@ class ProjectValidator:
         # Test 5: Encoding
         print("  [TEST] Encoding...")
         try:
-            from encoding import SinusoidalPositionEncoder
             import numpy as np
+            from encoding import SinusoidalPositionEncoder
 
             # Test position encoder
             pos_encoder = SinusoidalPositionEncoder(dim=64)
@@ -311,8 +311,8 @@ class ProjectValidator:
         # Test 6: Clustering
         print("  [TEST] Clustering...")
         try:
-            from clustering import KMeansJIT
             import numpy as np
+            from clustering import KMeansJIT
 
             # Create test data
             data = np.random.randn(100, 640).astype(np.float32)

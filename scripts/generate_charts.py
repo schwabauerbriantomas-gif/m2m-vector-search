@@ -7,11 +7,12 @@ Generates professional charts for the README using REAL data.
 No simula ni inventa datos - solo usa lo que existe.
 """
 
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import numpy as np
 import json
 from pathlib import Path
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Paths
 script_dir = Path(__file__).parent

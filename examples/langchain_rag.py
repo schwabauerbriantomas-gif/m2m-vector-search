@@ -7,9 +7,9 @@ Demonstrates Retrieval-Augmented Generation (RAG) using M2M (Machine-to-Memory)
 as the vectorstore.
 """
 
+import sys
 from pathlib import Path
 from typing import List
-import sys
 
 # Import M2M modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -30,6 +30,7 @@ class LangChainRAG:
         # Initialize M2M VectorStore
         print("[INFO] Initializing M2M VectorStore...")
         from langchain_core.embeddings import FakeEmbeddings
+
         from integrations.langchain import M2MVectorStore
 
         # Use FakeEmbeddings for demonstration (in real system, use HuggingFaceEmbeddings)

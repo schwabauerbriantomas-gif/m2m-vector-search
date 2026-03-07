@@ -9,6 +9,7 @@ perfect for IoT, Smartphones, or headsets without deep learning libraries.
 import os
 import sys
 import time
+
 import numpy as np
 
 # Add parent directory to path to import m2m modules

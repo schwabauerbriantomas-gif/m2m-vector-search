@@ -2,8 +2,9 @@
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 
 assets = Path(__file__).parent / "assets"
 assets.mkdir(exist_ok=True, parents=True)

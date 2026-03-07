@@ -1,9 +1,11 @@
 """Benchmark comparando datos originales vs transformados."""
 
-import numpy as np
 import time
+
+import numpy as np
+
+from m2m import M2MConfig, M2MEngine, normalize_sphere
 from m2m.dataset_transformer import M2MDatasetTransformer
-from m2m import M2MEngine, M2MConfig, normalize_sphere
 
 
 def benchmark_transformed(vectors: np.ndarray, queries: np.ndarray, k: int = 10):

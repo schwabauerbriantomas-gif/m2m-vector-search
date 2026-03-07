@@ -5,10 +5,12 @@ This module provides fast K-Means clustering implementation
 optimized for Gaussian splat embeddings using Mini-batch approach.
 """
 
-import numpy as np
-from typing import Optional
 from dataclasses import dataclass
-from sklearn.cluster import MiniBatchKMeans, KMeans as SKLearnKMeans
+from typing import Optional
+
+import numpy as np
+from sklearn.cluster import KMeans as SKLearnKMeans
+from sklearn.cluster import MiniBatchKMeans
 
 
 @dataclass

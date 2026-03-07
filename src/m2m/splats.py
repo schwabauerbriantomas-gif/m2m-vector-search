@@ -1,5 +1,6 @@
-import numpy as np
 from typing import Tuple
+
+import numpy as np
 
 from .hrm2_engine import HRM2Engine
 from .splat_types import GaussianSplat

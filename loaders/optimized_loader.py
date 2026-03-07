@@ -1,9 +1,10 @@
 """Loader for transformed datasets."""
 
-import numpy as np
 import struct
 from dataclasses import dataclass
 from typing import List
+
+import numpy as np
 
 
 @dataclass

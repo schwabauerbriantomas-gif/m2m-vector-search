@@ -25,7 +25,7 @@ class M2MVectorStore(VectorStore):
             self._m2m = m2m_engine
         else:
             try:
-                from m2m import M2MEngine, M2MConfig
+                from m2m import M2MConfig, M2MEngine
 
                 if self._config is None:
                     self._config = M2MConfig(device="cpu")

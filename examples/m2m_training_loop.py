@@ -1,12 +1,13 @@
-import numpy as np
-import time
-import sys
 import os
+import sys
+import time
+
+import numpy as np
 
 # Add parent dir to path to find m2m
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from m2m import M2MEngine, M2MConfig, create_m2m
+from m2m import M2MConfig, M2MEngine, create_m2m
 
 
 def dummy_training_loop(engine: M2MEngine, steps: int = 100):

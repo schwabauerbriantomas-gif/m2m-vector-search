@@ -11,14 +11,14 @@ deterministic seed, system specs recorded.
 Output: scalability_results.json
 """
 
-import sys
-import time
 import json
 import platform
-import psutil
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
+import psutil
 
 # ── Project imports ──────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent

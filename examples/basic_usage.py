@@ -9,17 +9,17 @@ Demonstrates basic functionality of M2M (Machine-to-Memory):
 - Retrieving nearest neighbors
 """
 
-import numpy as np
-from pathlib import Path
-
 # Import M2M modules
 import sys
+from pathlib import Path
+
+import numpy as np
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from m2m import M2MConfig, normalize_sphere, SplatStore, EnergyFunction
+    from m2m import EnergyFunction, M2MConfig, SplatStore, normalize_sphere
 except ImportError as e:
     print(f"[ERROR] Could not import M2M modules: {e}")
     sys.exit(1)
