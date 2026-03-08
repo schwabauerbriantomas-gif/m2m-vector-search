@@ -165,6 +165,27 @@ def load_sklearn_data(n_target: int = 10_000, latent_dim: int = 640, seed: int =
     )
 
 
+def load_clustered_data(n_target: int = 10_000, latent_dim: int = 640, seed: int = 42):
+    """Synthetic distinctly clustered data (ideal case for M2M)."""
+    from sklearn.datasets import make_blobs
+
+    # Generate tightly packed well-separated clusters
+    X, y = make_blobs(n_samples=n_target, centers=200, n_features=latent_dim, cluster_std=0.5, random_state=seed)
+    X = X.astype(np.float32)
+
+    data = normalize_sphere(X)
+    return (
+        data,
+        y,
+        {
+            "source": "sklearn.datasets.make_blobs (clustered ideal)",
+            "latent_dim": latent_dim,
+            "n_samples": n_target,
+            "normalization": "L2 unit sphere",
+        },
+    )
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Benchmark helpers
 # ═════════════════════════════════════════════════════════════════════════════
@@ -273,7 +294,7 @@ def run_backend(
         print("  Transforming dataset to M2M Format (Hierarchy Levels: 4)...")
         import os
 
-        from dataset_transformer import M2MDatasetTransformer
+        from m2m.dataset_transformer import M2MDatasetTransformer
 
         # Transform offline
         data_np = data.copy()
@@ -407,7 +428,7 @@ def main():
     parser.add_argument(
         "--dataset",
         default="hf",
-        choices=["hf", "sklearn"],
+        choices=["hf", "sklearn", "clustered"],
         help="Dataset source (default: hf = HuggingFace Qdrant/DBpedia embeddings)",
     )
     parser.add_argument("--n-splats", type=int, default=10_000)
@@ -423,11 +444,13 @@ def main():
     args = parser.parse_args()
 
     ts = time.strftime("%Y%m%d_%H%M")
-    ds_label = (
-        f"HuggingFace Qdrant dbpedia ({args.dim}D)"
-        if args.dataset == "hf"
-        else f"sklearn digits ({args.dim}D)"
-    )
+    ds_label = ""
+    if args.dataset == "hf":
+        ds_label = f"HuggingFace Qdrant dbpedia ({args.dim}D)"
+    elif args.dataset == "sklearn":
+        ds_label = f"sklearn digits ({args.dim}D)"
+    else:
+        ds_label = f"synthetic clustered ({args.dim}D)"
     print("=" * 70)
     print("  M2M Real-Data Benchmark")
     print(f"  Dataset: {ds_label}")
@@ -444,8 +467,10 @@ def main():
     print(f"\n[DATA] Loading {ds_label}  →  {args.n_splats:,} vectors...")
     if args.dataset == "hf":
         data, labels, data_meta = load_hf_embeddings(args.n_splats, args.dim, args.seed)
-    else:
+    elif args.dataset == "sklearn":
         data, labels, data_meta = load_sklearn_data(args.n_splats, args.dim, args.seed)
+    else:
+        data, labels, data_meta = load_clustered_data(args.n_splats, args.dim, args.seed)
     rng = np.random.default_rng(args.seed + 99)
     q_idx = rng.choice(len(data), size=min(args.n_queries, len(data)), replace=False)
     queries = data[q_idx]

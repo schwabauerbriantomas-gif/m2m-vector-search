@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-05 01:06:17",
+  "timestamp": "2026-03-07 22:55:03",
   "system_specs": {
     "platform": "Windows-10-10.0.19042-SP0",
     "processor": "Intel64 Family 6 Model 142 Stepping 9, GenuineIntel",
@@ -12,108 +12,108 @@
     "vulkan_api": "1.1.97"
   },
   "data_meta": {
-    "source": "sklearn.datasets.load_digits (toy fallback)",
+    "source": "sklearn.datasets.make_blobs (clustered ideal)",
     "latent_dim": 640,
     "n_samples": 10000,
     "normalization": "L2 unit sphere"
   },
   "config": {
     "n_splats": 10000,
-    "n_queries": 100,
+    "n_queries": 1000,
     "k": 10,
     "latent_dim": 640,
     "seed": 42
   },
   "linear_baseline": {
-    "avg_latency_ms": 30.063,
-    "p50_latency_ms": 29.1797,
-    "p95_latency_ms": 37.5921,
-    "p99_latency_ms": 39.5044,
-    "throughput_qps": 33.26
+    "avg_latency_ms": 47.5478,
+    "p50_latency_ms": 47.7193,
+    "p95_latency_ms": 54.2683,
+    "p99_latency_ms": 59.494,
+    "throughput_qps": 21.03
   },
   "backends": {
     "cpu": {
       "device": "cpu",
       "vulkan_enabled": false,
-      "init_time_ms": 0.27,
+      "init_time_ms": 0.36,
       "n_splats": 10000,
-      "ingest_throughput_qps": 408.5,
+      "ingest_throughput_qps": 254.03,
       "standard_training": {
-        "throughput_splats_per_sec": 0,
-        "epoch_time_s": 0,
-        "avg_loss": 0
+        "throughput_splats_per_sec": 40499.78,
+        "epoch_time_s": 0.2469,
+        "avg_loss": 0.738761
       },
       "generative_training": {
-        "throughput_splats_per_sec": 0,
-        "epoch_time_s": 0,
-        "avg_loss": 0
+        "throughput_splats_per_sec": 23084.27,
+        "epoch_time_s": 0.4332,
+        "avg_loss": 1.116463
       },
       "retrieval": {
-        "n_queries": 100,
+        "n_queries": 1000,
         "k": 10,
-        "avg_latency_ms": 89.248,
-        "p50_latency_ms": 72.6667,
-        "p95_latency_ms": 202.1193,
-        "p99_latency_ms": 281.3994,
-        "min_latency_ms": 37.5606,
-        "max_latency_ms": 606.3889,
-        "throughput_qps": 11.2
+        "avg_latency_ms": 78.6742,
+        "p50_latency_ms": 74.4833,
+        "p95_latency_ms": 101.5839,
+        "p99_latency_ms": 196.7823,
+        "min_latency_ms": 46.0023,
+        "max_latency_ms": 473.0247,
+        "throughput_qps": 12.71
       }
     },
     "vulkan": {
       "device": "vulkan",
       "vulkan_enabled": true,
-      "init_time_ms": 2299.64,
+      "init_time_ms": 106.24,
       "n_splats": 10000,
-      "ingest_throughput_qps": 466.24,
+      "ingest_throughput_qps": 270.83,
       "standard_training": {
-        "throughput_splats_per_sec": 0,
-        "epoch_time_s": 0,
-        "avg_loss": 0
+        "throughput_splats_per_sec": 19581.24,
+        "epoch_time_s": 0.5107,
+        "avg_loss": 0.641567
       },
       "generative_training": {
-        "throughput_splats_per_sec": 0,
-        "epoch_time_s": 0,
-        "avg_loss": 0
+        "throughput_splats_per_sec": 14154.24,
+        "epoch_time_s": 0.7065,
+        "avg_loss": 1.00958
       },
       "retrieval": {
-        "n_queries": 100,
+        "n_queries": 1000,
         "k": 10,
-        "avg_latency_ms": 51.8807,
-        "p50_latency_ms": 50.7097,
-        "p95_latency_ms": 59.9593,
-        "p99_latency_ms": 64.2663,
-        "min_latency_ms": 42.3608,
-        "max_latency_ms": 85.3427,
-        "throughput_qps": 19.28
+        "avg_latency_ms": 76.9772,
+        "p50_latency_ms": 73.3371,
+        "p95_latency_ms": 92.8484,
+        "p99_latency_ms": 165.6745,
+        "min_latency_ms": 50.7547,
+        "max_latency_ms": 381.7611,
+        "throughput_qps": 12.99
       }
     },
     "transformed": {
       "device": "transformed",
       "vulkan_enabled": false,
-      "init_time_ms": 2977.63,
+      "init_time_ms": 6930.99,
       "n_splats": 10000,
       "ingest_throughput_qps": 0,
       "standard_training": {
-        "throughput_splats_per_sec": 0,
-        "epoch_time_s": 0,
-        "avg_loss": 0
+        "throughput_splats_per_sec": 361497.61,
+        "epoch_time_s": 0.0277,
+        "avg_loss": 0.725696
       },
       "generative_training": {
-        "throughput_splats_per_sec": 0,
-        "epoch_time_s": 0,
-        "avg_loss": 0
+        "throughput_splats_per_sec": 76333.31,
+        "epoch_time_s": 0.131,
+        "avg_loss": 1.197537
       },
       "retrieval": {
-        "n_queries": 100,
+        "n_queries": 1000,
         "k": 10,
-        "avg_latency_ms": 6.6583,
-        "p50_latency_ms": 6.5353,
-        "p95_latency_ms": 8.8704,
-        "p99_latency_ms": 9.8985,
-        "min_latency_ms": 4.6094,
-        "max_latency_ms": 10.7255,
-        "throughput_qps": 150.19
+        "avg_latency_ms": 9.708,
+        "p50_latency_ms": 9.0216,
+        "p95_latency_ms": 13.8705,
+        "p99_latency_ms": 26.1228,
+        "min_latency_ms": 6.0693,
+        "max_latency_ms": 70.4284,
+        "throughput_qps": 103.01
       }
     }
   }

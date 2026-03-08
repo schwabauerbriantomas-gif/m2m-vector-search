@@ -219,7 +219,7 @@ class SplatStore:
 
     def _build_hrm2_from_splats(self, splats):
         """Construye índice HRM2 desde splats pre-computados."""
-        from splat_types import GaussianSplat as HrmSplat
+        from .splat_types import GaussianSplat as HrmSplat
 
         n_new = len(splats)
         if n_new > self.max_splats:
