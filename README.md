@@ -122,7 +122,37 @@ creative_samples = agent_db.generate(query=np.random.randn(1, 640).astype(np.flo
 removed_count = agent_db.consolidate(threshold=0.85)
 ```
 
-> **Note**: Both systems utilize the same underlying `SplatStore` and `HRM2Engine`. An index built and persisted in `SimpleVectorDB` can be loaded natively into `AdvancedVectorDB`, and vice-versa!
+### 3. M2M Cluster
+*"The Distributed Vector Network"*
+
+Designed for horizontal scalability and high availability. It wraps multiple M2M instances (typically `SimpleVectorDB` on edge devices) into a unified cluster, exposing a seamless `M2MClusterClient` for distributed routing & aggregation (Reciprocal Rank Fusion).
+
+**Best for**: Hybrid edge-cloud setups, huge datasets >100K splitting, failure-resistant local clusters.
+
+```python
+import numpy as np
+from m2m import M2MConfig
+from m2m.cluster import EdgeNode, ClusterRouter, M2MClusterClient
+
+# Initialize nodes (can be on different machines)
+config = M2MConfig(device='cpu')
+edge1 = EdgeNode(edge_id="edge-1", config=config)
+edge2 = EdgeNode(edge_id="edge-2", config=config)
+
+# Setup routing and client
+router = ClusterRouter()
+client = M2MClusterClient(in_memory_router=router)
+client.register_local_edge(edge1)
+client.register_local_edge(edge2)
+
+# Distributed ingestion (auto-shards data)
+client.ingest(np.random.randn(1000, 640).astype(np.float32))
+
+# Distributed search (queries all edges, merges with RRF)
+results = client.search(np.random.randn(1, 640).astype(np.float32), k=10)
+```
+
+> **Note**: Both systems utilize the same underlying `SplatStore` and `HRM2Engine`. An index built and persisted in `SimpleVectorDB` can be loaded natively into `AdvancedVectorDB` or `EdgeNode`, and vice-versa!
 
 ---
 

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-07
+### Added
+- **M2M Cluster Architecture (Phase 1)**: Introduced distributed vector networking for horizontal scalability and high availability.
+  - Implemented `EdgeNode` wrapping `SimpleVectorDB` for local-first operations.
+  - Added `ClusterRouter` for query coordination and data locality tracking logic.
+  - Enabled multi-node result merging via `ResultAggregator` using Reciprocal Rank Fusion (RRF).
+  - Designed `M2MClusterClient` to manage failover and query orchestration across the cluster.
+  - Built geographic, hash, and semantic sharding strategies for dynamic data routing.
+
 ## [1.0.8] - 2026-03-07
 ### Added
 - Added `M2MDatasetTransformer` support and documentation for optimal format ingestion.
