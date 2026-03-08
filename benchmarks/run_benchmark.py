@@ -170,7 +170,13 @@ def load_clustered_data(n_target: int = 10_000, latent_dim: int = 640, seed: int
     from sklearn.datasets import make_blobs
 
     # Generate tightly packed well-separated clusters
-    X, y = make_blobs(n_samples=n_target, centers=200, n_features=latent_dim, cluster_std=0.5, random_state=seed)
+    X, y = make_blobs(
+        n_samples=n_target,
+        centers=200,
+        n_features=latent_dim,
+        cluster_std=0.5,
+        random_state=seed,
+    )
     X = X.astype(np.float32)
 
     data = normalize_sphere(X)
@@ -470,7 +476,9 @@ def main():
     elif args.dataset == "sklearn":
         data, labels, data_meta = load_sklearn_data(args.n_splats, args.dim, args.seed)
     else:
-        data, labels, data_meta = load_clustered_data(args.n_splats, args.dim, args.seed)
+        data, labels, data_meta = load_clustered_data(
+            args.n_splats, args.dim, args.seed
+        )
     rng = np.random.default_rng(args.seed + 99)
     q_idx = rng.choice(len(data), size=min(args.n_queries, len(data)), replace=False)
     queries = data[q_idx]

@@ -35,5 +35,8 @@ dev = ["pytest", "black", "isort", "mypy", "ruff", "coverage"]
 vulkan = ["vulkan>=1.3.0"]
 docs = ["mkdocs", "mkdocs-material"]
 
+[tool.black]
+target-version = ['py38']
+
 [tool.isort]
 profile = "black"
