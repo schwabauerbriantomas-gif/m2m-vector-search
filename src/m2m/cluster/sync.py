@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from typing import List, Dict, Any, Callable, Coroutine
 import time
+from typing import Any, Callable, Coroutine, Dict, List
 
 logger = logging.getLogger("m2m_sync_queue")
 

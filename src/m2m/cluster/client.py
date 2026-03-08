@@ -1,11 +1,12 @@
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Tuple, Dict, Optional
 import requests
 
-from .router import ClusterRouter
 from .aggregator import ResultAggregator
-from .sharding import shard_by_hash
 from .edge_node import EdgeNode
+from .router import ClusterRouter
+from .sharding import shard_by_hash
 
 
 class CoordinatorUnavailable(Exception):

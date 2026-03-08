@@ -1,10 +1,11 @@
-import pytest
-import numpy as np
 import asyncio
 
+import numpy as np
+import pytest
+
+from m2m.cluster.balancer import LoadBalancer
 from m2m.cluster.health import GeoLocation, LoadMetrics
 from m2m.cluster.sharding import shard_by_cluster, shard_by_geo
-from m2m.cluster.balancer import LoadBalancer
 from m2m.cluster.sync import SyncQueue
 
 

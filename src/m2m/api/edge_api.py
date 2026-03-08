@@ -1,19 +1,20 @@
 import os
-import numpy as np
-import httpx
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, BackgroundTasks
 
-from ..config import M2MConfig
+import httpx
+import numpy as np
+from fastapi import BackgroundTasks, FastAPI
+
 from ..cluster.edge_node import EdgeNode
 from ..cluster.protocol import (
-    QueryRequest,
-    QueryResponse,
-    SearchResult,
     IngestRequest,
     IngestResponse,
     LoadMetricsModel,
+    QueryRequest,
+    QueryResponse,
+    SearchResult,
 )
+from ..config import M2MConfig
 
 
 async def dispatch_sync_events(actions) -> bool:

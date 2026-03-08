@@ -1,6 +1,7 @@
-from typing import List, Tuple, Optional
-import numpy as np
 import time
+from typing import List, Optional, Tuple
+
+import numpy as np
 
 from .. import M2MConfig, SimpleVectorDB
 from .health import LoadMetrics

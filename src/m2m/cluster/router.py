@@ -1,9 +1,10 @@
 import time
 from typing import Dict, List, Set
+
 import numpy as np
 
-from .health import EdgeNodeInfo, LoadMetrics
 from .balancer import LoadBalancer
+from .health import EdgeNodeInfo, LoadMetrics
 
 
 class ClusterRouter:

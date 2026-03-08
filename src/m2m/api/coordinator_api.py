@@ -1,21 +1,22 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from typing import List, Dict, Tuple
-import numpy as np
-import httpx
 import asyncio
+from contextlib import asynccontextmanager
+from typing import Dict, List, Tuple
 
-from ..cluster.router import ClusterRouter
+import httpx
+import numpy as np
+from fastapi import FastAPI, HTTPException
+
 from ..cluster.aggregator import ResultAggregator
 from ..cluster.protocol import (
-    RegisterRequest,
     HeartbeatRequest,
-    RouteRequest,
-    RouteResponse,
     QueryRequest,
     QueryResponse,
+    RegisterRequest,
+    RouteRequest,
+    RouteResponse,
     SearchResult,
 )
+from ..cluster.router import ClusterRouter
 
 # Global cluster dependencies
 router = ClusterRouter()

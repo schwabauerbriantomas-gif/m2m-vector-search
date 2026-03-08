@@ -3,9 +3,9 @@ import numpy as np
 from m2m import M2MConfig
 from m2m.cluster import (
     ClusterRouter,
-    ResultAggregator,
     EdgeNode,
     M2MClusterClient,
+    ResultAggregator,
     shard_by_hash,
 )
 from m2m.cluster.health import LoadMetrics

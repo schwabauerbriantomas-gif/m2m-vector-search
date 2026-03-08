@@ -1,6 +1,8 @@
 import hashlib
-import numpy as np
 from typing import Dict
+
+import numpy as np
+
 from .health import GeoLocation
 
 
@@ -41,7 +43,7 @@ def shard_by_cluster(
 def _haversine_distance(loc1: GeoLocation, loc2: GeoLocation) -> float:
     """Calculate the great circle distance in kilometers between two points on the earth."""
     # Convert decimal degrees to radians
-    from math import radians, cos, sin, asin, sqrt
+    from math import asin, cos, radians, sin, sqrt
 
     lon1, lat1, lon2, lat2 = map(
         radians, [loc1.longitude, loc1.latitude, loc2.longitude, loc2.latitude]

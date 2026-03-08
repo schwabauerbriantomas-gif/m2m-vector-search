@@ -1,5 +1,5 @@
-from fastapi.testclient import TestClient
 import numpy as np
+from fastapi.testclient import TestClient
 
 from m2m.api.coordinator_api import app as coordinator_app
 from m2m.api.edge_api import app as edge_app
