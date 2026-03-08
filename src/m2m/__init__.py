@@ -14,6 +14,9 @@ try:
     from .config import M2MConfig
     from .energy import EnergyFunction
     from .engine import M2MEngine
+    from .entity_extractor import EntityCandidate as EntityCandidate
+    from .entity_extractor import M2MEntityExtractor as M2MEntityExtractor
+    from .entity_extractor import M2MGraphEntityExtractor as M2MGraphEntityExtractor
     from .geometry import (
         exp_map,
         geodesic_distance,
@@ -21,14 +24,11 @@ try:
         normalize_sphere,
         project_to_tangent,
     )
-    from .splats import SplatStore
     from .graph_splat import GaussianGraphStore as GaussianGraphStore
-    from .graph_splat import NodeType as NodeType
-    from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import GraphEdge as GraphEdge
-    from .entity_extractor import M2MEntityExtractor as M2MEntityExtractor
-    from .entity_extractor import M2MGraphEntityExtractor as M2MGraphEntityExtractor
-    from .entity_extractor import EntityCandidate as EntityCandidate
+    from .graph_splat import GraphSplat as GraphSplat
+    from .graph_splat import NodeType as NodeType
+    from .splats import SplatStore
 except ImportError:
     # Forward declarations for type hinting if core modules aren't available
     M2MEngine = None

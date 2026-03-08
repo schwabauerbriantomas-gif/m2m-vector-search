@@ -1,6 +1,6 @@
 import numpy as np
 
-from m2m.entity_extractor import M2MEntityExtractor, EntityCandidate
+from m2m.entity_extractor import EntityCandidate, M2MEntityExtractor
 from m2m.graph_splat import GaussianGraphStore
 
 
