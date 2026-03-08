@@ -127,6 +127,9 @@ removed_count = agent_db.consolidate(threshold=0.85)
 
 Designed for horizontal scalability and high availability. It wraps multiple M2M instances (typically `SimpleVectorDB` on edge devices) into a unified cluster, exposing a seamless `M2MClusterClient` for distributed routing & aggregation (Reciprocal Rank Fusion).
 
+This mode natively supports **HTTP distributed architecture** using FastAPI, allowing instances to run on completely separate machines and communicate via HTTP REST endpoints safely.
+Features out of the box **Semantic/Geo-aware Sharding**, auto-balancing least-loaded algorithms, and **Offline SyncQueue** so edge devices buffer queries independently through network internet blackouts.
+
 **Best for**: Hybrid edge-cloud setups, huge datasets >100K splitting, failure-resistant local clusters.
 
 ```python

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-08
+### Added
+- **M2M Cluster Operations (Phase 4)**: Introduced containerization and cloud orchestration tools.
+  - Added `deploy/Dockerfile` and `deploy/docker-compose.yml` for unified local cluster testing.
+  - Added Kubernetes manifests in `deploy/k8s/` mapping out scalable deployments and services.
+  - Provided `monitoring/prometheus.yml` targets for cluster scraping.
+  - Created an official `docs/cluster.md` architectural deployment guide.
+
+## [1.3.0] - 2026-03-08
+### Added
+- **M2M Cluster Advanced Features (Phase 3)**: Introduced powerful new intelligence edge logic.
+  - Added semantic and geo-aware sharding implementations mapping Vectors via KMeans Centroids and Haversine distance, respectively.
+  - Decoupled Coordinator load balancing into `balancer.py` introducing Least-Latency round robin logic.
+  - Integrated `asyncio` base Edge Node offline queuing: Nodes automatically cache synchronization intents if the main swarm coordinator goes offline and flush payloads automatically.
+
+## [1.2.0] - 2026-03-07
+### Added
+- **M2M Cluster Communication Layer (Phase 2)**: Transformed the local cluster architecture into a fully distributed microservices network via HTTP/REST.
+  - Added `src/m2m/api/` with `FastAPI` and `uvicorn` web servers for edge and coordinator networking.
+  - Added `protocol.py` defining cluster-wide `Pydantic` schema models.
+  - Refactored `M2MClusterClient` to issue `requests.post()` async API calls instead of internal python function mapping.
+  - Implemented automatic network failover (e.g. querying fallback edges directly if coordinator times out).
+
 ## [1.1.0] - 2026-03-07
 ### Added
 - **M2M Cluster Architecture (Phase 1)**: Introduced distributed vector networking for horizontal scalability and high availability.

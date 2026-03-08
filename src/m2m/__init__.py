@@ -340,6 +340,9 @@ class SimpleVectorDB:
             from sklearn.cluster import KMeans
             from sklearn.metrics import silhouette_score
 
+            if len(vectors) < 3:
+                return 1.0
+
             sample_idx = np.random.choice(
                 len(vectors), min(sample_size, len(vectors)), replace=False
             )

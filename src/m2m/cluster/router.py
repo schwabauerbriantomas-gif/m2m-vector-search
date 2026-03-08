@@ -1,8 +1,10 @@
 import time
-from typing import Dict, List, Set, Any
+from typing import Dict, List, Set
 import numpy as np
 
 from .health import EdgeNodeInfo, LoadMetrics
+from .balancer import LoadBalancer
+
 
 class ClusterRouter:
     """
@@ -11,7 +13,7 @@ class ClusterRouter:
     - Load balancing (distribute queries evenly)
     - Latency (prefer nearby edges if location available)
     """
-    
+
     def __init__(self):
         self.edge_nodes: Dict[str, EdgeNodeInfo] = {}
         self.metadata_index: Dict[str, Set[str]] = {}  # doc_id -> edge_ids
@@ -19,10 +21,13 @@ class ClusterRouter:
         self.load_metrics: Dict[str, LoadMetrics] = {}
         # Keep track of semantic sharding boundaries if applicable
         self.centroids: Dict[str, np.ndarray] = {}
+        self.balancer = LoadBalancer()
 
     def register_edge(self, edge_id: str, url: str) -> EdgeNodeInfo:
         """Register a new edge node."""
-        info = EdgeNodeInfo(edge_id=edge_id, url=url, status="online", last_heartbeat=time.time())
+        info = EdgeNodeInfo(
+            edge_id=edge_id, url=url, status="online", last_heartbeat=time.time()
+        )
         self.edge_nodes[edge_id] = info
         self.load_metrics[edge_id] = LoadMetrics()
         return info
@@ -33,7 +38,7 @@ class ClusterRouter:
             del self.edge_nodes[edge_id]
         if edge_id in self.load_metrics:
             del self.load_metrics[edge_id]
-        
+
         # Clean up metadata index mapping
         for doc_id, edges in list(self.metadata_index.items()):
             if edge_id in edges:
@@ -47,7 +52,7 @@ class ClusterRouter:
             self.edge_nodes[edge_id].last_heartbeat = time.time()
             self.edge_nodes[edge_id].status = "online"
             self.load_metrics[edge_id] = metrics
-            
+
     def get_online_edges(self) -> List[str]:
         """Return list of edge_ids that are responsive and not overloaded."""
         current_time = time.time()
@@ -61,7 +66,9 @@ class ClusterRouter:
                     node.status = "offline"
         return online
 
-    def route_query(self, query: np.ndarray, k: int, strategy: str = "broadcast") -> List[str]:
+    def route_query(
+        self, query: np.ndarray, k: int, strategy: str = "broadcast"
+    ) -> List[str]:
         """
         Determine which edge nodes should handle this query.
         Returns list of optimal edge node IDs to query.
@@ -69,20 +76,11 @@ class ClusterRouter:
         online_edges = self.get_online_edges()
         if not online_edges:
             return []
-            
-        if strategy == "broadcast":
-            # For exact exact recall, ask all online edges
-            return online_edges
-        
-        # Simple load balancer (round-robin or least connections)
-        if strategy == "least_loaded":
-             return sorted(online_edges, key=lambda eid: self.load_metrics[eid].active_queries)
-             
-        # Feature: If we have centroid routing (hybrid search logic)
-        if strategy == "semantic" and getattr(self, "centroids_index", None) is not None:
-             pass # Will be handled via semantic sharding
-        
-        return online_edges
+
+        # Use balancer for routing
+        return self.balancer.select_best_edges(
+            online_edges, self.load_metrics, strategy
+        )
 
     def register_document(self, doc_id: str, edge_id: str):
         """Record what document lives where for exact lookup"""

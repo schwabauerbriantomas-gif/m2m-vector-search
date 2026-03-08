@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: m2m-coordinator-service
+spec:
+  selector:
+    app: m2m-coordinator
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: m2m-edge-service
+spec:
+  selector:
+    app: m2m-edge
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

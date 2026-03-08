@@ -17,5 +17,5 @@ __all__ = [
     "CoordinatorUnavailable",
     "shard_by_hash",
     "shard_by_cluster",
-    "shard_by_geo"
+    "shard_by_geo",
 ]

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: m2m-coordinator
+  labels:
+    app: m2m-coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: m2m-coordinator
+  template:
+    metadata:
+      labels:
+        app: m2m-coordinator
+    spec:
+      containers:
+      - name: coordinator
+        image: m2m-vector-search:latest
+        imagePullPolicy: IfNotPresent
+        command: ["uvicorn", "m2m.api.coordinator_api:app", "--host", "0.0.0.0", "--port", "8000"]
+        ports:
+        - containerPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: m2m-edge
+  labels:
+    app: m2m-edge
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: m2m-edge
+  template:
+    metadata:
+      labels:
+        app: m2m-edge
+    spec:
+      containers:
+      - name: edge
+        image: m2m-vector-search:latest
+        imagePullPolicy: IfNotPresent
+        command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+        ports:
+        - containerPort: 8000
+        env:
+        - name: COORDINATOR_URL
+          value: "http://m2m-coordinator-service:8000"
+        - name: EDGE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
