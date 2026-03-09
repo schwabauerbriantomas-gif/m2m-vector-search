@@ -79,8 +79,7 @@ class M2MPersistence:
         """Inicializa la base de datos SQLite de metadata."""
         db_path = str(self.storage_path / "data" / "metadata" / "metadata.db")
         conn = sqlite3.connect(db_path)
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
                 shard_idx INTEGER,
@@ -91,11 +90,8 @@ class M2MPersistence:
                 created_at REAL,
                 updated_at REAL
             )
-        """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted)"
-        )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted)")
         conn.commit()
         conn.close()
         self._db_path = db_path

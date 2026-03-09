@@ -207,13 +207,17 @@ class EBMExploration:
         dim = self.all_vectors.shape[1]
 
         if from_region is not None:
-            candidates = self._sample_around(from_region.center, n=k * 10, radius=from_region.radius, dim=dim)
+            candidates = self._sample_around(
+                from_region.center, n=k * 10, radius=from_region.radius, dim=dim
+            )
         else:
             # Muestrear globalmente con preferencia a regiones no conocidas
             candidates = self._sample_global(n=k * 10, dim=dim)
 
         # Energías de cada candidato
-        energies = np.array([self.energy_api.energy(c) for c in candidates], dtype=np.float32)
+        energies = np.array(
+            [self.energy_api.energy(c) for c in candidates], dtype=np.float32
+        )
 
         # Muestreo de Boltzmann: ∝ exp(E / T) (mayor energía = mayor prob)
         weights = np.exp(energies / temperature)
@@ -223,7 +227,9 @@ class EBMExploration:
 
         probs = weights / weights_sum
         k_actual = min(k, len(candidates))
-        indices = np.random.choice(len(candidates), size=k_actual, p=probs, replace=False)
+        indices = np.random.choice(
+            len(candidates), size=k_actual, p=probs, replace=False
+        )
         return [candidates[i] for i in indices]
 
     def suggest_exploration(

@@ -198,7 +198,9 @@ class SOCEngine:
             CriticalityReport con estado y métricas.
         """
         energy_variance = self._compute_energy_variance()
-        cluster_sizes = [len(c.splat_indices) for c in self._clusters] if self._clusters else [0]
+        cluster_sizes = (
+            [len(c.splat_indices) for c in self._clusters] if self._clusters else [0]
+        )
         size_variance = float(np.var(cluster_sizes))
 
         index = self._compute_criticality_index(energy_variance, size_variance)
@@ -310,7 +312,9 @@ class SOCEngine:
         self.avalanche_history.append(result)
         return result
 
-    def _get_neighbor_clusters(self, cluster_idx: int, radius: float = 2.0) -> List[int]:
+    def _get_neighbor_clusters(
+        self, cluster_idx: int, radius: float = 2.0
+    ) -> List[int]:
         """Obtiene índices de clusters vecinos dentro de un radio."""
         if not self._clusters or cluster_idx >= len(self._clusters):
             return []
@@ -324,7 +328,9 @@ class SOCEngine:
                     neighbors.append(i)
         # Limitar a los 10 vecinos más cercanos
         if len(neighbors) > 10:
-            dists = [np.linalg.norm(self._clusters[i].center - center) for i in neighbors]
+            dists = [
+                np.linalg.norm(self._clusters[i].center - center) for i in neighbors
+            ]
             sorted_idx = np.argsort(dists)[:10]
             neighbors = [neighbors[i] for i in sorted_idx]
         return neighbors
@@ -365,7 +371,7 @@ class SOCEngine:
             if self.splat_alpha is not None and len(self.splat_alpha) > 0:
                 # Ajustar alpha según uso (clusters activos aumentan, inactivos disminuyen)
                 usage = np.exp(-self.splat_kappa * 0.1)  # proxy de uso
-                self.splat_alpha *= (1 + usage * 0.05)
+                self.splat_alpha *= 1 + usage * 0.05
 
                 # Normalizar alpha para que sumen a 1
                 total = np.sum(self.splat_alpha)

@@ -90,9 +90,7 @@ class EnergyRouter:
 
     def register_node(self, node_id: str, weight: float = 1.0):
         """Registra un nodo en el router."""
-        self._node_energies[node_id] = NodeEnergy(
-            node_id=node_id, weight=weight
-        )
+        self._node_energies[node_id] = NodeEnergy(node_id=node_id, weight=weight)
         self._route_counts[node_id] = 0
 
     def remove_node(self, node_id: str):
@@ -335,7 +333,9 @@ class ClusterRouter:
         # EnergyRouter opcional
         self.energy_router = EnergyRouter(energy_router_config or {"enabled": False})
 
-    def register_edge(self, edge_id: str, url: str, weight: float = 1.0) -> EdgeNodeInfo:
+    def register_edge(
+        self, edge_id: str, url: str, weight: float = 1.0
+    ) -> EdgeNodeInfo:
         """Registra un edge node."""
         info = EdgeNodeInfo(
             edge_id=edge_id, url=url, status="online", last_heartbeat=time.time()

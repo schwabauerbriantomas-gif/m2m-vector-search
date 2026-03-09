@@ -69,10 +69,7 @@ class EBMEnergy:
         self.splat_kappa = np.asarray(splat_kappa, dtype=np.float32)
 
     def _has_splats(self) -> bool:
-        return (
-            self.splat_mu is not None
-            and len(self.splat_mu) > 0
-        )
+        return self.splat_mu is not None and len(self.splat_mu) > 0
 
     def energy(self, vector: np.ndarray) -> float:
         """
@@ -93,7 +90,7 @@ class EBMEnergy:
 
         # Vectorizado: diferencias al cuadrado
         diff = mu - x[np.newaxis, :]  # [N, D]
-        dist_sq = np.sum(diff ** 2, axis=1)  # [N]
+        dist_sq = np.sum(diff**2, axis=1)  # [N]
 
         # Contribuciones de cada splat
         contributions = alpha * np.exp(-kappa * dist_sq)  # [N]
@@ -126,7 +123,7 @@ class EBMEnergy:
         energies = []
         for x in X:
             diff = mu - x[np.newaxis, :]
-            dist_sq = np.sum(diff ** 2, axis=1)
+            dist_sq = np.sum(diff**2, axis=1)
             contribs = alpha * np.exp(-kappa * dist_sq)
             total = np.sum(contribs)
             e = -np.log(total) if total > 1e-10 else 10.0
@@ -157,7 +154,7 @@ class EBMEnergy:
         kappa = self.splat_kappa
 
         diff = x[np.newaxis, :] - mu  # [N, D]
-        dist_sq = np.sum(diff ** 2, axis=1)  # [N]
+        dist_sq = np.sum(diff**2, axis=1)  # [N]
         exp_terms = np.exp(-kappa * dist_sq)  # [N]
         factors = 2 * kappa * alpha * exp_terms  # [N]
 

@@ -39,7 +39,10 @@ def sample_ids():
 
 @pytest.fixture
 def sample_metadata():
-    return [{"category": "tech" if i % 2 == 0 else "science", "year": 2020 + i} for i in range(10)]
+    return [
+        {"category": "tech" if i % 2 == 0 else "science", "year": 2020 + i}
+        for i in range(10)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +88,9 @@ class TestAdd:
         """Test: añadir un solo vector."""
         vec = np.random.randn(64).astype(np.float32)
         n = db.add(ids=["single"], vectors=vec[np.newaxis, :])
-        assert n >= 0  # Puede fallar dependiendo del config pero no debe lanzar excepción
+        assert (
+            n >= 0
+        )  # Puede fallar dependiendo del config pero no debe lanzar excepción
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +202,9 @@ class TestSearch:
         results = db.search(query, k=5)
         assert results is not None
 
-    def test_search_with_metadata(self, db, sample_vectors, sample_ids, sample_metadata):
+    def test_search_with_metadata(
+        self, db, sample_vectors, sample_ids, sample_metadata
+    ):
         """Test: búsqueda incluye metadata."""
         db.add(ids=sample_ids, vectors=sample_vectors, metadata=sample_metadata)
         query = sample_vectors[0]
@@ -210,7 +217,9 @@ class TestSearch:
         """Test: búsqueda con filtro de metadata."""
         db.add(ids=sample_ids, vectors=sample_vectors, metadata=sample_metadata)
         query = sample_vectors[0]
-        results = db.search(query, k=10, filter={"category": {"$eq": "tech"}}, include_metadata=True)
+        results = db.search(
+            query, k=10, filter={"category": {"$eq": "tech"}}, include_metadata=True
+        )
         if isinstance(results, list):
             for r in results:
                 assert r.metadata.get("category") == "tech"

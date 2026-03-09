@@ -462,7 +462,9 @@ def explore(name: str, req: ExploreRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
     if not db.ebm_enabled:
-        raise HTTPException(status_code=400, detail="EBM not enabled for this collection.")
+        raise HTTPException(
+            status_code=400, detail="EBM not enabled for this collection."
+        )
 
     suggestions = db.suggest_exploration(n=req.n_suggestions)
 
@@ -589,6 +591,8 @@ def legacy_search(request: dict):
         results = [{"doc_id": r.id, "distance": r.score} for r in raw]
     else:
         mu, alpha, kappa = raw
-        results = [{"doc_id": f"idx_{i}", "distance": float(np.asarray(alpha[i]).flat[0])} for i in range(min(k, len(mu)))]
+        results = [
+            {"doc_id": f"idx_{i}", "distance": float(np.asarray(alpha[i]).flat[0])}
+            for i in range(min(k, len(mu)))
+        ]
     return {"results": results[:k]}
-
