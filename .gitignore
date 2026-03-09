@@ -16,3 +16,13 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Operational / temp files — not for version control
+*.pdf
+benchmark_results.txt
+benchmark_temp_*.json
+wheel_contents.txt
+_run_tests*.ps1
+*.wal
+*.db-wal
+*.db-shm

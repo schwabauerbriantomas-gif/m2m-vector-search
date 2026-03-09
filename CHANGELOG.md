@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-09
+
+### Added
+
+- **Full CRUD Operations** (`SimpleVectorDB` & `AdvancedVectorDB`):
+  - `add()` with explicit `ids`, `metadata`, `documents` and auto-ID generation. Backward-compatible with positional `add(vectors)` call.
+  - `update()` to patch vector, metadata or document text; supports `upsert`.
+  - `delete()` with soft-delete and hard-delete by `id`, list of `ids`, or metadata `filter` (`$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`).
+  - `search()` returns `List[DocResult]` (with filter support and deleted-doc exclusion) or legacy tuple for backward compat.
+- **Persistence Layer** (`storage/`):
+  - `WriteAheadLog` — durable operation logging with `msgpack`/JSON serialization, auto-sync, and checkpoint/replay.
+  - `M2MPersistence` — layered storage combining NumPy vector shards, SQLite metadata, pickle index, and WAL integration. Includes backup/restore.
+- **Energy-Based Model (EBM) Features** (`ebm/`):
+  - `EBMEnergy` — computes energy `E(x)`, gradient, free energy, and local 2D energy maps.
+  - `EBMExploration` — identifies high-uncertainty regions, Boltzmann-weighted sampling, agent exploration suggestions.
+  - `SOCEngine` — Self-Organized Criticality: criticality detection, BFS cascade avalanche triggering, system relaxation.
+  - `SimpleVectorDB` gains: `search_with_energy()`, `get_energy()`, `suggest_exploration()`, `find_knowledge_gaps()`.
+  - `AdvancedVectorDB` gains: `check_criticality()`, `trigger_avalanche()`, `relax()`.
+- **REST API v2** (`api/edge_api.py`) — collections-based architecture:
+  - Full CRUD endpoints: `POST/GET/DELETE /v1/collections/{name}`, `POST/PUT/DELETE /v1/collections/{name}/vectors/{id}`.
+  - Search with metadata filters: `POST /v1/collections/{name}/search`.
+  - EBM endpoints: `/energy`, `/explore`, `/suggest`.
+  - Admin endpoints: `/v1/admin/checkpoint`, `/v1/admin/backup`.
+  - Legacy `/ingest` and `/search` endpoints retained for backward compatibility.
+- **EnergyRouter** (`cluster/router.py`) — optional energy-based routing for distributed clusters:
+  - Five strategies: `energy_balanced`, `round_robin`, `least_loaded`, `locality_aware`, `hybrid`.
+  - TTL-based energy cache, routing statistics, and Boltzmann probabilistic node selection.
+- **Test Suite** (`tests/test_crud.py`) — 32 new tests covering CRUD, filters, EBM features, and SOC.
+- Added `msgpack>=1.0.0` as a required dependency.
+
+### Changed
+
+- `pyproject.toml` version bumped `1.5.0 → 2.0.0`.
+- `search()` default changed to `include_metadata=False` for legacy tuple compatibility.
+- `ClusterRouter` now optionally wraps `EnergyRouter`; existing API unchanged when energy router is disabled.
+- Removed `vulkan>=1.3.0` from required dependencies (now optional).
+
+### Fixed
+
+- `float(alpha[i])` `TypeError` when `alpha[i]` is a multi-dimensional NumPy array.
+- `condition` undefined variable in `_match_filter` (renamed to `cond`).
+- `add(np_array)` positional first-arg call no longer raises `ValueError`.
+- LSH path in `search()` now correctly builds `DocResult` list when `include_metadata=True`.
+- `edge_node.py` handles both tuple and list returns from `search()`.
+
 ## [1.5.0] - 2026-03-08
 ### Added
 - **M2M Native Entity Extractor**: Integrated zero-dependency deterministic entity extraction.
