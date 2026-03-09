@@ -38,22 +38,20 @@ class EdgeNode:
         try:
             # SimpleVectorDB returns (indices, alpha, kappa) or similar.
             # We want (doc_id, distance/score). Let's adapt based on standard return
-            neighbors_mu, neighbors_alpha, neighbors_kappa = self.local_store.search(
-                query, k
-            )
+            # Call search without metadata to get legacy tuple (mu, alpha, kappa)
+            result = self.local_store.search(query, k)
 
-            # Simple wrapper to parse results into distance format
-            # In real system, document indices would map to actual doc IDs.
-            # Here we fake doc IDs based on positional index and use kappa/alpha to derive a score
-            results = []
-            for i in range(len(neighbors_mu)):
-                # Fake score logic: lower is better, usually.
-                # Assuming neighbors_mu already sorted by similarity in engine
-                distance = float(
-                    i
-                )  # Placeholder for actual distance metrics from engine
-                doc_index = int(i)  # Placeholder for actual doc ID lookup
-                results.append((doc_index, distance))
+            # Handle both legacy tuple format and new DocResult list
+            if isinstance(result, tuple):
+                neighbors_mu, neighbors_alpha, neighbors_kappa = result
+                results = []
+                for i in range(len(neighbors_mu)):
+                    distance = float(i)  # Placeholder
+                    doc_index = int(i)
+                    results.append((doc_index, distance))
+            else:
+                # DocResult list format
+                results = [(r.id, r.score) for r in result]
 
             return results
         finally:
