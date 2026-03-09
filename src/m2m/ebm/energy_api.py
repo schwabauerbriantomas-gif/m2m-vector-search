@@ -12,7 +12,7 @@ es esa posición en el paisaje energético aprendido:
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 

@@ -16,7 +16,6 @@ Arquitectura:
 """
 
 import json
-import os
 import pickle
 import sqlite3
 import threading

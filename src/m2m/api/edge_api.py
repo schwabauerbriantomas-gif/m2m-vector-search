@@ -464,7 +464,6 @@ def explore(name: str, req: ExploreRequest):
     if not db.ebm_enabled:
         raise HTTPException(status_code=400, detail="EBM not enabled for this collection.")
 
-    topic = np.array(req.topic_vector, dtype=np.float32) if req.topic_vector else None
     suggestions = db.suggest_exploration(n=req.n_suggestions)
 
     return {

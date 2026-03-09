@@ -5,7 +5,7 @@ Permite a agentes y LLMs descubrir regiones de alta incertidumbre
 y sugerir áreas para expandir el conocimiento.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np

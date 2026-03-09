@@ -18,7 +18,7 @@ import numpy as np
 try:
     from .config import M2MConfig
     from .ebm import EBMEnergy, EBMExploration, SOCEngine
-    from .ebm.energy_api import EnergyResult
+    from .ebm.energy_api import EnergyResult as EnergyResult  # re-export
     from .ebm.exploration import EnergyRegion, ExplorationSuggestion
     from .ebm.soc import AvalancheResult, CriticalityReport, RelaxationResult
     from .energy import EnergyFunction
@@ -38,7 +38,7 @@ try:
     from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import NodeType as NodeType
     from .splats import SplatStore
-    from .storage import M2MPersistence, WriteAheadLog
+    from .storage import M2MPersistence, WriteAheadLog as WriteAheadLog
 except ImportError:
     from .config import M2MConfig
 
