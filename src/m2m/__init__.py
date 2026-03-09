@@ -38,7 +38,8 @@ try:
     from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import NodeType as NodeType
     from .splats import SplatStore
-    from .storage import M2MPersistence, WriteAheadLog as WriteAheadLog
+    from .storage import M2MPersistence
+    from .storage import WriteAheadLog as WriteAheadLog
 except ImportError:
     from .config import M2MConfig
 
