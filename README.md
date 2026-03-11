@@ -474,6 +474,7 @@ Licensed under the **AGPLv3**.
 
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md)
 - **Security Policy**: [SECURITY.md](SECURITY.md)
+- **Full Documentation**: [DOCUMENTATION.md](DOCUMENTATION.md)
 - **Methodology**: [METHODOLOGY_CONCLUSIONS.md](METHODOLOGY_CONCLUSIONS.md)
 - **Config Guide**: [CONFIG_RAG.md](CONFIG_RAG.md)
 
