@@ -2,26 +2,27 @@
 M2M Vector Search - Complete Test Suite (CORRECTED)
 All 12 tests passing - 100% functionality validated
 """
-import sys
 import os
-import numpy as np
+import sys
 import time
+
+import numpy as np
 
 sys.path.insert(0, r"C:\Users\Brian\Desktop\m2m-vector-search\src")
 
-print("="*70)
+print("=" * 70)
 print("M2M VECTOR SEARCH - COMPLETE TEST SUITE")
 print("All 12 tests - 100% functionality validation")
-print("="*70)
+print("=" * 70)
 
 results = {}
 
 # =============================================================================
 # PART 1: CORE COMPONENTS
 # =============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("PART 1: CORE COMPONENTS")
-print("="*70)
+print("=" * 70)
 
 # Test 1.1: SplatStore
 print("\n1.1 Testing SplatStore...")
@@ -29,7 +30,7 @@ try:
     from m2m.splats import SplatStore
     from m2m.config import M2MConfig
 
-    config = M2MConfig.simple(device='cpu')
+    config = M2MConfig.simple(device="cpu")
     config.latent_dim = 128
     store = SplatStore(config)
 
@@ -50,11 +51,11 @@ try:
     from m2m import SimpleVectorDB
     
     # Use HRM2Engine correctly via SimpleVectorDB
-    db = SimpleVectorDB(latent_dim=128, mode='edge')
-    
+    db = SimpleVectorDB(latent_dim=128, mode="edge")
+
     # Add vectors (uses HRM2Engine internally)
     vectors = np.random.randn(100, 128).astype(np.float32)
-    db.add(ids=[f'doc{i}' for i in range(100)], vectors=vectors)
+    db.add(ids=[f"doc{i}" for i in range(100)], vectors=vectors)
     
     # Search (uses HRM2Engine internally)
     query = np.random.randn(128).astype(np.float32)
@@ -124,8 +125,8 @@ try:
     storage = M2MPersistence(temp_dir, enable_wal=True)
 
     test_vecs = np.random.randn(3, 128).astype(np.float32)
-    storage.save_vectors(test_vecs, ['test1', 'test2', 'test3'])
-    storage.save_metadata('test1', shard_idx=0, vector_idx=0, metadata={'type': 'test'})
+    storage.save_vectors(test_vecs, ["test1", "test2", "test3"])
+    storage.save_metadata("test1", shard_idx=0, vector_idx=0, metadata={"type": "test"})
 
     print("   PASS - M2MPersistence: functional")
     print("   PASS - WriteAheadLog: functional")
@@ -160,31 +161,31 @@ except Exception as e:
 # =============================================================================
 # PART 2: INTEGRATION TESTS
 # =============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("PART 2: INTEGRATION TESTS")
-print("="*70)
+print("=" * 70)
 
 # Test 2.1: SimpleVectorDB
 print("\n2.1 Testing SimpleVectorDB...")
 try:
     from m2m import SimpleVectorDB
 
-    db = SimpleVectorDB(latent_dim=128, mode='standard')
+    db = SimpleVectorDB(latent_dim=128, mode="standard")
 
     vectors = np.random.randn(10, 128).astype(np.float32)
-    metadata = [{'category': 'tech', 'id': i} for i in range(10)]
+    metadata = [{"category": "tech", "id": i} for i in range(10)]
     db.add(
-        ids=[f'doc{i}' for i in range(10)],
+        ids=[f"doc{i}" for i in range(10)],
         vectors=vectors,
         metadata=metadata,
-        documents=[f'Document {i}' for i in range(10)]
+        documents=[f"Document {i}" for i in range(10)],
     )
 
     query = np.random.randn(128).astype(np.float32)
     results_search = db.search(query, k=5, include_metadata=True)
 
-    db.update('doc1', metadata={'category': 'updated'})
-    db.delete(id='doc2')
+    db.update("doc1", metadata={"category": "updated"})
+    db.delete(id="doc2")
 
     print("   PASS - SimpleVectorDB: CRUD operations functional")
     print(f"   PASS - Search with metadata: {len(results_search)} results")
@@ -201,7 +202,7 @@ try:
     db = AdvancedVectorDB(latent_dim=128, enable_soc=True, enable_energy_features=True)
 
     vectors = np.random.randn(5, 128).astype(np.float32)
-    db.add(ids=[f'adv{i}' for i in range(5)], vectors=vectors)
+    db.add(ids=[f"adv{i}" for i in range(5)], vectors=vectors)
 
     query = np.random.randn(128).astype(np.float32)
     result = db.search_with_energy(query, k=3)
@@ -236,20 +237,20 @@ except Exception as e:
 # =============================================================================
 # PART 3: PERFORMANCE TESTS
 # =============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("PART 3: PERFORMANCE TESTS")
-print("="*70)
+print("=" * 70)
 
 # Test 3.1: Large-scale ingestion
 print("\n3.1 Testing large-scale ingestion (1000 vectors)...")
 try:
     from m2m import SimpleVectorDB
 
-    db = SimpleVectorDB(latent_dim=128, mode='edge')
+    db = SimpleVectorDB(latent_dim=128, mode="edge")
     vectors = np.random.randn(1000, 128).astype(np.float32)
 
     start = time.time()
-    db.add(ids=[f'large{i}' for i in range(1000)], vectors=vectors)
+    db.add(ids=[f"large{i}" for i in range(1000)], vectors=vectors)
     elapsed = time.time() - start
 
     throughput = 1000 / elapsed
@@ -293,9 +294,9 @@ except Exception as e:
 # =============================================================================
 # SUMMARY
 # =============================================================================
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("TEST SUMMARY")
-print("="*70)
+print("=" * 70)
 
 total = len(results)
 passed = sum(1 for s in results.values() if s == "PASS")
@@ -312,16 +313,16 @@ for component, status in results.items():
     mark = "[PASS]" if status == "PASS" else ("[SKIP]" if status == "SKIP" else "[FAIL]")
     print(f"  {mark} {component}")
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 success_rate = (passed / (total - skipped)) * 100 if (total - skipped) > 0 else 0
 print(f"SUCCESS RATE: {passed}/{total-skipped} ({success_rate:.1f}%)")
-print("="*70)
+print("=" * 70)
 
 # Save results
 with open(r"C:\Users\Brian\Desktop\m2m-vector-search\test_results_final.txt", "w") as f:
-    f.write("="*70 + "\n")
+    f.write("=" * 70 + "\n")
     f.write("M2M VECTOR SEARCH - TEST RESULTS\n")
-    f.write("="*70 + "\n\n")
+    f.write("=" * 70 + "\n\n")
     for component, status in results.items():
         f.write(f"{component}: {status}\n")
     f.write(f"\nSuccess Rate: {passed}/{total-skipped} ({success_rate:.1f}%)\n")
