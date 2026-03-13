@@ -105,9 +105,9 @@ try:
     test_vec = np.random.randn(128).astype(np.float32)
     energy = ebm_energy.energy(test_vec)
 
-    print(f"   PASS - EBM Energy: functional")
-    print(f"   PASS - EBM Exploration: functional")
-    print(f"   PASS - SOC Engine: functional")
+    print("   PASS - EBM Energy: functional")
+    print("   PASS - EBM Exploration: functional")
+    print("   PASS - SOC Engine: functional")
     results["ebm_components"] = "PASS"
 except Exception as e:
     print(f"   FAIL - EBM Components: {e}")
@@ -127,8 +127,8 @@ try:
     storage.save_vectors(test_vecs, ['test1', 'test2', 'test3'])
     storage.save_metadata('test1', shard_idx=0, vector_idx=0, metadata={'type': 'test'})
 
-    print(f"   PASS - M2MPersistence: functional")
-    print(f"   PASS - WriteAheadLog: functional")
+    print("   PASS - M2MPersistence: functional")
+    print("   PASS - WriteAheadLog: functional")
     results["storage_wal"] = "PASS"
 
     shutil.rmtree(temp_dir, ignore_errors=True)
@@ -186,7 +186,7 @@ try:
     db.update('doc1', metadata={'category': 'updated'})
     db.delete(id='doc2')
 
-    print(f"   PASS - SimpleVectorDB: CRUD operations functional")
+    print("   PASS - SimpleVectorDB: CRUD operations functional")
     print(f"   PASS - Search with metadata: {len(results_search)} results")
     results["simplevectordb"] = "PASS"
 except Exception as e:
@@ -209,8 +209,8 @@ try:
     criticality = db.check_criticality()
     relax_result = db.relax(iterations=5)
 
-    print(f"   PASS - AdvancedVectorDB: functional")
-    print(f"   PASS - EBM features: functional")
+    print("   PASS - AdvancedVectorDB: functional")
+    print("   PASS - EBM features: functional")
     print(f"   PASS - SOC features: state={criticality.state}")
     results["advancedvectordb"] = "PASS"
 except Exception as e:
@@ -227,7 +227,7 @@ try:
         print(f"   PASS - Integrations folder: {len(files)} files")
         results["integrations"] = "PASS"
     else:
-        print(f"   SKIP - Integrations folder: NOT FOUND")
+        print("   SKIP - Integrations folder: NOT FOUND")
         results["integrations"] = "SKIP"
 except Exception as e:
     print(f"   FAIL - Integrations: {e}")
@@ -284,7 +284,7 @@ except Exception as e:
 # Test 3.3: Memory efficiency
 print("\n3.3 Testing memory efficiency...")
 try:
-    print(f"   PASS - Memory efficiency: validated")
+    print("   PASS - Memory efficiency: validated")
     results["memory_efficiency"] = "PASS"
 except Exception as e:
     print(f"   INFO - Memory efficiency: {e}")
