@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-03-13
+
+### Added
+
+- **Premium Visualization Assets**: Replaced legacy charts with 6 ultra-premium, dark-themed dashboard assets:
+  - `performance_overview.png`: Metric dashboard (QPS, Latency, Ingestion, Memory).
+  - `throughput_comparison.png`: 2.18x speedup visualization vs. Linear Scan.
+  - `latency_distribution.png`: Detailed percentile breakdown.
+  - `architecture_overview.png`: 4-layer glassmorphism diagram.
+  - `dataset_statistics.png`: Vector dimensionality and memory profile.
+  - `test_coverage.png`: CI/CD status with 100% pass rate.
+
+### Changed
+
+- **README Documentation**:
+  - Validated and updated all performance metrics with real DBpedia 1M dataset results.
+  - Corrected license badges and mentions from Apache 2.0 to **GNU AGPLv3** to match the repository's `LICENSE` file.
+- **CI/CD & Code Quality**:
+  - Fixed Ruff linting errors (`F541` f-string without placeholders) across the test suite.
+  - Applied strict `black` and `isort` formatting to `test_complete_validated.py` for pipeline compliance.
+
+### Removed
+
+- Deleted 7 obsolete visualization assets from the `assets/` directory to reduce repository size.
+
 ## [2.0.0] - 2026-03-09
 
 ### Added
