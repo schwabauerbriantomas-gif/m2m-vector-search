@@ -5,11 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-03-13
+## [2.1.0] - 2026-03-13
 
 ### Added
 
-#### Core Features
+#### Core Features (v2.0)
 - **SimpleVectorDB**: SQLite-like simplicity for vector operations with full CRUD support
 - **AdvancedVectorDB**: Enhanced version with EBM (Energy-Based Model) features
 - **HRM2 Engine**: Hierarchical Retrieval with Mixture of Experts (2-stage search)
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **3-tier Memory**: VRAM Hot / RAM Warm / SSD Cold hierarchy
 - **LSH Fallback**: CrossPolytope LSH for uniform distributions
 
-#### Advanced Features (v1.0)
+#### Advanced Features (v2.1)
 - **GPU Acceleration** (Vulkan): Auto-detection, benchmarking, and optimization
   - AMD/NVIDIA/Intel GPU support
   - Automatic workgroup sizing
@@ -151,4 +151,4 @@ Apache License 2.0
 
 ---
 
-[1.0.0]: https://github.com/schwabauerbriantomas-gif/m2m-vector-search/releases/tag/v1.0.0
+[2.1.0]: https://github.com/schwabauerbriantomas-gif/m2m-vector-search/releases/tag/v2.1.0

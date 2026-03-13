@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "m2m-vector-search"
-version = "1.0.0"
+version = "2.1.0"
 description = "M2M (Machine-to-Memory) - High-performance vector database with GPU acceleration and energy-based features"
 readme = "README.md"
 license = {text = "Apache-2.0"}
