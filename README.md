@@ -111,12 +111,12 @@
 
 | Percentile | M2M | Linear Scan | Speedup |
 |-----------|-----|------------|---------|
-| **Min** | 8.47ms | 19.37ms | −56% |
-| **Mean** | 9.53ms | 20.79ms | −54% |
-| **Median** | 9.53ms | 20.60ms | −54% |
-| **P95** | 10.08ms | 22.52ms | −55% |
-| **P99** | 11.14ms | 24.00ms | −54% |
-| **Max** | 16.02ms | 28.01ms | −43% |
+| **Min** | 8.47ms | 19.37ms | -56% |
+| **Mean** | 9.53ms | 20.79ms | -54% |
+| **Median** | 9.53ms | 20.60ms | -54% |
+| **P95** | 10.08ms | 22.52ms | -55% |
+| **P99** | 11.14ms | 24.00ms | -54% |
+| **Max** | 16.02ms | 28.01ms | -43% |
 
 **Result:** M2M maintains sub-10ms average with highly predictable tail latency.
 
@@ -458,7 +458,7 @@ Date       : 2026-03-13
 
 ## 🗺️ Roadmap
 
-### Current (v2.0.0)
+### Current (v2.0.2)
 - ✅ Core functionality (CRUD + search)
 - ✅ EBM features
 - ✅ WAL persistence
