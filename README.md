@@ -55,8 +55,32 @@
 ## 🏗️ Architecture
 
 <div align="center">
-  <img src="assets/architecture_overview.png" alt="Architecture Overview" width="100%">
+  <img src="assets/architecture_overview.png" alt="M2M Architecture Diagram" width="100%">
 </div>
+
+### Layer Overview
+
+**Layer 1: Public API**
+- SimpleVectorDB & AdvancedVectorDB
+- User-facing CRUD operations
+
+**Layer 2: M2M Engine**
+- Core orchestration
+- Query optimization
+- Index management
+
+**Layer 3: Core Components**
+- SplatStore: Gaussian Splat storage
+- HRM2 Engine: Hierarchical retrieval
+- EnergyFunction: Energy landscape
+
+**Layer 4: Storage & Indexing**
+- LSH Index: Fast approximate search
+- Storage & WAL: Persistent storage
+
+**Side: EBM Layer**
+- Energy-Based Model features
+- Exploration & SOC engine
 
 ### Core Components
 
