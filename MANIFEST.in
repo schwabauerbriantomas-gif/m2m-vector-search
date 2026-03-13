@@ -1,3 +1,21 @@
-include README.md
 include LICENSE
-recursive-include src/m2m/shaders *.spv *.comp
+include README.md
+include CHANGELOG.md
+include ADVANCED_FEATURES.md
+include USER_GUIDE.md
+include DEVELOPER_DOCS.md
+include BENCHMARK_REPORT.md
+include CONFIGURATION.md
+include TESTING_REPORT.md
+include EXECUTIVE_SUMMARY.md
+
+recursive-include src *.py
+recursive-include src *.comp
+recursive-include src *.spv
+recursive-include assets *.png
+
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude *.swp
+global-exclude *.swo

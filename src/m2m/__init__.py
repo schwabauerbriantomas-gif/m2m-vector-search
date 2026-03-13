@@ -4,11 +4,20 @@
 M2M (Machine-to-Memory) - EBM Vector Database
 High-performance Gaussian Splat storage and retrieval with Energy-Based Model features.
 
+Version: 1.0.0
+Author: Brian Schwabauer
+License: Apache-2.0
+
 Modos de operación:
   - EMBEDDED: SimpleVectorDB / AdvancedVectorDB (librería Python)
   - SERVER:   M2MClient (cliente REST)
   - CLUSTER:  M2MCluster (cluster distribuido con router energético opcional)
 """
+
+__version__ = "1.0.0"
+__author__ = "Brian Schwabauer"
+__email__ = "schwabauerbriantomas@gmail.com"
+__license__ = "Apache-2.0"
 
 from typing import Any, Dict, List, Optional, Tuple
 

@@ -4,43 +4,210 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "m2m-vector-search"
-version = "2.0.3"
-authors = [
-  { name="Brian Schwabauer" },
-]
-description = "M2M EBM Vector Database — Energy-Based Model storage with full CRUD, WAL persistence, REST API, and Self-Organized Criticality"
+version = "1.0.0"
+description = "M2M (Machine-to-Memory) - High-performance vector database with GPU acceleration and energy-based features"
 readme = "README.md"
-requires-python = ">=3.8"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Brian Schwabauer", email = "schwabauerbriantomas@gmail.com"}
+]
+maintainers = [
+    {name = "Brian Schwabauer", email = "schwabauerbriantomas@gmail.com"}
+]
+keywords = [
+    "vector-database",
+    "gpu",
+    "vulkan",
+    "semantic-search",
+    "embeddings",
+    "machine-learning",
+    "energy-based-models",
+    "gaussian-splats",
+    "hrm2"
+]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Database"
+    "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 dependencies = [
-    "numpy>=1.21.0",
-    "scikit-learn>=1.2.0",
-    "pandas>=2.0.0",
-    "psutil>=5.8.0",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.23.0",
-    "pydantic>=2.0.0",
-    "requests>=2.31.0",
-    "msgpack>=1.0.0"
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+vulkan = [
+    "vulkan>=1.3.0",
+]
+distributed = [
+    "requests>=2.28.0",
+    "redis>=4.5.0",
+]
+all = [
+    "m2m-vector-search[dev,vulkan,distributed]",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search"
-"Bug Tracker" = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/issues"
+Homepage = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search"
+Documentation = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search#readme"
+Repository = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search.git"
+Issues = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/issues"
+Changelog = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/blob/main/CHANGELOG.md"
 
-[project.optional-dependencies]
-dev = ["pytest", "black", "isort", "mypy", "ruff", "coverage", "httpx", "pytest-asyncio"]
-vulkan = ["vulkan>=1.3.0"]
-docs = ["mkdocs", "mkdocs-material"]
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
-target-version = ['py38']
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # defaults
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  # project specific
+  | __pycache__
+  | \.pytest_cache
+  | shaders
+)/
+'''
 
 [tool.isort]
 profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+skip_gitignore = true
+skip = [".git", ".hg", ".mypy_cache", ".tox", ".venv", "_build", "buck-out", "build", "dist", "__pycache__"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-ra",
+    "-q",
+    "--strict-markers",
+    "--strict-config",
+]
+testpaths = ["."]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests that require GPU",
+    "integration: marks integration tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnknownMarkWarning",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "vulkan.*",
+    "sklearn.*",
+    "pytest.*",
+]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/m2m"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/test_*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+precision = 2
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg",
+    ".pytest_cache",
+    ".mypy_cache",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "test_*.py"]
+skips = ["B101", "B601"]
+
+[tool.pylint.messages_control]
+disable = [
+    "C0330",
+    "C0326",
+    "C0114",
+    "C0115",
+    "C0116",
+    "R0903",
+    "R0913",
+]
+
+[tool.pylint.format]
+max-line-length = "100"
