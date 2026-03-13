@@ -103,10 +103,6 @@
 
 ## 📈 Latency Analysis
 
-<div align="center">
-  <img src="assets/latency_distribution.png" alt="Latency Distribution" width="100%">
-</div>
-
 ### Complete Latency Breakdown
 
 | Percentile | M2M | Linear Scan | Speedup |
