@@ -4,7 +4,7 @@
   
   **High-Performance Vector Database with Gaussian Splats & Energy-Based Models**
   
-  [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+  [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
   [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)]()
   [![Performance](https://img.shields.io/badge/QPS-104.9-yellow.svg)]()
   [![Tests](https://img.shields.io/badge/Tests-12%2F12%20Passing-success.svg)]()
@@ -481,7 +481,7 @@ Date       : 2026-03-13
 
 ## 📜 License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+GNU Affero General Public License v3.0 (AGPLv3) — see [LICENSE](LICENSE) for details.
 
 ---
 
