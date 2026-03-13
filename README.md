@@ -458,7 +458,7 @@ Date       : 2026-03-13
 
 ## 🗺️ Roadmap
 
-### Current (v2.0.2)
+### Current (v2.0.3)
 - ✅ Core functionality (CRUD + search)
 - ✅ EBM features
 - ✅ WAL persistence
