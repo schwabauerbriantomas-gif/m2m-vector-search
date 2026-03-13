@@ -95,22 +95,24 @@
 
 ---
 
-## 📈 Latency Distribution
+## 📈 Latency Analysis
 
 <div align="center">
   <img src="assets/latency_distribution.png" alt="Latency Distribution" width="100%">
 </div>
 
-### Search Latency Breakdown
+### Complete Latency Breakdown
 
-- **Minimum**: 8.12ms
-- **Mean**: 9.53ms
-- **Median**: 9.53ms
-- **P95**: 10.08ms
-- **P99**: 12.01ms
-- **Maximum**: 15.34ms
+| Metric | Value | Description |
+|--------|-------|-------------|
+| **Min** | 8.12ms | Fastest query |
+| **Mean** | 9.53ms | Average latency |
+| **Median** | 9.53ms | 50th percentile |
+| **P95** | 10.08ms | 95% of queries faster |
+| **P99** | 12.01ms | 99% of queries faster |
+| **Max** | 15.34ms | Slowest query |
 
-**Result:** Predictable sub-10ms latency for 99% of queries
+**Result:** Sub-10ms average with predictable P95/P99
 
 ---
 
