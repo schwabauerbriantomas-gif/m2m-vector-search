@@ -2,6 +2,7 @@
 M2M Vector Search - Complete Test Suite (CORRECTED)
 All 12 tests passing - 100% functionality validated
 """
+
 import os
 import sys
 import time
@@ -27,8 +28,8 @@ print("=" * 70)
 # Test 1.1: SplatStore
 print("\n1.1 Testing SplatStore...")
 try:
-    from m2m.splats import SplatStore
     from m2m.config import M2MConfig
+    from m2m.splats import SplatStore
 
     config = M2MConfig.simple(device="cpu")
     config.latent_dim = 128
@@ -49,20 +50,20 @@ except Exception as e:
 print("\n1.2 Testing HRM2Engine (via SimpleVectorDB)...")
 try:
     from m2m import SimpleVectorDB
-    
+
     # Use HRM2Engine correctly via SimpleVectorDB
     db = SimpleVectorDB(latent_dim=128, mode="edge")
 
     # Add vectors (uses HRM2Engine internally)
     vectors = np.random.randn(100, 128).astype(np.float32)
     db.add(ids=[f"doc{i}" for i in range(100)], vectors=vectors)
-    
+
     # Search (uses HRM2Engine internally)
     query = np.random.randn(128).astype(np.float32)
     search_results = db.search(query, k=5)
-    
+
     assert len(search_results) > 0, "Search should return results"
-    
+
     print(f"   PASS - HRM2Engine: {len(search_results)} results via SimpleVectorDB")
     results["hrm2_engine"] = "PASS"
 except Exception as e:
@@ -76,17 +77,21 @@ try:
 
     energy_fn = EnergyFunction(config)
     test_vec = np.random.randn(128).astype(np.float32)
-    
+
     # EnergyFunction returns array (one energy per dimension)
     energy_array = energy_fn(test_vec)
-    
+
     # Verify it returns the correct shape
-    assert energy_array.shape == (128,), f"Expected shape (128,), got {energy_array.shape}"
-    
+    assert energy_array.shape == (
+        128,
+    ), f"Expected shape (128,), got {energy_array.shape}"
+
     # Convert to scalar for reporting (mean energy)
     energy_scalar = float(np.mean(energy_array))
-    
-    print(f"   PASS - EnergyFunction: returns array shape {energy_array.shape}, mean energy={energy_scalar:.4f}")
+
+    print(
+        f"   PASS - EnergyFunction: returns array shape {energy_array.shape}, mean energy={energy_scalar:.4f}"
+    )
     results["energy_function"] = "PASS"
 except Exception as e:
     print(f"   FAIL - EnergyFunction: {e}")
@@ -117,9 +122,10 @@ except Exception as e:
 # Test 1.5: Storage & WAL
 print("\n1.5 Testing Storage & WAL...")
 try:
-    from m2m.storage.persistence import M2MPersistence
-    import tempfile
     import shutil
+    import tempfile
+
+    from m2m.storage.persistence import M2MPersistence
 
     temp_dir = tempfile.mkdtemp()
     storage = M2MPersistence(temp_dir, enable_wal=True)
@@ -222,6 +228,7 @@ except Exception as e:
 print("\n2.3 Checking integrations...")
 try:
     import os
+
     integrations_path = r"C:\Users\Brian\Desktop\m2m-vector-search\integrations"
     if os.path.exists(integrations_path):
         files = os.listdir(integrations_path)
@@ -310,7 +317,9 @@ print(f"Failed: {failed}")
 
 print("\nDetailed Results:")
 for component, status in results.items():
-    mark = "[PASS]" if status == "PASS" else ("[SKIP]" if status == "SKIP" else "[FAIL]")
+    mark = (
+        "[PASS]" if status == "PASS" else ("[SKIP]" if status == "SKIP" else "[FAIL]")
+    )
     print(f"  {mark} {component}")
 
 print("\n" + "=" * 70)
