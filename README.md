@@ -20,16 +20,18 @@
   <img src="assets/performance_overview.png" alt="Performance Overview" width="100%">
 </div>
 
-### Validated with Real Data (DBpedia 1M Dataset)
+### Real Benchmark Results (DBpedia 1M Dataset)
 
-| Metric | Value | Benchmark |
-|--------|-------|-----------|
-| **Ingestion** | 1,528 docs/sec | 6.54s for 10K documents |
-| **Search** | 105 queries/sec | 9.53ms average latency |
-| **Latency (P95)** | 10.08ms | 99th percentile: 12.01ms |
-| **Memory** | 24.4 MB | 10K vectors (640D) |
-| **Speedup** | 15.7x faster | vs. linear scan baseline |
-| **Test Coverage** | 100% | 12/12 tests passing |
+| Metric | M2M | Linear Scan | Improvement |
+|--------|-----|-------------|-------------|
+| **Throughput** | 105 QPS | 64.89 QPS | **1.6x faster** |
+| **Mean Latency** | 9.53ms | 15.41ms | **38% faster** |
+| **P95 Latency** | 10.08ms | 16.58ms | **39% faster** |
+| **P99 Latency** | 12.01ms | 18.39ms | **35% faster** |
+
+**Dataset:** 10,000 vectors, 640D (truncated from 3,072D)
+**Hardware:** AMD Ryzen 5 3400G, 32GB RAM
+**Test Coverage:** 100% (12/12 tests passing)
 
 ---
 
@@ -116,7 +118,20 @@
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Performance Comparison
+
+<div align="center">
+  <img src="assets/throughput_comparison.png" alt="Throughput Comparison" width="100%">
+</div>
+
+### M2M vs Linear Scan (Real Baseline)
+
+| System | Throughput | Latency (Mean) | Latency (P95) |
+|--------|-----------|---------|------------|
+| **Linear Scan** | 64.9 qps | 15.4ms | 16.6ms |
+| **M2M** | 105.0 qps | 9.5ms | 10.1ms |
+
+**Result:** M2M is **1.6x faster** than linear scan with real benchmark data.
 
 ### Installation
 
@@ -489,8 +504,6 @@ Contributions welcome! Please read:
 ---
 
 <div align="center">
-  
-  **Built with ❤️ by Alfred 🎩**
   
   **Validated with DBpedia 1M Dataset**
   
