@@ -7,10 +7,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from typing import Annotated, Sequence, TypedDict
+
 import numpy as np
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from typing import TypedDict, Annotated, Sequence
 
 # Import M2M
 from m2m import SimpleVectorDB
