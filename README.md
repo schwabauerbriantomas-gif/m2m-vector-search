@@ -491,24 +491,33 @@ Date       : 2026-03-13
 
 ## 🗺️ Roadmap
 
-### Current (v2.0.3)
+### Current (v2.1.0)
 - ✅ Core functionality (CRUD + search)
 - ✅ EBM features
 - ✅ WAL persistence
 - ✅ REST API
-- ✅ 100% test coverage (12/12)
+- ✅ GPU acceleration (Vulkan)
+- ✅ Query optimization (Cache + Prefetch)
+- ✅ Auto-scaling (Horizontal)
+- ✅ Distributed cluster mode
+- ✅ 100% test coverage (37/37)
+- ✅ Code formatting (Black)
 
-### Near-term
-- 🔄 GPU acceleration (Vulkan)
-- 🔄 Distributed cluster mode
-- 🔄 Query optimization
-- 🔄 Auto-scaling
+### Near-term (v2.2.0)
+- 🔄 GPU memory defragmentation
+- 🔄 Query result compression
+- 🔄 Async/await API
+- 🔄 Prometheus metrics export
+- 🔄 Grafana dashboards
 
-### Long-term
+### Long-term (v2.3.0+)
 - 📋 Multi-modal support
+- 📋 Multi-GPU support
 - 📋 Federated learning
-- 📋 Edge deployment
+- 📋 Edge deployment (WebAssembly)
 - 📋 Real-time streaming
+- 📋 GraphQL API
+- 📋 Distributed transactions
 
 ---
 
