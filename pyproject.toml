@@ -73,6 +73,7 @@ Documentation = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search#r
 Repository = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search.git"
 Issues = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/issues"
 Changelog = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/blob/main/CHANGELOG.md"
+Releases = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search/releases"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

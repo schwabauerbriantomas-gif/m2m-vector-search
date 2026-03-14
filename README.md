@@ -7,7 +7,8 @@
   [![License](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
   [![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)]()
   [![Performance](https://img.shields.io/badge/QPS-104.9-yellow.svg)]()
-  [![Tests](https://img.shields.io/badge/Tests-12%2F12%20Passing-success.svg)]()
+  [![Tests](https://img.shields.io/badge/Tests-37%2F37%20Passing-success.svg)]()
+  [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000.svg)]()
   [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)]()
   
 </div>
@@ -33,8 +34,9 @@
 | **Max Latency** | **16.02ms** | 28.01ms | **43% faster** |
 
 **Dataset:** 10,000 vectors · 640D (truncated from 3,072D)  
-**Hardware:** AMD Ryzen 5 3400G · 32GB RAM · CPU Mode  
-**Test Coverage:** 100% (12/12 tests passing)
+**Hardware:** AMD Ryzen 5 3400G · 32GB RAM · AMD RX 6650 XT  
+**Test Coverage:** 100% (37/37 tests passing)  
+**Code Style:** Black formatted (line-length 100)
 
 ---
 

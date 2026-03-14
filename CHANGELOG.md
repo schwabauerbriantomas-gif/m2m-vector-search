@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Checkpoint System**: Consistent snapshots
 - **Optimized Loader**: Pre-computed splats for fast startup
 
-#### Developer Tools
+### Developer Tools
 - **Comprehensive Test Suite**: 37 tests, 100% passing
   - Core functionality tests
   - GPU auto-tuning tests
@@ -64,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Performance benchmarks
 - **Type Hints**: Full type annotations for IDE support
 - **Documentation**: Complete user guide and API reference
+- **Code Formatting**: Black (line-length 100), isort
+- **CI/CD**: GitHub Actions with automated testing and publishing
 
 ### Performance
 
@@ -107,6 +109,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking Changes
 
 None - Initial release
+
+### Fixed (v2.1.0)
+- Code formatting with Black (line-length 100) for all 43 Python files
+- Import sorting with isort (profile: black)
+- Updated GitHub Actions to v4 (upload-artifact, download-artifact)
+- Consistent code style across entire codebase
 
 ### Security
 
