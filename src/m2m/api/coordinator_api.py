@@ -108,7 +108,5 @@ async def search(request: QueryRequest):
     # 3. Aggregate
     merged = aggregator.merge_results(results_dict, k=request.k, strategy="rrf")
 
-    final_results = [
-        SearchResult(doc_id=doc_id, distance=dist) for doc_id, dist in merged
-    ]
+    final_results = [SearchResult(doc_id=doc_id, distance=dist) for doc_id, dist in merged]
     return QueryResponse(results=final_results)

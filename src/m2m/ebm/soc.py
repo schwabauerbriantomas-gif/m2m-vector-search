@@ -175,9 +175,7 @@ class SOCEngine:
         energies = [c.energy for c in self._clusters]
         return float(np.var(energies))
 
-    def _compute_criticality_index(
-        self, energy_variance: float, size_variance: float
-    ) -> float:
+    def _compute_criticality_index(self, energy_variance: float, size_variance: float) -> float:
         """
         Índice de criticalidad combinado.
 
@@ -198,9 +196,7 @@ class SOCEngine:
             CriticalityReport con estado y métricas.
         """
         energy_variance = self._compute_energy_variance()
-        cluster_sizes = (
-            [len(c.splat_indices) for c in self._clusters] if self._clusters else [0]
-        )
+        cluster_sizes = [len(c.splat_indices) for c in self._clusters] if self._clusters else [0]
         size_variance = float(np.var(cluster_sizes))
 
         index = self._compute_criticality_index(energy_variance, size_variance)
@@ -219,9 +215,7 @@ class SOCEngine:
             size_variance=size_variance,
         )
 
-    def trigger_avalanche(
-        self, seed_point: Optional[np.ndarray] = None
-    ) -> AvalancheResult:
+    def trigger_avalanche(self, seed_point: Optional[np.ndarray] = None) -> AvalancheResult:
         """
         Dispara una avalanche de reorganización.
 
@@ -296,9 +290,7 @@ class SOCEngine:
                     if splat_idx < len(self.splat_alpha):
                         self.splat_alpha[splat_idx] *= 0.7
             # Actualizar energy_api
-            self.energy_api.update_splats(
-                self.splat_mu, self.splat_alpha, self.splat_kappa
-            )
+            self.energy_api.update_splats(self.splat_mu, self.splat_alpha, self.splat_kappa)
 
         new_eq = self._compute_equilibrium_state()
         duration_ms = (time.time() - start_time) * 1000
@@ -312,9 +304,7 @@ class SOCEngine:
         self.avalanche_history.append(result)
         return result
 
-    def _get_neighbor_clusters(
-        self, cluster_idx: int, radius: float = 2.0
-    ) -> List[int]:
+    def _get_neighbor_clusters(self, cluster_idx: int, radius: float = 2.0) -> List[int]:
         """Obtiene índices de clusters vecinos dentro de un radio."""
         if not self._clusters or cluster_idx >= len(self._clusters):
             return []
@@ -328,9 +318,7 @@ class SOCEngine:
                     neighbors.append(i)
         # Limitar a los 10 vecinos más cercanos
         if len(neighbors) > 10:
-            dists = [
-                np.linalg.norm(self._clusters[i].center - center) for i in neighbors
-            ]
+            dists = [np.linalg.norm(self._clusters[i].center - center) for i in neighbors]
             sorted_idx = np.argsort(dists)[:10]
             neighbors = [neighbors[i] for i in sorted_idx]
         return neighbors
@@ -384,9 +372,7 @@ class SOCEngine:
 
         # Actualizar energy_api con splats relajados
         if self.splat_mu is not None:
-            self.energy_api.update_splats(
-                self.splat_mu, self.splat_alpha, self.splat_kappa
-            )
+            self.energy_api.update_splats(self.splat_mu, self.splat_alpha, self.splat_kappa)
 
         final_energy = self.energy_api.free_energy()
 
@@ -406,9 +392,7 @@ class SOCEngine:
             "n_clusters": len(self._clusters),
             "n_avalanches": len(self.avalanche_history),
             "last_avalanche_clusters": (
-                self.avalanche_history[-1].affected_clusters
-                if self.avalanche_history
-                else 0
+                self.avalanche_history[-1].affected_clusters if self.avalanche_history else 0
             ),
             "equilibrium_state": self._compute_equilibrium_state(),
         }

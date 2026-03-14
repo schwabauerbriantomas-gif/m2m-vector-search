@@ -78,17 +78,14 @@ class M2MDataLake:
                     # Langevin Generative Augmentation
                     # Generate novel variations of the splat
                     try:
-                        generated = self.m2m.sample(
-                            batch_mu, n_steps=self.langevin_steps
-                        )
+                        generated = self.m2m.sample(batch_mu, n_steps=self.langevin_steps)
                         if not isinstance(generated, np.ndarray):
                             raise ValueError("DummyModule detected")
                         batch_mu = generated
                     except Exception:
                         # Fallback if sample is a dummy module
                         batch_mu = (
-                            batch_mu
-                            + np.random.randn(*batch_mu.shape).astype(np.float32) * 0.01
+                            batch_mu + np.random.randn(*batch_mu.shape).astype(np.float32) * 0.01
                         )
 
                 yield batch_mu

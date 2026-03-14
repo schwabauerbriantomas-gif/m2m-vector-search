@@ -44,9 +44,7 @@ class GaussianSplat:
     color: np.ndarray = field(default_factory=lambda: np.ones(3, dtype=np.float32))
     opacity: float = 1.0
     scale: np.ndarray = field(default_factory=lambda: np.ones(3, dtype=np.float32))
-    rotation: np.ndarray = field(
-        default_factory=lambda: np.array([1, 0, 0, 0], dtype=np.float32)
-    )
+    rotation: np.ndarray = field(default_factory=lambda: np.array([1, 0, 0, 0], dtype=np.float32))
     sh_coeffs: Optional[np.ndarray] = None  # Spherical harmonics
 
     def __post_init__(self):
@@ -140,15 +138,9 @@ class SplatEmbedding:
     """
 
     splat_id: int
-    position_encoding: np.ndarray = field(
-        default_factory=lambda: np.zeros(64, dtype=np.float32)
-    )
-    color_encoding: np.ndarray = field(
-        default_factory=lambda: np.zeros(512, dtype=np.float32)
-    )
-    attribute_encoding: np.ndarray = field(
-        default_factory=lambda: np.zeros(64, dtype=np.float32)
-    )
+    position_encoding: np.ndarray = field(default_factory=lambda: np.zeros(64, dtype=np.float32))
+    color_encoding: np.ndarray = field(default_factory=lambda: np.zeros(512, dtype=np.float32))
+    attribute_encoding: np.ndarray = field(default_factory=lambda: np.zeros(64, dtype=np.float32))
 
     @property
     def full_embedding(self) -> np.ndarray:

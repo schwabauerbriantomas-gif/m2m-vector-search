@@ -30,9 +30,7 @@ except ImportError:
 
 
 @njit(fastmath=True, cache=True)
-def _sinusoidal_position_encoding_numba(
-    positions: np.ndarray, dim: int = 64
-) -> np.ndarray:
+def _sinusoidal_position_encoding_numba(positions: np.ndarray, dim: int = 64) -> np.ndarray:
     """
     Sinusoidal Position Encoding for 3D coordinates.
 

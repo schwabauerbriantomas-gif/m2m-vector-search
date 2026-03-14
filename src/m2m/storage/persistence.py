@@ -104,9 +104,7 @@ class M2MPersistence:
     # Vector Storage (numpy shards)
     # -------------------------------------------------------------------------
 
-    def save_vectors(
-        self, vectors: np.ndarray, ids: List[str], shard_name: str = "shard_001"
-    ):
+    def save_vectors(self, vectors: np.ndarray, ids: List[str], shard_name: str = "shard_001"):
         """Guarda vectores en un archivo numpy shard."""
         shard_path = self.storage_path / "data" / "vectors" / f"{shard_name}.npy"
         np.save(str(shard_path), vectors.astype(np.float32))
@@ -220,9 +218,7 @@ class M2MPersistence:
             if include_deleted:
                 rows = conn.execute("SELECT id FROM documents").fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT id FROM documents WHERE deleted=0"
-                ).fetchall()
+                rows = conn.execute("SELECT id FROM documents WHERE deleted=0").fetchall()
             return [r[0] for r in rows]
         finally:
             conn.close()
@@ -268,9 +264,7 @@ class M2MPersistence:
         """
         conn = self._get_conn()
         try:
-            rows = conn.execute(
-                "SELECT id, metadata FROM documents WHERE deleted=0"
-            ).fetchall()
+            rows = conn.execute("SELECT id, metadata FROM documents WHERE deleted=0").fetchall()
         finally:
             conn.close()
 
@@ -401,12 +395,8 @@ class M2MPersistence:
         """Estadísticas del storage."""
         conn = self._get_conn()
         try:
-            total = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE deleted=0"
-            ).fetchone()[0]
-            deleted = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE deleted=1"
-            ).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM documents WHERE deleted=0").fetchone()[0]
+            deleted = conn.execute("SELECT COUNT(*) FROM documents WHERE deleted=1").fetchone()[0]
         finally:
             conn.close()
 

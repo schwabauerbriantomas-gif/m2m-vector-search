@@ -149,9 +149,7 @@ class HRM2Engine:
             return 0.0
 
         if precomputed_embeddings is not None:
-            self.embeddings = np.ascontiguousarray(
-                precomputed_embeddings.astype(np.float32)
-            )
+            self.embeddings = np.ascontiguousarray(precomputed_embeddings.astype(np.float32))
             n_samples = self.embeddings.shape[0]
         else:
             # Build embeddings
@@ -161,9 +159,7 @@ class HRM2Engine:
             scales = np.array([s.scale for s in self.splats])
             rotations = np.array([s.rotation for s in self.splats])
 
-            self.embeddings = self.encoder.build(
-                positions, colors, opacities, scales, rotations
-            )
+            self.embeddings = self.encoder.build(positions, colors, opacities, scales, rotations)
             # Ensure correct dtype
             self.embeddings = np.ascontiguousarray(self.embeddings.astype(np.float32))
             n_samples = len(self.splats)
@@ -193,17 +189,13 @@ class HRM2Engine:
 
             if len(cluster_indices) < 2:
                 self.fine_models[coarse_id] = None
-                self.fine_assignments[coarse_id] = np.zeros(
-                    len(cluster_indices), dtype=np.int32
-                )
+                self.fine_assignments[coarse_id] = np.zeros(len(cluster_indices), dtype=np.int32)
                 self.coarse_cluster_embeddings[coarse_id] = np.zeros(
                     (0, self.embedding_dim), dtype=np.float32
                 )
                 continue
 
-            cluster_embeddings = np.ascontiguousarray(
-                self.embeddings[mask].astype(np.float32)
-            )
+            cluster_embeddings = np.ascontiguousarray(self.embeddings[mask].astype(np.float32))
             self.coarse_cluster_embeddings[coarse_id] = cluster_embeddings
 
             # Dynamic n_fine based on cluster size
@@ -217,9 +209,7 @@ class HRM2Engine:
             )
 
             self.fine_models[coarse_id] = fine_model
-            self.fine_assignments[coarse_id] = fine_model.fit_predict(
-                cluster_embeddings
-            )
+            self.fine_assignments[coarse_id] = fine_model.fit_predict(cluster_embeddings)
 
         self._is_indexed = True
 
@@ -252,9 +242,7 @@ class HRM2Engine:
 
         query_start = time.time()
 
-        query_vector = np.ascontiguousarray(
-            np.asarray(query_vector, dtype=np.float32).flatten()
-        )
+        query_vector = np.ascontiguousarray(np.asarray(query_vector, dtype=np.float32).flatten())
 
         # Find nearest coarse clusters
         coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
@@ -280,9 +268,7 @@ class HRM2Engine:
                 if not fine_model:
                     continue
                 fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
-                closest_fine = np.argsort(fine_dists)[
-                    0
-                ]  # Top 1 fine cluster inside this coarse
+                closest_fine = np.argsort(fine_dists)[0]  # Top 1 fine cluster inside this coarse
                 dist = fine_dists[closest_fine]
 
                 coarse_mask = self.coarse_assignments == coarse_id
@@ -374,9 +360,7 @@ class HRM2Engine:
         if not self._is_indexed:
             raise RuntimeError("Index not built. Call index() first.")
 
-        query_vector = np.ascontiguousarray(
-            np.asarray(query_vector, dtype=np.float32).flatten()
-        )
+        query_vector = np.ascontiguousarray(np.asarray(query_vector, dtype=np.float32).flatten())
 
         # Find nearest coarse clusters
         coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
@@ -391,9 +375,7 @@ class HRM2Engine:
                 indices = np.where(mask)[0][:k]
                 for idx in indices:
                     # Provide an approximation for fine_id (e.g. 0) since we didn't search
-                    candidates.append(
-                        (self.splats[idx].id, float(dist), int(coarse_id), 0)
-                    )
+                    candidates.append((self.splats[idx].id, float(dist), int(coarse_id), 0))
                 if len(candidates) >= k:
                     break
 
@@ -464,17 +446,11 @@ class HRM2Engine:
                         coarse_ids,
                         fine_ids,
                     )
-                    candidates = [
-                        (self.splats[r[0]].id, r[1], r[2], r[3]) for r in results
-                    ]
+                    candidates = [(self.splats[r[0]].id, r[1], r[2], r[3]) for r in results]
                 else:  # CPU fallback
                     distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
-                    for idx, dist, cid, fid in zip(
-                        expert_indices, distances, coarse_ids, fine_ids
-                    ):
-                        candidates.append(
-                            (self.splats[idx].id, float(dist), int(cid), int(fid))
-                        )
+                    for idx, dist, cid, fid in zip(expert_indices, distances, coarse_ids, fine_ids):
+                        candidates.append((self.splats[idx].id, float(dist), int(cid), int(fid)))
 
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -500,9 +476,9 @@ class HRM2Engine:
         coarse_distances = self.coarse_model.transform(query_vectors)
         # Use argpartition to get top n_probe quickly
         if coarse_distances.shape[1] > self.n_probe:
-            closest_coarse_batch = np.argpartition(
-                coarse_distances, self.n_probe - 1, axis=1
-            )[:, : self.n_probe]
+            closest_coarse_batch = np.argpartition(coarse_distances, self.n_probe - 1, axis=1)[
+                :, : self.n_probe
+            ]
         else:
             closest_coarse_batch = np.argsort(coarse_distances, axis=1)
 
@@ -546,8 +522,7 @@ class HRM2Engine:
 
             # Return real distances for interface
             local_res = [
-                (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i])))
-                for i in topk_idx
+                (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i]))) for i in topk_idx
             ]
             results_batch.append(local_res)
 

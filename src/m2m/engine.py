@@ -11,9 +11,7 @@ class M2MEngine:
 
     def __init__(self, config=None):
         self.config = config
-        self.device = (
-            config.compute_device if hasattr(config, "compute_device") else "cpu"
-        )
+        self.device = config.compute_device if hasattr(config, "compute_device") else "cpu"
 
         self.use_vulkan = False
         self.vulkan_router = None
@@ -49,9 +47,7 @@ class M2MEngine:
             return []
 
         if self.use_vulkan:
-            distances_cpu = self.vulkan_router.compute_distances(
-                query, expert_embeddings
-            )
+            distances_cpu = self.vulkan_router.compute_distances(query, expert_embeddings)
         else:
             q_arr = np.array(query, dtype=np.float32)[np.newaxis, :]
             e_arr = np.array(expert_embeddings, dtype=np.float32)

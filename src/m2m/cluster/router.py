@@ -255,10 +255,7 @@ class EnergyRouter:
             latency_score = 0.0
 
             combined = (
-                0.4 * energy_score
-                + 0.2 * load_score
-                + 0.3 * locality_score
-                + 0.1 * latency_score
+                0.4 * energy_score + 0.2 * load_score + 0.3 * locality_score + 0.1 * latency_score
             )
             scores.append((node_id, combined))
 
@@ -301,9 +298,7 @@ class EnergyRouter:
             "cache_size": len(self._energy_cache),
             "total_routes": self._total_routes,
             "node_distribution": dict(self._route_counts),
-            "node_energies": {
-                nid: ne.last_energy for nid, ne in self._node_energies.items()
-            },
+            "node_energies": {nid: ne.last_energy for nid, ne in self._node_energies.items()},
         }
 
     def clear_cache(self):
@@ -333,13 +328,9 @@ class ClusterRouter:
         # EnergyRouter opcional
         self.energy_router = EnergyRouter(energy_router_config or {"enabled": False})
 
-    def register_edge(
-        self, edge_id: str, url: str, weight: float = 1.0
-    ) -> EdgeNodeInfo:
+    def register_edge(self, edge_id: str, url: str, weight: float = 1.0) -> EdgeNodeInfo:
         """Registra un edge node."""
-        info = EdgeNodeInfo(
-            edge_id=edge_id, url=url, status="online", last_heartbeat=time.time()
-        )
+        info = EdgeNodeInfo(edge_id=edge_id, url=url, status="online", last_heartbeat=time.time())
         self.edge_nodes[edge_id] = info
         self.load_metrics[edge_id] = LoadMetrics()
         self.energy_router.register_node(edge_id, weight=weight)
@@ -400,9 +391,7 @@ class ClusterRouter:
             )
 
         # Fallback al balancer legacy
-        return self.balancer.select_best_edges(
-            online_edges, self.load_metrics, strategy
-        )
+        return self.balancer.select_best_edges(online_edges, self.load_metrics, strategy)
 
     def register_document(self, doc_id: str, edge_id: str):
         """Registra dónde vive un documento."""

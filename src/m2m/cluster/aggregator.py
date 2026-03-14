@@ -14,9 +14,7 @@ class ResultAggregator:
 
     def merge_results(
         self,
-        results: Dict[
-            str, List[Tuple[int, float]]
-        ],  # edge_id -> list of (doc_id, score/distance)
+        results: Dict[str, List[Tuple[int, float]]],  # edge_id -> list of (doc_id, score/distance)
         k: int,
         strategy: str = "rrf",
     ) -> List[Tuple[int, float]]:

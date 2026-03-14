@@ -22,9 +22,7 @@ def shard_by_hash(doc_id: str, num_edges: int) -> str:
     return f"edge-{edge_index}"
 
 
-def shard_by_cluster(
-    embedding: np.ndarray, centroids: np.ndarray, edge_ids: list[str]
-) -> str:
+def shard_by_cluster(embedding: np.ndarray, centroids: np.ndarray, edge_ids: list[str]) -> str:
     """
     Route document to edge with nearest centroid.
     Advantage: Queries only need to hit relevant edges.
@@ -71,9 +69,7 @@ def shard_by_geo(doc_metadata: Dict, edge_locations: Dict[str, GeoLocation]) -> 
         # Fallback if no location data
         return list(edge_locations.keys())[0] if edge_locations else "edge-default"
 
-    doc_location = GeoLocation(
-        latitude=loc_data.get("lat", 0), longitude=loc_data.get("lon", 0)
-    )
+    doc_location = GeoLocation(latitude=loc_data.get("lat", 0), longitude=loc_data.get("lon", 0))
 
     nearest_edge = min(
         edge_locations.items(), key=lambda x: _haversine_distance(doc_location, x[1])

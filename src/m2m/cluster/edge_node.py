@@ -18,9 +18,7 @@ class EdgeNode:
     - Sycs with coordinator when available
     """
 
-    def __init__(
-        self, edge_id: str, config: M2MConfig, coordinator_url: Optional[str] = None
-    ):
+    def __init__(self, edge_id: str, config: M2MConfig, coordinator_url: Optional[str] = None):
         self.edge_id = edge_id
         self.local_store = SimpleVectorDB(config.device, latent_dim=config.latent_dim)
         self.coordinator_url = coordinator_url
@@ -65,9 +63,7 @@ class EdgeNode:
         if self.total_queries > 0:
             avg_latency = (self.total_search_time / self.total_queries) * 1000
 
-        return LoadMetrics(
-            active_queries=self.active_queries, query_latency_ms=avg_latency
-        )
+        return LoadMetrics(active_queries=self.active_queries, query_latency_ms=avg_latency)
 
     def sync_with_coordinator(self):
         """Sync metadata and health status with coordinator."""

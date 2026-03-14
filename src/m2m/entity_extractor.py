@@ -48,9 +48,7 @@ class M2MEntityExtractor:
 
     # Patrones estructurales básicos
     STRUCTURAL_PATTERNS = [
-        EntityPattern(
-            "email", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "contact"
-        ),
+        EntityPattern("email", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "contact"),
         EntityPattern("url", r'https?://[^\s<>"]+|www\.[^\s<>"]+', "url"),
         EntityPattern("phone", r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b", "contact"),
         EntityPattern("date_iso", r"\b\d{4}-\d{2}-\d{2}\b", "date"),
@@ -139,11 +137,7 @@ class M2MEntityExtractor:
         result_list = list(candidates.values())
 
         # 3. Semantic Validation (Hypersphere S^639)
-        if (
-            self.use_semantic_clustering
-            and embedding_model is not None
-            and len(result_list) > 0
-        ):
+        if self.use_semantic_clustering and embedding_model is not None and len(result_list) > 0:
             texts_to_embed = [c.text for c in result_list]
 
             # Duck-typing for whatever embedding model is passed (assumes it has .encode returning np array)
@@ -281,9 +275,7 @@ class M2MEntityExtractor:
 
             if len(embs) >= k:
                 try:
-                    kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto").fit(
-                        embs
-                    )
+                    kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto").fit(embs)
                     labels = kmeans.labels_
                     idx = 0
                     for c in candidates:
@@ -303,9 +295,7 @@ class M2MGraphEntityExtractor:
     Integración de M2MEntityExtractor con GaussianGraphStore.
     """
 
-    def __init__(
-        self, extractor: M2MEntityExtractor, graph_store: "GaussianGraphStore"
-    ):
+    def __init__(self, extractor: M2MEntityExtractor, graph_store: "GaussianGraphStore"):
         self.extractor = extractor
         self.graph_store = graph_store
 

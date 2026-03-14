@@ -45,9 +45,7 @@ class CrossPolytopeLSH:
         Q = Q @ np.diag(np.sign(np.diag(R)))
         return Q.astype(np.float32)
 
-    def _compute_hash_vector(
-        self, vector: np.ndarray, table_idx: int
-    ) -> Tuple[int, ...]:
+    def _compute_hash_vector(self, vector: np.ndarray, table_idx: int) -> Tuple[int, ...]:
         hashes = []
         for i in range(self.k):
             rotation = self.rotations[table_idx][i]
@@ -166,9 +164,7 @@ class CrossPolytopeLSH:
 
         return candidates_arr[sorted_indices], distances[sorted_indices]
 
-    def get_recall(
-        self, queries: np.ndarray, ground_truth: np.ndarray, k: int = 10
-    ) -> float:
+    def get_recall(self, queries: np.ndarray, ground_truth: np.ndarray, k: int = 10) -> float:
         n_queries = queries.shape[0]
         total_found = 0
         total_expected = n_queries * k

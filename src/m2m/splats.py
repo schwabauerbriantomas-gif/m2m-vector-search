@@ -163,9 +163,7 @@ class SplatStore:
                     from gpu_vector_index import GPUVectorIndex
 
                     index_vecs = self.mu[: self.n_active]
-                    self._gpu_index = GPUVectorIndex(
-                        index_vecs, max_batch_size=max_batch_size
-                    )
+                    self._gpu_index = GPUVectorIndex(index_vecs, max_batch_size=max_batch_size)
                     self._gpu_index_dirty = False
 
                 queries_np = queries.astype(np.float32)
@@ -185,9 +183,7 @@ class SplatStore:
                 return mu_out, alpha_out, kappa_out
 
             except Exception as e:
-                print(
-                    f"[SplatStore] GPU batch search failed ({e}), falling back to CPU."
-                )
+                print(f"[SplatStore] GPU batch search failed ({e}), falling back to CPU.")
 
         # ── CPU fallback: batched vectorized query ───────────────────
         mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)

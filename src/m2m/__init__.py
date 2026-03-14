@@ -114,9 +114,7 @@ class M2MMemory:
         # Energy Function
         self.energy_fn = EnergyFunction(config)
 
-        print(
-            f"[INFO] M2M initialized on {config.device} (compute_device={config.compute_device})"
-        )
+        print(f"[INFO] M2M initialized on {config.device} (compute_device={config.compute_device})")
         print(f"[INFO] Latent dim: {config.latent_dim}")
         print(f"[INFO] Max splats: {config.max_splats}")
         print(f"[INFO] 3-tier memory: {config.enable_3_tier_memory}")
@@ -167,9 +165,7 @@ class M2MMemory:
             threshold = self.soc_threshold
 
         if self.splats.n_active > 0:
-            splats_to_remove = np.where(
-                self.splats.alpha[: self.splats.n_active] < threshold
-            )[0]
+            splats_to_remove = np.where(self.splats.alpha[: self.splats.n_active] < threshold)[0]
         else:
             splats_to_remove = []
 
@@ -189,15 +185,11 @@ class M2MMemory:
         return {
             "n_active_splats": self.splats.n_active,
             "max_splats": self.splats.max_splats,
-            "mean_frequency": self.splats.frequency[: self.splats.n_active]
-            .mean()
-            .item(),
+            "mean_frequency": self.splats.frequency[: self.splats.n_active].mean().item(),
             "mean_kappa": self.splats.kappa[: self.splats.n_active].mean().item(),
             "mean_alpha": self.splats.alpha[: self.splats.n_active].mean().item(),
             "entropy": self.splats.entropy().item(),
-            "soc_phi": (
-                self.phi.item() if hasattr(self.phi, "item") else float(self.phi)
-            ),
+            "soc_phi": (self.phi.item() if hasattr(self.phi, "item") else float(self.phi)),
         }
 
     def forward(self, x: np.ndarray, mode: str = "energy") -> np.ndarray:
@@ -452,9 +444,7 @@ class SimpleVectorDB:
         # Persistencia
         self.storage = None
         if storage_path and mode != "edge":
-            self.storage = M2MPersistence(
-                storage_path, enable_wal=(enable_wal and mode != "edge")
-            )
+            self.storage = M2MPersistence(storage_path, enable_wal=(enable_wal and mode != "edge"))
 
         # EBM
         self.ebm_enabled = enable_ebm or mode == "ebm"
@@ -464,9 +454,7 @@ class SimpleVectorDB:
             self._ebm_energy = EBMEnergy()
             self._ebm_exploration = EBMExploration(self._ebm_energy)
 
-    def _compute_silhouette(
-        self, vectors: np.ndarray, sample_size: int = 1000
-    ) -> float:
+    def _compute_silhouette(self, vectors: np.ndarray, sample_size: int = 1000) -> float:
         try:
             from sklearn.cluster import KMeans
             from sklearn.metrics import silhouette_score
@@ -624,11 +612,7 @@ class SimpleVectorDB:
         """
         if id not in self._vectors and id not in self._deleted:
             if upsert:
-                vec = (
-                    vector
-                    if vector is not None
-                    else np.zeros(self.latent_dim, dtype=np.float32)
-                )
+                vec = vector if vector is not None else np.zeros(self.latent_dim, dtype=np.float32)
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
@@ -641,11 +625,7 @@ class SimpleVectorDB:
         if id in self._deleted:
             if upsert:
                 self._deleted.discard(id)
-                vec = (
-                    vector
-                    if vector is not None
-                    else np.zeros(self.latent_dim, dtype=np.float32)
-                )
+                vec = vector if vector is not None else np.zeros(self.latent_dim, dtype=np.float32)
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
@@ -662,11 +642,7 @@ class SimpleVectorDB:
             self._vectors[id] = np.asarray(vector, dtype=np.float32)
 
             # Calcular delta de energía si EBM habilitado
-            if (
-                self.ebm_enabled
-                and self._ebm_energy is not None
-                and old_vec is not None
-            ):
+            if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
                 old_e = self._ebm_energy.energy(old_vec)
                 new_e = self._ebm_energy.energy(vector)
                 energy_delta = new_e - old_e
@@ -834,13 +810,9 @@ class SimpleVectorDB:
                         score=score,
                         vector=candidate_vectors[i] if include_metadata else None,
                         metadata=meta,
-                        document=(
-                            self._documents.get(doc_id) if include_metadata else None
-                        ),
+                        document=(self._documents.get(doc_id) if include_metadata else None),
                         energy=energy_val,
-                        confidence=(
-                            1.0 / (1.0 + energy_val) if energy_val is not None else None
-                        ),
+                        confidence=(1.0 / (1.0 + energy_val) if energy_val is not None else None),
                     )
                 )
             return results[:k]
@@ -881,12 +853,8 @@ class SimpleVectorDB:
                     id=doc_id,
                     score=score,
                     vector=mu[i] if include_metadata else None,
-                    metadata=(
-                        self._metadata.get(doc_id, {}) if include_metadata else {}
-                    ),
-                    document=(
-                        self._documents.get(doc_id) if include_metadata else None
-                    ),
+                    metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
+                    document=(self._documents.get(doc_id) if include_metadata else None),
                     energy=energy_val,
                     confidence=confidence_val,
                 )
@@ -935,9 +903,7 @@ class SimpleVectorDB:
     def get_energy(self, vector: np.ndarray) -> float:
         """Calcula la energía de un vector (requiere ebm_enabled=True)."""
         if not self.ebm_enabled or self._ebm_energy is None:
-            raise RuntimeError(
-                "EBM features no habilitadas. Usa enable_ebm=True o mode='ebm'."
-            )
+            raise RuntimeError("EBM features no habilitadas. Usa enable_ebm=True o mode='ebm'.")
         return self._ebm_energy.energy(vector)
 
     def suggest_exploration(self, n: int = 3) -> List[ExplorationSuggestion]:
@@ -945,9 +911,7 @@ class SimpleVectorDB:
         if not self.ebm_enabled or self._ebm_exploration is None:
             raise RuntimeError("EBM features no habilitadas.")
         ids = [d for d in self._vectors if d not in self._deleted]
-        return self._ebm_exploration.suggest_exploration(
-            current_knowledge=ids, n_suggestions=n
-        )
+        return self._ebm_exploration.suggest_exploration(current_knowledge=ids, n_suggestions=n)
 
     def find_knowledge_gaps(self, n: int = 5) -> List[EnergyRegion]:
         """Encuentra huecos en el conocimiento (requiere ebm_enabled=True)."""
@@ -980,9 +944,7 @@ class SimpleVectorDB:
         """Estadísticas del sistema."""
         base = {
             "total_documents": len(self._vectors),
-            "active_documents": len(
-                [d for d in self._vectors if d not in self._deleted]
-            ),
+            "active_documents": len([d for d in self._vectors if d not in self._deleted]),
             "deleted_documents": len(self._deleted),
             "lsh_active": self._use_lsh,
             "ebm_enabled": self.ebm_enabled,
@@ -1068,9 +1030,7 @@ class AdvancedVectorDB(SimpleVectorDB):
             raise RuntimeError("SOC no habilitado. Usa enable_soc=True.")
         return self._soc.check_criticality()
 
-    def trigger_avalanche(
-        self, seed_point: Optional[np.ndarray] = None
-    ) -> AvalancheResult:
+    def trigger_avalanche(self, seed_point: Optional[np.ndarray] = None) -> AvalancheResult:
         """
         Dispara una avalanche de reorganización del sistema.
 
@@ -1145,9 +1105,7 @@ class M2MClient:
             self._requests = requests
         except ImportError:
             self._requests = None
-            print(
-                "[WARNING] 'requests' no instalado. Instala con: pip install requests"
-            )
+            print("[WARNING] 'requests' no instalado. Instala con: pip install requests")
 
     def _headers(self) -> Dict:
         h = {"Content-Type": "application/json"}
@@ -1294,9 +1252,7 @@ class M2MCollection:
 
     def suggest_exploration(self, n: int = 5) -> Dict:
         """Sugerencias de exploración."""
-        return self._client._post(
-            f"/v1/collections/{self.name}/explore", {"n_suggestions": n}
-        )
+        return self._client._post(f"/v1/collections/{self.name}/explore", {"n_suggestions": n})
 
     def get_stats(self) -> Dict:
         """Estadísticas de la colección."""
@@ -1381,8 +1337,7 @@ def main():
         n_splats_init=args.n_splats,
         max_splats=args.max_splats,
         knn_k=args.knn_k,
-        enable_vulkan=args.enable_vulkan
-        or (not args.disable_vulkan and device == "cuda"),
+        enable_vulkan=args.enable_vulkan or (not args.disable_vulkan and device == "cuda"),
     )
 
     print("=" * 60)

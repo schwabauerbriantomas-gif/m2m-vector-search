@@ -215,9 +215,7 @@ class EBMExploration:
             candidates = self._sample_global(n=k * 10, dim=dim)
 
         # Energías de cada candidato
-        energies = np.array(
-            [self.energy_api.energy(c) for c in candidates], dtype=np.float32
-        )
+        energies = np.array([self.energy_api.energy(c) for c in candidates], dtype=np.float32)
 
         # Muestreo de Boltzmann: ∝ exp(E / T) (mayor energía = mayor prob)
         weights = np.exp(energies / temperature)
@@ -227,9 +225,7 @@ class EBMExploration:
 
         probs = weights / weights_sum
         k_actual = min(k, len(candidates))
-        indices = np.random.choice(
-            len(candidates), size=k_actual, p=probs, replace=False
-        )
+        indices = np.random.choice(len(candidates), size=k_actual, p=probs, replace=False)
         return [candidates[i] for i in indices]
 
     def suggest_exploration(
@@ -257,9 +253,7 @@ class EBMExploration:
         for region in regions[:n_suggestions]:
             # Encontrar vectores cercanos a la región
             if self.all_vectors is not None:
-                dists = np.linalg.norm(
-                    self.all_vectors - region.center[np.newaxis, :], axis=1
-                )
+                dists = np.linalg.norm(self.all_vectors - region.center[np.newaxis, :], axis=1)
                 nearby_idx = np.argsort(dists)[:5]
                 nearby_ids = (
                     [self.all_ids[i] for i in nearby_idx]
@@ -300,6 +294,4 @@ class EBMExploration:
         Returns:
             Lista de regiones con gaps de conocimiento.
         """
-        return self.find_high_energy_regions(
-            min_energy=0.5, n_regions=n_gaps, n_samples=1000
-        )
+        return self.find_high_energy_regions(min_energy=0.5, n_regions=n_gaps, n_samples=1000)

@@ -350,10 +350,7 @@ def search(name: str, req: SearchRequest):
     if isinstance(results_raw, tuple):
         # Legacy format
         mu, alpha, kappa = results_raw
-        results = [
-            {"id": f"idx_{i}", "score": float(alpha[i])}
-            for i in range(min(req.k, len(mu)))
-        ]
+        results = [{"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(mu)))]
     else:
         results = []
         for r in results_raw:
@@ -462,9 +459,7 @@ def explore(name: str, req: ExploreRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
     if not db.ebm_enabled:
-        raise HTTPException(
-            status_code=400, detail="EBM not enabled for this collection."
-        )
+        raise HTTPException(status_code=400, detail="EBM not enabled for this collection.")
 
     suggestions = db.suggest_exploration(n=req.n_suggestions)
 

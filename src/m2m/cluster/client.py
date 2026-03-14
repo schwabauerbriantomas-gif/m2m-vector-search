@@ -47,9 +47,7 @@ class M2MClusterClient:
         in_memory_router: Optional[ClusterRouter] = None,
     ):
         self.coordinator_url = coordinator_url
-        self.fallback_edges = (
-            fallback_edges or []
-        )  # Expected to be edge URLs for HTTP fallback
+        self.fallback_edges = fallback_edges or []  # Expected to be edge URLs for HTTP fallback
         self.in_memory_router = in_memory_router
         self.aggregator = ResultAggregator(rrf_k=60)
 
@@ -62,16 +60,12 @@ class M2MClusterClient:
         """For testing: directly register a local EdgeNode instance."""
         self.local_edges[edge.edge_id] = edge
         if self.in_memory_router:
-            self.in_memory_router.register_edge(
-                edge.edge_id, f"http://localhost/{edge.edge_id}"
-            )
+            self.in_memory_router.register_edge(edge.edge_id, f"http://localhost/{edge.edge_id}")
 
     def register_edge_url(self, edge_id: str, url: str):
         self.edge_urls[edge_id] = url
 
-    def _query_edge(
-        self, edge_id: str, query: np.ndarray, k: int
-    ) -> List[Tuple[int, float]]:
+    def _query_edge(self, edge_id: str, query: np.ndarray, k: int) -> List[Tuple[int, float]]:
         """Network call to Edge Node."""
         if edge_id in self.local_edges:
             return self.local_edges[edge_id].search(query, k)
@@ -127,11 +121,7 @@ class M2MClusterClient:
     def _fallback_search(self, query: np.ndarray, k: int) -> List[Tuple[int, float]]:
         """Query directly known edges without coordinator."""
         results = {}
-        target_edges = (
-            self.fallback_edges
-            if self.fallback_edges
-            else list(self.local_edges.keys())
-        )
+        target_edges = self.fallback_edges if self.fallback_edges else list(self.local_edges.keys())
 
         for edge in target_edges:
             edge_results = self._query_edge(edge, query, k)
@@ -143,9 +133,7 @@ class M2MClusterClient:
 
         return self.aggregator.merge_results(results, k, strategy="rrf")
 
-    def ingest(
-        self, vectors: np.ndarray, doc_ids: List[str] = None, strategy: str = "shard"
-    ):
+    def ingest(self, vectors: np.ndarray, doc_ids: List[str] = None, strategy: str = "shard"):
         """
         Ingest documents to cluster.
         """

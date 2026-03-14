@@ -100,9 +100,7 @@ class GPUVectorIndex:
         # Result buffer: bounded to [max_batch_size × CHUNK_SIZE] — never full [B×N].
         # Chunked dispatch keeps this ≤ max_batch × CHUNK_SIZE × 4 bytes (≤ ~3 MB).
         self._chunk_size = min(_CHUNK_SIZE, self._n)
-        self._r_buf, self._r_mem = self._create_buffer(
-            max_batch_size * self._chunk_size * 4
-        )
+        self._r_buf, self._r_mem = self._create_buffer(max_batch_size * self._chunk_size * 4)
 
         # ── Descriptor set ────────────────────────────────────────────
         self._desc_pool = self._make_descriptor_pool(3)
@@ -227,12 +225,8 @@ class GPUVectorIndex:
         Returns:
             distances: shape [N] float32 — L2 distance from query to each expert
         """
-        query_np = np.ascontiguousarray(
-            query_np.flatten()[: self._dim], dtype=np.float32
-        )
-        expert_embeddings_np = np.ascontiguousarray(
-            expert_embeddings_np.astype(np.float32)
-        )
+        query_np = np.ascontiguousarray(query_np.flatten()[: self._dim], dtype=np.float32)
+        expert_embeddings_np = np.ascontiguousarray(expert_embeddings_np.astype(np.float32))
         n_experts = expert_embeddings_np.shape[0]
 
         if n_experts == 0:
@@ -294,9 +288,7 @@ class GPUVectorIndex:
         )
         vk.vkBeginCommandBuffer(self._cmd, begin)
 
-        vk.vkCmdBindPipeline(
-            self._cmd, vk.VK_PIPELINE_BIND_POINT_COMPUTE, self._pipeline
-        )
+        vk.vkCmdBindPipeline(self._cmd, vk.VK_PIPELINE_BIND_POINT_COMPUTE, self._pipeline)
         vk.vkCmdBindDescriptorSets(
             self._cmd,
             vk.VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -515,8 +507,7 @@ class GPUVectorIndex:
             allocationSize=reqs.size,
             memoryTypeIndex=self._find_memory_type(
                 reqs.memoryTypeBits,
-                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             ),
         )
         mem = vk.vkAllocateMemory(self._device, alloc, None)

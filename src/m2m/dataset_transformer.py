@@ -103,10 +103,7 @@ class M2MDatasetTransformer:
                 "level": level,
             }
 
-            if (
-                level >= self.hierarchy_levels
-                or len(vectors) < self.min_cluster_size * 2
-            ):
+            if level >= self.hierarchy_levels or len(vectors) < self.min_cluster_size * 2:
                 return node
 
             n_children = min(
@@ -141,9 +138,7 @@ class M2MDatasetTransformer:
                 mu = np.mean(vectors, axis=0)
                 distances = np.linalg.norm(vectors - mu, axis=1)
                 variance = np.var(distances) + 1e-8
-                kappa = np.clip(
-                    1.0 / (variance + np.mean(distances) + 1e-8), 0.1, 100.0
-                )
+                kappa = np.clip(1.0 / (variance + np.mean(distances) + 1e-8), 0.1, 100.0)
                 alpha = n / len(self.vectors)
 
                 splats.append(
@@ -169,9 +164,7 @@ class M2MDatasetTransformer:
             vectors = node["vectors"]
             mu = np.mean(vectors, axis=0)
             distances = np.linalg.norm(vectors - mu, axis=1)
-            kappa = np.clip(
-                1.0 / (np.var(distances) + np.mean(distances) + 1e-8), 0.1, 100.0
-            )
+            kappa = np.clip(1.0 / (np.var(distances) + np.mean(distances) + 1e-8), 0.1, 100.0)
 
             splat = GaussianSplat(
                 mu=mu.astype(np.float32),
@@ -207,13 +200,9 @@ class M2MDatasetTransformer:
         kappas = np.array([s.kappa for s in self.splats])
 
         access = access / access.max() if access.max() > 0 else access
-        result = (
-            0.4 * access + 0.3 * (sizes / sizes.max()) + 0.3 * (kappas / kappas.max())
-        )
+        result = 0.4 * access + 0.3 * (sizes / sizes.max()) + 0.3 * (kappas / kappas.max())
 
-        return (
-            result / result.sum() if result.sum() > 0 else np.ones(n_splats) / n_splats
-        )
+        return result / result.sum() if result.sum() > 0 else np.ones(n_splats) / n_splats
 
     def _partition_for_memory_tiers(self) -> dict:
         """Partitions splats into hot/warm/cold."""

@@ -36,9 +36,7 @@ class HierarchicalGPUSearch:
     Each cluster's members are stored contiguously for cache efficiency.
     """
 
-    def __init__(
-        self, n_clusters: int = 100, n_probe: int = 5, max_batch_size: int = 100
-    ):
+    def __init__(self, n_clusters: int = 100, n_probe: int = 5, max_batch_size: int = 100):
         """
         Args:
             n_clusters:    Number of coarse clusters (C).
@@ -115,18 +113,14 @@ class HierarchicalGPUSearch:
 
                 return GPUVectorIndex(vectors, max_batch_size=self.max_batch_size)
             except Exception as e:
-                print(
-                    f"[HierarchicalGPUSearch] GPU init failed ({e}), using CPU fallback."
-                )
+                print(f"[HierarchicalGPUSearch] GPU init failed ({e}), using CPU fallback.")
         return _CPUFallbackIndex(vectors)
 
     # ─────────────────────────────────────────────────────────────────
     # Search
     # ─────────────────────────────────────────────────────────────────
 
-    def batch_search(
-        self, queries: np.ndarray, k: int = 10
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def batch_search(self, queries: np.ndarray, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
         """
         Two-stage GPU hierarchical search for a batch of queries.
 
@@ -192,9 +186,7 @@ class HierarchicalGPUSearch:
 
         return final_ids, final_dists
 
-    def search_single(
-        self, query: np.ndarray, k: int = 10
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def search_single(self, query: np.ndarray, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
         """Single-query convenience wrapper."""
         ids, dists = self.batch_search(query.reshape(1, -1), k=k)
         return ids[0], dists[0]
@@ -248,9 +240,7 @@ class _CPUFallbackIndex:
     def __init__(self, vectors: np.ndarray):
         self._vecs = vectors.astype(np.float32)
 
-    def batch_search(
-        self, queries: np.ndarray, k: int
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def batch_search(self, queries: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
         queries = queries.astype(np.float32)
         # [B, N] distance matrix
         diff = queries[:, None, :] - self._vecs[None, :, :]  # [B, N, D]

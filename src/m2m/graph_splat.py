@@ -85,9 +85,7 @@ class GaussianGraphStore:
         self._next_id += 1
         return node_id
 
-    def add_document(
-        self, text: str, embedding: np.ndarray, metadata: Dict = None
-    ) -> int:
+    def add_document(self, text: str, embedding: np.ndarray, metadata: Dict = None) -> int:
         """Añade un documento completo al grafo."""
         doc_id = self._get_next_id()
         metadata = metadata or {}
@@ -105,9 +103,7 @@ class GaussianGraphStore:
         self._add_node(splat)
         return doc_id
 
-    def add_entity(
-        self, name: str, embedding: np.ndarray, entity_type: str = "unknown"
-    ) -> int:
+    def add_entity(self, name: str, embedding: np.ndarray, entity_type: str = "unknown") -> int:
         """Añade una entidad extrada al grafo (con deduplicación por nombre/vector)."""
         # Simple deduplication by name for this example
         name_lower = name.lower()

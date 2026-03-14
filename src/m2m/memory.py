@@ -149,11 +149,7 @@ class SplatMemoryManager:
         Useful for Data Lake sequential or sampled iterations.
         """
         for splat_id in splat_ids:
-            if (
-                splat_id in self._cold
-                and splat_id not in self._ram
-                and splat_id not in self._vram
-            ):
+            if splat_id in self._cold and splat_id not in self._ram and splat_id not in self._vram:
                 self._load_to_ram(splat_id)
 
     def _promote_to_vram(self, splat_id: int) -> None:
