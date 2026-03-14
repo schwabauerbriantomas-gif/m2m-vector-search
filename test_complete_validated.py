@@ -82,9 +82,7 @@ try:
     energy_array = energy_fn(test_vec)
 
     # Verify it returns the correct shape
-    assert energy_array.shape == (
-        128,
-    ), f"Expected shape (128,), got {energy_array.shape}"
+    assert energy_array.shape == (128,), f"Expected shape (128,), got {energy_array.shape}"
 
     # Convert to scalar for reporting (mean energy)
     energy_scalar = float(np.mean(energy_array))
@@ -317,9 +315,7 @@ print(f"Failed: {failed}")
 
 print("\nDetailed Results:")
 for component, status in results.items():
-    mark = (
-        "[PASS]" if status == "PASS" else ("[SKIP]" if status == "SKIP" else "[FAIL]")
-    )
+    mark = "[PASS]" if status == "PASS" else ("[SKIP]" if status == "SKIP" else "[FAIL]")
     print(f"  {mark} {component}")
 
 print("\n" + "=" * 70)
