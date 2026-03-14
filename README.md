@@ -159,29 +159,6 @@
 
 ---
 
-## 🧪 Test Coverage
-
-<div align="center">
-  <img src="assets/test_coverage.png" alt="Test Coverage" width="70%">
-</div>
-
-### All Tests Passing (12/12 — 100%)
-
-| Component | Status |
-|-----------|--------|
-| SplatStore | ✅ PASS |
-| HRM2Engine | ✅ PASS |
-| EnergyFunction | ✅ PASS |
-| EBM Components | ✅ PASS |
-| Storage & WAL | ✅ PASS |
-| LSH Index | ✅ PASS |
-| SimpleVectorDB | ✅ PASS |
-| AdvancedVectorDB | ✅ PASS |
-| Integrations | ✅ PASS |
-| Large-scale Ingestion | ✅ PASS |
-| Search Performance | ✅ PASS |
-| Memory Efficiency | ✅ PASS |
-
 ---
 
 ## 🚀 Advanced Features (Near-term)
