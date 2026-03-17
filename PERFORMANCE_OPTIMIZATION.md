@@ -29,7 +29,7 @@ The search path in `SplatStore.find_neighbors()` called `HRM2Engine.query()` per
 
 For N=10K, this Python-level overhead (~33μs per query just in Python dispatch) exceeded the cost of a single vectorized BLAS linear scan over all 10K vectors.
 
-## Optimization
+## Phase 1 Optimization
 
 ### What Changed
 
@@ -49,13 +49,7 @@ topk = np.argpartition(dists_sq, k-1)[:k]      # O(N) partial sort
 4. **Direct index access** — bypass `GaussianSplat` objects, access `self.mu[]` directly
 5. **HRM2 threshold** — clustering routing only activated for N > 15K where pruning benefits outweigh overhead
 
-### Why It Works
-
-For N≤15K, `np.einsum("ij,ij->i", diff, diff)` over all N vectors is a single BLAS call that takes ~10ms. The HRM2 pruning for N=10K reduces scanned vectors from 10K to ~500, but the Python overhead of cluster lookups, concatenation, and routing adds ~20ms — net loss.
-
-The einsum+argpartition approach has minimal Python overhead (2-3 numpy calls total) and lets BLAS do the heavy lifting.
-
-### After Optimization (RTX 3090, N=10K, K=10, dim=640)
+### After Phase 1 (RTX 3090, N=10K, K=10, dim=640)
 
 | Backend | Avg Latency | QPS | Speedup vs Linear |
 |---------|------------|-----|-------------------|
@@ -64,24 +58,62 @@ The einsum+argpartition approach has minimal Python overhead (2-3 numpy calls to
 | Vulkan  | 10.71 ms   | 93.38 | **2.1x** ✅ |
 | CUDA    | 10.83 ms   | 92.34 | **2.1x** ✅ |
 
-### Improvement Summary
+## Phase 2 Optimizations (2026-03-17)
 
-| Metric | Before (CPU) | After (CPU) | Improvement |
-|--------|-------------|-------------|-------------|
-| Avg Latency | 32.93 ms | 10.68 ms | **3.1x faster** |
-| QPS | 30.37 | 93.67 | **3.1x more** |
-| vs Linear | 0.7x (slower) | 2.1x (faster) | **3x reversal** |
+### Additional Changes
 
-## Limitations
+1. **einsum in HRM2Engine.query()** — Replaced `np.linalg.norm` with `np.einsum` for squared L2 distances in LOD 2 path
+2. **Pre-computed cluster masks** — Cache boolean masks for each coarse cluster during `index()`, avoiding recomputation per query
+3. **Input validation** — Added NaN/Inf/empty/dimension checks in `find_neighbors()`
+4. **Consolidate index rebuild** — `consolidate()` now calls `build_index()` to keep HRM2 index fresh
+5. **Security hardening** — API key auth, rate limiting, path traversal prevention, input sanitization
 
-1. **HRM2 clustering is unused for N≤15K** — the hierarchical index is still built (for API compatibility) but bypassed during search. The HRM2 path is preserved for N>15K where clustering pruning provides measurable benefit.
+### Scalability Results (CPU, sklearn dataset, K=10)
 
-2. **Vulkan/CUDA GPU paths not improved** — the GPU paths in `batch_find_neighbors` still use the old HRM2 flow for their GPU index. However, since `find_neighbors` (not `batch_find_neighbors`) is called by the benchmark's single-query loop, all backends benefit from this optimization.
+| N     | Linear (ms) | M2M CPU (ms) | Speedup |
+|-------|-------------|---------------|---------|
+| 1,000 | 1.94        | 1.13          | **1.7x** |
+| 5,000 | 10.45       | 4.53          | **2.3x** |
+| 10,000| 21.20       | 9.09          | **2.3x** |
+| 50,000| 106.53      | 25.30         | **4.2x** |
 
-3. **Memory usage unchanged** — the fast path uses the same `self.mu[:n]` slice, no additional memory allocated.
+**Key finding:** M2M consistently outperforms linear scan across all tested sizes, with speedup increasing with N. At N=50K, M2M achieves **4.2x speedup**.
 
-4. **Scalability** — for very large N (100K+), the HRM2 threshold should be tuned or FAISS integration should be considered for further gains.
+### Security Fixes Applied
 
-## Files Modified
+| ID | Severity | Description | Status |
+|----|----------|-------------|--------|
+| C-01 | Critical | API authentication (API key) | ✅ Fixed |
+| C-02 | Critical | TLS between nodes | ⚠️ Documented (env concern) |
+| H-01 | High | Path traversal in storage | ✅ Fixed |
+| H-02 | High | Input dimension validation | ✅ Fixed |
+| H-03 | High | Rate limiting | ✅ Fixed |
+| H-04 | High | Error message exposure | ✅ Fixed |
+| H-05 | High | Pickle HMAC signing | ✅ Fixed |
+| P-01 | Medium | Vector overflow | ✅ Fixed |
+| P-02 | Medium | k validation | ✅ Fixed |
+| P-03 | High | Collection name path traversal | ✅ Fixed |
+| P-04 | High | Backup path traversal | ✅ Fixed |
+| P-05 | Medium | Payload size limit | ✅ Fixed |
+| P-06 | Critical | Auth on all endpoints | ✅ Fixed |
+| P-07 | High | Rate limiting | ✅ Fixed |
+| P-09 | Critical | Node registration auth | ✅ Fixed |
+| P-10 | High | Heartbeat spoofing | ✅ Fixed |
+| P-12 | High | SSRF in fetch_edge | ✅ Fixed |
+| P-16 | Medium | Energy map resolution | ✅ Fixed |
+| P-18 | Low | Explore n_suggestions cap | ✅ Fixed |
 
-- `src/m2m/splats.py` — `SplatStore.find_neighbors()` and `batch_find_neighbors()` optimized with vectorized numpy path
+### Chaos Fixes Applied
+
+| ID | Description | Status |
+|----|-------------|--------|
+| C-01 | k=0 crash | ✅ Fixed (k=max(1,k)) |
+| C-02 | Empty query crash | ✅ Fixed (validation) |
+| C-03 | NaN/Inf detection | ✅ Fixed (np.isfinite check) |
+| C-04 | Consolidate index rebuild | ✅ Fixed (build_index after consolidate) |
+
+### Limitations
+
+1. **HRM2 clustering is unused for N≤15K** — the hierarchical index is still built (for API compatibility) but bypassed during search.
+2. **TLS between nodes** — documented but requires environment-specific certificate setup.
+3. **Scalability tested up to N=50K** — higher N values should be tested with more RAM available.

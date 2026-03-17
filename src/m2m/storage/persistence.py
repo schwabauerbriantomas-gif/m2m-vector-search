@@ -366,7 +366,11 @@ class M2MPersistence:
         """Crea un backup completo del storage."""
         import shutil
 
-        backup_dir = Path(backup_path)
+        # ── P-04 FIX: Path traversal prevention ───────────────────────
+        backup_dir = Path(backup_path).resolve()
+        if ".." in Path(backup_path).parts:
+            raise ValueError(f"Path traversal detected in backup_path: {backup_path}")
+
         backup_dir.mkdir(parents=True, exist_ok=True)
 
         ts = int(time.time())

@@ -155,6 +155,78 @@ def _extract_latency_data(data: Dict) -> Optional[Dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def chart_scalability() -> None:
+    """Gráfico de escalabilidad: N vs latencia (linear vs M2M)."""
+    print("\n[5/5] Scalability (N vs latency)...")
+
+    scalability_files = {
+        1000: BENCHMARKS_DIR / "scalability_1000.json",
+        5000: BENCHMARKS_DIR / "scalability_5000.json",
+        10000: BENCHMARKS_DIR / "scalability_10000.json",
+        50000: BENCHMARKS_DIR / "scalability_50000.json",
+    }
+
+    N_values = []
+    linear_latencies = []
+    m2m_latencies = []
+    linear_qps = []
+    m2m_qps = []
+
+    for N, fpath in sorted(scalability_files.items()):
+        if not fpath.exists():
+            print(f"  [SKIP] {fpath.name} not found")
+            continue
+        with open(fpath, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        N_values.append(N)
+        bl = d.get("linear_baseline", {})
+        cpu = d.get("backends", {}).get("cpu", {})
+        linear_latencies.append(bl.get("avg_latency_ms", 0))
+        m2m_latencies.append(cpu.get("retrieval", {}).get("avg_latency_ms", 0))
+        linear_qps.append(bl.get("throughput_qps", 0))
+        m2m_qps.append(cpu.get("retrieval", {}).get("throughput_qps", 0))
+
+    if not N_values:
+        print("  [SKIP] No scalability data found")
+        return
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Left: Latency
+    ax1.plot(N_values, linear_latencies, "o-", color=COLORS["linear"], label="Linear Scan",
+             linewidth=2, markersize=8)
+    ax1.plot(N_values, m2m_latencies, "s-", color=COLORS["cpu"], label="M2M CPU",
+             linewidth=2, markersize=8)
+    ax1.set_xlabel("Number of Vectors (N)")
+    ax1.set_ylabel("Avg Query Latency (ms)")
+    ax1.set_title("Scalability: Latency vs Dataset Size")
+    ax1.legend()
+    ax1.set_xscale("log")
+    ax1.set_yscale("log")
+
+    # Right: QPS
+    ax2.plot(N_values, linear_qps, "o-", color=COLORS["linear"], label="Linear Scan",
+             linewidth=2, markersize=8)
+    ax2.plot(N_values, m2m_qps, "s-", color=COLORS["cpu"], label="M2M CPU",
+             linewidth=2, markersize=8)
+    ax2.set_xlabel("Number of Vectors (N)")
+    ax2.set_ylabel("Throughput (QPS)")
+    ax2.set_title("Scalability: Throughput vs Dataset Size")
+    ax2.legend()
+    ax2.set_xscale("log")
+
+    # Annotate speedups
+    for i, N in enumerate(N_values):
+        if linear_latencies[i] > 0 and m2m_latencies[i] > 0:
+            sp = linear_latencies[i] / m2m_latencies[i]
+            ax1.annotate(f"{sp:.1f}x", (N, m2m_latencies[i]),
+                        textcoords="offset points", xytext=(10, 5),
+                        fontsize=8, fontweight="bold", color=COLORS["cpu"])
+
+    fig.tight_layout()
+    _save_fig(fig, "chart_scalability.png")
+
+
 def chart_latency_comparison(data: Dict, latency_data: Dict) -> None:
     """Gráfico de barras: latencia promedio por backend con barras de error P95-P50."""
     print("\n[1/4] Latency comparison...")
@@ -380,6 +452,7 @@ def main():
     chart_throughput(data, latency_data)
     chart_percentile_breakdown(data, latency_data)
     chart_speedup_summary(data, latency_data)
+    chart_scalability()
 
     print("\n" + "=" * 60)
     print("All charts generated successfully")

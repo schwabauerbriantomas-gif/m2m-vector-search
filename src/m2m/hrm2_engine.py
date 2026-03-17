@@ -211,6 +211,11 @@ class HRM2Engine:
             self.fine_models[coarse_id] = fine_model
             self.fine_assignments[coarse_id] = fine_model.fit_predict(cluster_embeddings)
 
+        # Opt #3: Pre-compute cluster masks as boolean arrays
+        self._cluster_masks: Dict[int, np.ndarray] = {}
+        for cid in range(n_coarse_effective):
+            self._cluster_masks[cid] = (self.coarse_assignments == cid)
+
         self._is_indexed = True
 
         # Update stats
@@ -292,7 +297,10 @@ class HRM2Engine:
             fine_ids = []
 
             for coarse_id in closest_coarse:
-                mask = self.coarse_assignments == coarse_id
+                # Opt #3: Use pre-computed masks
+                mask = self._cluster_masks.get(int(coarse_id))
+                if mask is None:
+                    mask = self.coarse_assignments == coarse_id
                 cluster_indices = np.where(mask)[0]
 
                 if len(cluster_indices) == 0:
@@ -325,10 +333,11 @@ class HRM2Engine:
                         fine_ids,
                     )
                     candidates = [(r[0], r[1], r[2]) for r in results]
-                else:  # CPU fallback
-                    distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
-                    for idx, dist, cid in zip(expert_indices, distances, coarse_ids):
-                        candidates.append((idx, float(dist), int(cid)))
+                else:  # CPU fallback - Opt #2: squared distance via einsum (no sqrt)
+                    diff = expert_embeddings - query_vector
+                    distances_sq = np.einsum("ij,ij->i", diff, diff)
+                    for idx, dist_sq, cid in zip(expert_indices, distances_sq, coarse_ids):
+                        candidates.append((idx, float(np.sqrt(dist_sq)), int(cid)))
 
         # Sort by distance and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -414,7 +423,9 @@ class HRM2Engine:
             fine_ids = []
 
             for coarse_id in closest_coarse:
-                mask = self.coarse_assignments == coarse_id
+                mask = self._cluster_masks.get(int(coarse_id))
+                if mask is None:
+                    mask = self.coarse_assignments == coarse_id
                 cluster_indices = np.where(mask)[0]
 
                 if len(cluster_indices) == 0:
@@ -447,10 +458,11 @@ class HRM2Engine:
                         fine_ids,
                     )
                     candidates = [(self.splats[r[0]].id, r[1], r[2], r[3]) for r in results]
-                else:  # CPU fallback
-                    distances = np.linalg.norm(expert_embeddings - query_vector, axis=1)
-                    for idx, dist, cid, fid in zip(expert_indices, distances, coarse_ids, fine_ids):
-                        candidates.append((self.splats[idx].id, float(dist), int(cid), int(fid)))
+                else:  # CPU fallback - Opt #2: einsum squared distance
+                    diff = expert_embeddings - query_vector
+                    distances_sq = np.einsum("ij,ij->i", diff, diff)
+                    for idx, dist_sq, cid, fid in zip(expert_indices, distances_sq, coarse_ids, fine_ids):
+                        candidates.append((self.splats[idx].id, float(np.sqrt(dist_sq)), int(cid), int(fid)))
 
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -544,6 +556,7 @@ class HRM2Engine:
         self.fine_assignments = {}
         self.coarse_cluster_indices = {}
         self.coarse_cluster_embeddings = {}
+        self._cluster_masks = {}
         self._is_indexed = False
         self._stats = HRM2Stats()
 
