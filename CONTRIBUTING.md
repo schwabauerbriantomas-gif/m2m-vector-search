@@ -1,129 +1,101 @@
 # Contributing to M2M Vector Search
 
-Thank you for your interest in contributing to M2M Vector Search!
+Thank you for your interest in contributing! This guide covers everything you need to get started.
 
-## Development Setup
+## Getting Started
 
-1. **Fork and clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/m2m-vector-search.git
-   cd m2m-vector-search
-   ```
+### Prerequisites
+- Python 3.11+
+- pip
+- Git
+- (Optional) Vulkan-compatible GPU or NVIDIA GPU with CUDA
 
-2. **Create a virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### Setup
 
-3. **Install development dependencies**
-   ```bash
-   pip install -e .[dev]
-   pip install pre-commit
-   pre-commit install
-   ```
+```bash
+git clone https://github.com/brianschwabauer/m2m-vector-search.git
+cd m2m-vector-search
+pip install -e ".[dev]"
+```
+
+### Run Tests
+
+```bash
+# All tests
+pytest tests/ -v
+
+# Specific test file
+pytest tests/test_crud.py -v
+
+# With coverage
+pytest tests/ --cov=m2m --cov-report=term-missing
+```
+
+## Development Workflow
+
+1. **Fork** the repository
+2. **Create a branch** from `main`: `git checkout -b feature/my-feature`
+3. **Make changes** with tests
+4. **Run tests**: `pytest tests/ -v` (all 53 must pass)
+5. **Run benchmarks** (if performance-related): `python -m benchmarks.run`
+6. **Commit** with conventional commits format
+7. **Push** and open a Pull Request
 
 ## Code Style
 
-We use the following tools to maintain code quality:
+- Follow PEP 8
+- Type hints are encouraged but not required
+- Docstrings for public functions/classes
+- No `print()` in production code — use `logging`
+- No `__pycache__` in commits
 
-- **Black**: Code formatter (line length: 100)
-- **isort**: Import sorter
-- **flake8**: Linter
-- **mypy**: Type checker
-- **pytest**: Testing framework
+## Commit Messages
 
-### Running checks
-
-```bash
-# Format code
-black src/ test_*.py
-
-# Sort imports
-isort src/ test_*.py
-
-# Check linting
-flake8 src/ test_*.py
-
-# Type checking
-mypy src/
-
-# Run tests
-pytest test_m2m_advanced.py -v
-
-# Run all pre-commit hooks
-pre-commit run --all-files
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+```
+feat: add CUDA backend support
+fix: resolve k=0 crash in query
+docs: update README installation guide
+test: add chaos testing for edge cases
+perf: optimize HRM2 query with einsum
 ```
 
-## Pull Request Process
+## Project Structure
 
-1. **Create a feature branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+```
+src/m2m/
+├── __init__.py          # SimpleVectorDB, AdvancedVectorDB
+├── splats.py            # Gaussian Splat storage
+├── hrm2_engine.py       # HRM2 index engine
+├── gpu_vector_index.py  # Vulkan/CUDA GPU backend
+├── storage.py           # Persistence layer
+├── config.py            # Configuration
+├── api/
+│   ├── edge_api.py      # Edge node REST API
+│   └── coordinator_api.py # Coordinator REST API
+└── cluster/
+    ├── router.py        # Query routing
+    ├── aggregator.py    # Result aggregation (RRF)
+    └── protocol.py      # Cluster protocol messages
+```
 
-2. **Make your changes**
-   - Write clean, documented code
-   - Add tests for new functionality
-   - Ensure all tests pass
-   - Update documentation if needed
+## Reporting Issues
 
-3. **Commit your changes**
-   ```bash
-   git add .
-   git commit -m "feat: Add your feature description"
-   ```
+- Use GitHub Issues with the provided templates
+- Include: OS, Python version, GPU, reproduction steps
+- For bugs: include minimal reproducible code
+- For features: describe the use case
 
-   Follow [Conventional Commits](https://www.conventionalcommits.org/):
-   - `feat:` New features
-   - `fix:` Bug fixes
-   - `docs:` Documentation changes
-   - `test:` Test updates
-   - `refactor:` Code refactoring
-   - `perf:` Performance improvements
+## Benchmarking
 
-4. **Push to your fork**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
+If you change anything performance-related, run benchmarks and report results:
 
-5. **Open a Pull Request**
-   - Provide a clear description of changes
-   - Reference any related issues
-   - Ensure CI passes
+```bash
+python -m benchmarks.run
+```
 
-## Code Guidelines
-
-### Python Style
-
-- Follow PEP 8
-- Use type hints for all public APIs
-- Write docstrings for all public functions/classes
-- Maximum line length: 100 characters
-- Use f-strings for string formatting
-
-### Testing
-
-- Write tests for all new functionality
-- Maintain or improve test coverage
-- Use descriptive test names
-- Test edge cases and error conditions
-
-### Documentation
-
-- Update README.md for user-facing changes
-- Update docstrings for API changes
-- Add examples for new features
-- Keep CHANGELOG.md updated
-
-## Questions or Issues?
-
-- Open an issue on GitHub
-- Check existing documentation
-- Review closed issues/PRs
+**Important:** Only report real measured data. Never fabricate or estimate benchmark results.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
-
-Thank you for contributing! 🎉
+By contributing, you agree that your contributions will be licensed under the MIT License.
