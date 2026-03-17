@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  coordinator:
+    build: 
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: m2m-coordinator
+    ports:
+      - "8080:8000"
+    command: ["uvicorn", "m2m.api.coordinator_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks:
+      - m2m-network
+
+  edge-1:
+    build: 
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: m2m-edge-1
+    ports:
+      - "8081:8000"
+    environment:
+      - EDGE_ID=edge-1
+      - COORDINATOR_URL=http://coordinator:8000
+    command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      - coordinator
+    networks:
+      - m2m-network
+
+  edge-2:
+    build: 
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: m2m-edge-2
+    ports:
+      - "8082:8000"
+    environment:
+      - EDGE_ID=edge-2
+      - COORDINATOR_URL=http://coordinator:8000
+    command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      - coordinator
+    networks:
+      - m2m-network
+
+  edge-3:
+    build: 
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: m2m-edge-3
+    ports:
+      - "8083:8000"
+    environment:
+      - EDGE_ID=edge-3
+      - COORDINATOR_URL=http://coordinator:8000
+    command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      - coordinator
+    networks:
+      - m2m-network
+
+networks:
+  m2m-network:
+    driver: bridge
