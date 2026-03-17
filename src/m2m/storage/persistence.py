@@ -46,7 +46,12 @@ class M2MPersistence:
             storage_path: Directorio raíz de almacenamiento
             enable_wal: Si True, habilita Write-Ahead Log
         """
-        self.storage_path = Path(storage_path)
+        # ── H-01 FIX: Path traversal prevention ───────────────────────
+        resolved = Path(storage_path).resolve()
+        if ".." in Path(storage_path).parts:
+            raise ValueError(f"Path traversal detected in storage_path: {storage_path}")
+
+        self.storage_path = resolved
         self.enable_wal = enable_wal
         self._lock = threading.Lock()
 
@@ -305,17 +310,29 @@ class M2MPersistence:
     # -------------------------------------------------------------------------
 
     def save_index(self, index_data: Any, name: str = "hrm2"):
-        """Guarda el índice serializado."""
+        """Guarda el índice serializado con firma HMAC (H-05 fix)."""
         index_path = self.storage_path / "index" / f"{name}.idx"
+        import hashlib, hmac, os
+        data = pickle.dumps(index_data, protocol=pickle.HIGHEST_PROTOCOL)
+        # HMAC signature to detect tampering
+        secret = os.environ.get("M2M_HMAC_SECRET", "m2m-default-hmac-secret-change-in-production")
+        sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
         with open(str(index_path), "wb") as f:
-            pickle.dump(index_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.write(sig + data)
 
     def load_index(self, name: str = "hrm2") -> Optional[Any]:
-        """Carga el índice desde disco."""
+        """Carga el índice desde disco con verificación HMAC (H-05 fix)."""
+        import hashlib, hmac, os
         index_path = self.storage_path / "index" / f"{name}.idx"
         if index_path.exists():
+            secret = os.environ.get("M2M_HMAC_SECRET", "m2m-default-hmac-secret-change-in-production")
             with open(str(index_path), "rb") as f:
-                return pickle.load(f)
+                raw = f.read()
+            sig, data = raw[:32], raw[32:]
+            expected_sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
+            if not hmac.compare_digest(sig, expected_sig):
+                raise ValueError(f"HMAC verification failed for index {name}. Possible tampering.")
+            return pickle.loads(data)
         return None
 
     # -------------------------------------------------------------------------

@@ -98,6 +98,18 @@ class SplatStore:
         dim = query_np.shape[1]
         n = self.n_active
 
+        # ── CHAOS FIX: Validate inputs ─────────────────────────────────
+        if k < 1:  # C-01 fix: k=0 causes crash
+            k = 1
+        if query_np.size == 0:  # C-02 fix: empty query
+            raise ValueError("Query vector must not be empty")
+        if not np.all(np.isfinite(query_np)):  # C-03 fix: NaN/Inf detection
+            raise ValueError("Query vector contains NaN or Inf values")
+        if dim != self.config.latent_dim:  # H-02 fix: dimension validation
+            raise ValueError(
+                f"Query dimension mismatch: expected {self.config.latent_dim}, got {dim}"
+            )
+
         k = min(k, max(1, n))
 
         if not self.engine._is_indexed or n == 0:

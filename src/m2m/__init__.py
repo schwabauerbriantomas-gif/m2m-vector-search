@@ -181,6 +181,7 @@ class M2MMemory:
 
         if n_removed > 0:
             self.splats.compact()
+            self.splats.build_index()  # C-04 fix: rebuild HRM2 index after consolidate
             print(f"[INFO] SOC: Consolidated {n_removed} splats")
 
         return n_removed
@@ -529,6 +530,16 @@ class SimpleVectorDB:
             vectors = vectors[np.newaxis, :]
 
         n = len(vectors)
+
+        # ── H-02 FIX: Dimension validation ────────────────────────────
+        if vectors.ndim != 2:
+            raise ValueError(f"vectors must be 2D (got {vectors.ndim}D)")
+        if vectors.shape[1] != self.latent_dim:
+            raise ValueError(
+                f"Vector dimension mismatch: expected {self.latent_dim}, got {vectors.shape[1]}"
+            )
+        if not np.all(np.isfinite(vectors)):
+            raise ValueError("vectors contain NaN or Inf values")
 
         # Auto-generar IDs si no se proporcionan
         if ids is None:

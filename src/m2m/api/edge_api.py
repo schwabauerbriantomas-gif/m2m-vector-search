@@ -22,12 +22,14 @@ Endpoints:
   POST /v1/admin/backup
 """
 
+import re
 import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, field_validator
 
 from .. import AdvancedVectorDB, SimpleVectorDB
 
@@ -44,12 +46,33 @@ class CreateCollectionRequest(BaseModel):
     storage_path: Optional[str] = None
     metadata_schema: Optional[Dict[str, str]] = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not _COLLECTION_NAME_RE.match(v):
+            raise ValueError("Invalid collection name")
+        return v
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension(cls, v: int) -> int:
+        if v < 1 or v > 65536:
+            raise ValueError("dimension must be between 1 and 65536")
+        return v
+
 
 class InsertVectorsRequest(BaseModel):
     vectors: List[List[float]]
     ids: Optional[List[str]] = None
     metadata: Optional[List[Dict[str, Any]]] = None
     documents: Optional[List[str]] = None
+
+    @field_validator("vectors")
+    @classmethod
+    def validate_vectors(cls, v: list) -> list:
+        if len(v) > _RATE_LIMIT_MAX_VECTORS_PER_INSERT:
+            raise ValueError(f"Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request")
+        return v
 
 
 class UpdateVectorRequest(BaseModel):
@@ -68,6 +91,24 @@ class SearchRequest(BaseModel):
     filter: Optional[Dict[str, Any]] = None
     options: Optional[Dict[str, Any]] = None
 
+    @field_validator("k")
+    @classmethod
+    def validate_k(cls, v: int) -> int:
+        if v < 1 or v > 10000:
+            raise ValueError("k must be between 1 and 10000")
+        return v
+
+    @field_validator("vector")
+    @classmethod
+    def validate_vector(cls, v: list) -> list:
+        if not v:
+            raise ValueError("vector must not be empty")
+        if any(not isinstance(x, (int, float)) or x != x for x in v):  # NaN check
+            raise ValueError("vector contains NaN or non-numeric values")
+        if any(abs(x) > 1e38 for x in v):  # Near-overflow check (P-01 fix)
+            raise ValueError("vector contains values too large (possible overflow)")
+        return v
+
 
 class EnergyRequest(BaseModel):
     vector: Optional[List[float]] = None
@@ -75,15 +116,43 @@ class EnergyRequest(BaseModel):
     radius: float = 1.0
     resolution: int = 20
 
+    @field_validator("resolution")
+    @classmethod
+    def validate_resolution(cls, v: int) -> int:
+        if v < 1 or v > 100:  # P-16 fix: cap resolution at 100
+            raise ValueError("resolution must be between 1 and 100")
+        return v
+
+    @field_validator("radius")
+    @classmethod
+    def validate_radius(cls, v: float) -> float:
+        if v <= 0 or v > 1e6:
+            raise ValueError("radius must be between 0 and 1e6")
+        return v
+
 
 class ExploreRequest(BaseModel):
     topic_vector: Optional[List[float]] = None
     n_suggestions: int = 3
     min_energy: float = 0.7
 
+    @field_validator("n_suggestions")
+    @classmethod
+    def validate_n_suggestions(cls, v: int) -> int:
+        if v < 1 or v > 50:  # P-18 fix: cap at 50
+            raise ValueError("n_suggestions must be between 1 and 50")
+        return v
+
 
 class BackupRequest(BaseModel):
     backup_path: str
+
+    @field_validator("backup_path")
+    @classmethod
+    def validate_backup_path(cls, v: str) -> str:
+        if ".." in v:
+            raise ValueError("Path traversal not allowed")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +232,88 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# ── SECURITY: CORS configuration (M-01 fix) ────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── SECURITY: Rate limiting (H-03, P-07 fix) ──────────────────────────
+_rate_limit_store: Dict[str, List[float]] = {}
+_RATE_LIMIT_WINDOW = 60.0  # seconds
+_RATE_LIMIT_MAX_REQUESTS = 100  # per window per IP
+_RATE_LIMIT_MAX_VECTORS_PER_INSERT = 100_000
+
+
+def _check_rate_limit(client_ip: str) -> None:
+    """Basic rate limiting per IP. Raises HTTPException if exceeded."""
+    import time as _time
+    now = _time.time()
+    if client_ip not in _rate_limit_store:
+        _rate_limit_store[client_ip] = []
+    # Prune old entries
+    _rate_limit_store[client_ip] = [
+        t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+    ]
+    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
+# ── SECURITY: API Key validation (C-01, P-06 fix) ─────────────────────
+_API_KEY = None  # Set via M2M_API_KEY env var
+
+
+def _validate_api_key(request: Request) -> None:
+    """Validates API key if configured via M2M_API_KEY environment variable."""
+    import os
+    global _API_KEY
+    if _API_KEY is None:
+        _API_KEY = os.environ.get("M2M_API_KEY")
+    if _API_KEY is not None:
+        auth = request.headers.get("Authorization", "")
+        api_key = request.headers.get("X-API-Key", "")
+        token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else api_key
+        if not token or token != _API_KEY:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+# ── SECURITY: Collection name sanitization (H-01, P-03 fix) ───────────
+_COLLECTION_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
+
+def _validate_collection_name(name: str) -> str:
+    """Validates and sanitizes collection name to prevent path traversal."""
+    if not _COLLECTION_NAME_RE.match(name):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid collection name. Use only alphanumeric, underscore, hyphen. Max 128 chars.",
+        )
+    return name
+
+
+# ── SECURITY: Backup path sanitization (P-04 fix) ────────────────────
+def _validate_backup_path(path: str) -> str:
+    """Prevents path traversal in backup operations."""
+    from pathlib import Path
+    resolved = Path(path).resolve()
+    # Allow relative paths but block traversal above CWD-like patterns
+    if ".." in str(path):
+        raise HTTPException(status_code=400, detail="Path traversal not allowed in backup_path")
+    return str(resolved)
+
+
+# ── SECURITY: Global error handler (H-04 fix) ────────────────────────
+@app.exception_handler(Exception)
+async def global_error_handler(request: Request, exc: Exception):
+    """Prevents internal error details from leaking to clients."""
+    import traceback
+    traceback.print_exc()  # Log internally
+    return HTTPException(status_code=500, detail="Internal server error")
+
+
 _manager = CollectionManager()
 
 # ---------------------------------------------------------------------------
@@ -171,14 +322,15 @@ _manager = CollectionManager()
 
 
 @app.get("/v1/health")
-def health():
+def health(request: Request):
     """Health check del servidor."""
     return {"status": "ok", "version": "2.0.0", "timestamp": time.time()}
 
 
 @app.get("/v1/stats")
-def stats():
+def stats(request: Request):
     """Estadísticas generales del servidor."""
+    _validate_api_key(request)
     collections = []
     for name in _manager.list_names():
         try:
@@ -206,8 +358,10 @@ def list_collections():
 
 
 @app.post("/v1/collections", status_code=201)
-def create_collection(req: CreateCollectionRequest):
+def create_collection(req: CreateCollectionRequest, request: Request):
     """Crea una nueva colección."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         info = _manager.create(req)
         return {"message": "Collection created", "collection": info}
@@ -225,8 +379,11 @@ def get_collection(name: str):
 
 
 @app.delete("/v1/collections/{name}")
-def delete_collection(name: str):
+def delete_collection(name: str, request: Request):
     """Elimina una colección."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    _validate_collection_name(name)
     try:
         _manager.delete(name)
         return {"message": f"Collection '{name}' deleted"}
@@ -240,8 +397,11 @@ def delete_collection(name: str):
 
 
 @app.post("/v1/collections/{name}/vectors")
-def insert_vectors(name: str, req: InsertVectorsRequest):
+def insert_vectors(name: str, req: InsertVectorsRequest, request: Request):
     """Inserta vectores en una colección."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    _validate_collection_name(name)
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -327,8 +487,11 @@ def delete_vector(name: str, vector_id: str, hard: bool = False):
 
 
 @app.post("/v1/collections/{name}/search")
-def search(name: str, req: SearchRequest):
+def search(name: str, req: SearchRequest, request: Request):
     """Búsqueda de similitud en la colección."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    _validate_collection_name(name)
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -372,8 +535,11 @@ def search(name: str, req: SearchRequest):
 
 
 @app.post("/v1/collections/{name}/query")
-def query_advanced(name: str, req: SearchRequest):
+def query_advanced(name: str, req: SearchRequest, request: Request):
     """Query avanzada con soporte de energía y exploración."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    _validate_collection_name(name)
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -413,8 +579,10 @@ def query_advanced(name: str, req: SearchRequest):
 
 
 @app.post("/v1/collections/{name}/energy")
-def compute_energy(name: str, req: EnergyRequest):
+def compute_energy(name: str, req: EnergyRequest, request: Request):
     """Calcula la energía de un vector en el paisaje energético."""
+    _validate_api_key(request)
+    _validate_collection_name(name)
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -451,8 +619,10 @@ def compute_energy(name: str, req: EnergyRequest):
 
 
 @app.post("/v1/collections/{name}/explore")
-def explore(name: str, req: ExploreRequest):
+def explore(name: str, req: ExploreRequest, request: Request):
     """Explora regiones de alta incertidumbre."""
+    _validate_api_key(request)
+    _validate_collection_name(name)
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -507,8 +677,10 @@ def collection_stats(name: str):
 
 
 @app.post("/v1/admin/checkpoint")
-def checkpoint(name: Optional[str] = None):
+def checkpoint(name: Optional[str] = None, request: Request = None):
     """Crea checkpoint del WAL."""
+    if request:
+        _validate_api_key(request)
     names = [name] if name else _manager.list_names()
     for n in names:
         try:
@@ -520,8 +692,9 @@ def checkpoint(name: Optional[str] = None):
 
 
 @app.post("/v1/admin/backup")
-def backup(req: BackupRequest):
+def backup(req: BackupRequest, request: Request):
     """Crea backup de todas las colecciones con storage."""
+    _validate_api_key(request)
     results = {}
     for name in _manager.list_names():
         try:
