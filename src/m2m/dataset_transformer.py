@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 import numpy as np
-from sklearn.cluster import KMeans as SklearnKMeans
+from sklearn.cluster import MiniBatchKMeans
 
 
 @dataclass
@@ -75,10 +75,10 @@ class TransformConfig:
     seed: int = 42
 
     # KMeans init method ('k-means++' or 'random')
-    kmeans_init: str = "k-means++"
+    kmeans_init: str = "random"
 
     # Max KMeans iterations
-    max_iter: int = 20
+    max_iter: int = 5
 
 
 # Preset configurations
@@ -250,14 +250,13 @@ class M2MDatasetTransformer:
                 indices=np.arange(N),
             )]
 
-        kmeans = SklearnKMeans(
+        kmeans = MiniBatchKMeans(
             n_clusters=n_clusters,
             init=self.config.kmeans_init,
             max_iter=self.config.max_iter,
-            n_init=1,
+            batch_size=min(1000, N),
             random_state=self.config.seed,
-            # Use Elkan's algorithm for faster convergence on well-separated data
-            algorithm="elkan" if N < 100000 else "lloyd",
+            n_init=1,
         )
         labels = kmeans.fit_predict(self.vectors)
 
@@ -305,12 +304,13 @@ class M2MDatasetTransformer:
         n_fine = max(2, self.config.n_clusters // n_coarse)
 
         # Level 1: Coarse KMeans
-        coarse_kmeans = SklearnKMeans(
+        coarse_kmeans = MiniBatchKMeans(
             n_clusters=min(n_coarse, N),
             init=self.config.kmeans_init,
             max_iter=self.config.max_iter,
-            n_init=1,
+            batch_size=min(1000, N),
             random_state=self.config.seed,
+            n_init=1,
         )
         coarse_labels = coarse_kmeans.fit_predict(self.vectors)
 
@@ -341,12 +341,13 @@ class M2MDatasetTransformer:
                 continue
 
             # Level 2: Fine KMeans within coarse cluster
-            fine_kmeans = SklearnKMeans(
+            fine_kmeans = MiniBatchKMeans(
                 n_clusters=actual_fine,
                 init=self.config.kmeans_init,
                 max_iter=self.config.max_iter,
-                n_init=1,
+                batch_size=min(500, n_in_cluster),
                 random_state=self.config.seed + c,
+                n_init=1,
             )
             fine_labels = fine_kmeans.fit_predict(cluster_vecs)
 
