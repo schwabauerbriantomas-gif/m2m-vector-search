@@ -89,35 +89,97 @@ class SplatStore:
     def find_neighbors(
         self, query: np.ndarray, k: int = 64, lod: int = 2
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Find k-nearest neighbors using authentic HRM2 engine semantic routing."""
+        """Find k-nearest neighbors using fast vectorized search with optional HRM2 routing."""
         query_np = query
         if query_np.ndim == 1:
             query_np = query_np.reshape(1, -1)
 
         batch_size = query_np.shape[0]
         dim = query_np.shape[1]
+        n = self.n_active
 
-        k = min(k, max(1, self.n_active))
+        k = min(k, max(1, n))
 
-        if not self.engine._is_indexed:
-            # Fallback to random if not indexed
+        if not self.engine._is_indexed or n == 0:
             mu_out = np.random.randn(batch_size, k, dim).astype(np.float32)
             alpha_out = np.ones((batch_size, k), dtype=np.float32)
             kappa_out = np.ones((batch_size, k), dtype=np.float32) * 10.0
             return mu_out, alpha_out, kappa_out
 
+        # Precompute index embeddings slice for fast access
+        index_data = self.mu[:n]  # [n, dim], already float32
+        index_alpha = self.alpha[:n]
+        index_kappa = self.kappa[:n]
+
+        # Use HRM2 clustering pruning when dataset is large enough
+        # For small N, vectorized brute-force is faster due to lower Python overhead
+        use_hrm2 = n > 15000 and self.engine.coarse_model is not None
+
         mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
         alpha_out = np.zeros((batch_size, k), dtype=np.float32)
         kappa_out = np.zeros((batch_size, k), dtype=np.float32)
 
-        for i in range(batch_size):
-            # Query the semantic MoE router
-            results = self.engine.query(query_np[i], k=k, lod=lod)
-            for j, (splat, dist) in enumerate(results):
-                idx = splat.id
-                mu_out[i, j] = self.mu[idx]
-                alpha_out[i, j] = self.alpha[idx]
-                kappa_out[i, j] = self.kappa[idx]
+        if use_hrm2 and lod == 2:
+            # HRM2 accelerated path for large datasets
+            queries_np = query_np.astype(np.float32)
+            # Precompute coarse distances for all queries at once
+            coarse_dists = self.engine.coarse_model.transform(queries_np)  # [B, n_coarse]
+            n_probe = self.engine.n_probe
+
+            for i in range(batch_size):
+                q = queries_np[i]
+                # Find nearest coarse clusters
+                if coarse_dists.shape[1] > n_probe:
+                    closest_coarse = np.argpartition(coarse_dists[i], n_probe - 1)[:n_probe]
+                else:
+                    closest_coarse = np.argsort(coarse_dists[i])
+
+                # Gather candidate indices from probed clusters
+                candidate_lists = []
+                for c in closest_coarse:
+                    cidx = self.engine.coarse_cluster_indices.get(c)
+                    if cidx is not None and len(cidx) > 0:
+                        candidate_lists.append(cidx)
+
+                if not candidate_lists:
+                    continue
+
+                candidates = np.concatenate(candidate_lists)
+                # Vectorized squared L2 distance via einsum (no sqrt needed for ranking)
+                diff = index_data[candidates] - q
+                dists_sq = np.einsum("ij,ij->i", diff, diff)
+
+                if len(dists_sq) > k:
+                    topk_local = np.argpartition(dists_sq, k - 1)[:k]
+                    sort_order = np.argsort(dists_sq[topk_local])
+                    topk_local = topk_local[sort_order]
+                else:
+                    topk_local = np.argsort(dists_sq)
+
+                for j, local_j in enumerate(topk_local[:k]):
+                    idx = candidates[local_j]
+                    mu_out[i, j] = index_data[idx]
+                    alpha_out[i, j] = index_alpha[idx]
+                    kappa_out[i, j] = index_kappa[idx]
+        else:
+            # Fast vectorized brute-force path (optimal for N ≤ 15K)
+            queries_np = query_np.astype(np.float32)
+            for i in range(batch_size):
+                q = queries_np[i]
+                diff = index_data - q  # [n, dim]
+                dists_sq = np.einsum("ij,ij->i", diff, diff)  # [n]
+
+                if n > k:
+                    topk = np.argpartition(dists_sq, k - 1)[:k]
+                    sort_order = np.argsort(dists_sq[topk])
+                    topk = topk[sort_order]
+                else:
+                    topk = np.argsort(dists_sq)
+
+                for j, idx in enumerate(topk[:k]):
+                    mu_out[i, j] = index_data[idx]
+                    alpha_out[i, j] = index_alpha[idx]
+                    kappa_out[i, j] = index_kappa[idx]
 
         return mu_out, alpha_out, kappa_out
 
@@ -185,18 +247,31 @@ class SplatStore:
             except Exception as e:
                 print(f"[SplatStore] GPU batch search failed ({e}), falling back to CPU.")
 
-        # ── CPU fallback: batched vectorized query ───────────────────
+        # ── CPU fallback: vectorized brute-force ───────────────────
+        n = self.n_active
+        index_data = self.mu[:n].astype(np.float32)
+        index_alpha = self.alpha[:n]
+        index_kappa = self.kappa[:n]
+        queries_np = queries.astype(np.float32)
+
         mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
         alpha_out = np.zeros((batch_size, k), dtype=np.float32)
         kappa_out = np.zeros((batch_size, k), dtype=np.float32)
 
-        batch_results = self.engine.query_batch(queries, k=k, lod=lod)
-        for i, results in enumerate(batch_results):
-            for j, (splat, dist) in enumerate(results):
-                idx = splat.id
-                mu_out[i, j] = self.mu[idx]
-                alpha_out[i, j] = self.alpha[idx]
-                kappa_out[i, j] = self.kappa[idx]
+        for i in range(batch_size):
+            q = queries_np[i]
+            diff = index_data - q
+            dists_sq = np.einsum("ij,ij->i", diff, diff)
+            if n > k:
+                topk = np.argpartition(dists_sq, k - 1)[:k]
+                sort_order = np.argsort(dists_sq[topk])
+                topk = topk[sort_order]
+            else:
+                topk = np.argsort(dists_sq)
+            for j, idx in enumerate(topk[:k]):
+                mu_out[i, j] = index_data[idx]
+                alpha_out[i, j] = index_alpha[idx]
+                kappa_out[i, j] = index_kappa[idx]
 
         return mu_out, alpha_out, kappa_out
 
