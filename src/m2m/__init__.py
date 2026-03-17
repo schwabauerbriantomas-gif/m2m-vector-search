@@ -49,6 +49,11 @@ try:
     from .splats import SplatStore
     from .storage import M2MPersistence
     from .storage import WriteAheadLog as WriteAheadLog
+    from .search_supervisor import SearchSupervisor, BackendType, QueryComplexity
+    from .query_router import QueryRouter, SearchStrategy, QueryProfile
+    from .quality_reflector import QualityReflector, QualityLevel, QualityReport
+    from .backend_comm import BackendComm, BackendMessage, BackendMsgType, BackendHealth, BackendMetrics
+    from .mapreduce_indexer import parallel_index
 except ImportError:
     from .config import M2MConfig
 
