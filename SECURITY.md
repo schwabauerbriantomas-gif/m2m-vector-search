@@ -6,7 +6,7 @@ The following versions receive active security updates:
 
 | Version  | Supported          |
 | -------- | ------------------ |
-| ≥ 2.0.0  | :white_check_mark: |
+| ≥ 2.1.0  | :white_check_mark: |
 | 1.x.x    | :x:                |
 | < 1.0.0  | :x:                |
 

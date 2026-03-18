@@ -6,7 +6,7 @@ High-performance Gaussian Splat storage and retrieval with Energy-Based Model fe
 
 Version: 1.0.0
 Author: Brian Schwabauer
-License: Apache-2.0
+License: AGPL-3.0
 
 Modos de operación:
   - EMBEDDED: SimpleVectorDB / AdvancedVectorDB (librería Python)
@@ -17,7 +17,7 @@ Modos de operación:
 __version__ = "2.1.0"
 __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
-__license__ = "Apache-2.0"
+__license__ = "AGPL-3.0"
 
 from typing import Any, Dict, List, Optional, Tuple
 

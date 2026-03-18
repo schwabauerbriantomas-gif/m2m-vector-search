@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.1.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange" alt="License">
   <img src="https://img.shields.io/badge/tests-166%20passed-success" alt="Tests">
@@ -164,7 +164,7 @@ for r in results:
 │  WAL    │  Persistence    │  GPUVectorIndex     │
 └─────────┴─────────────────┴─────────────────────┘
 
-            AlfredMemoryDB Architecture (v2.2)
+            AlfredMemoryDB Architecture (v2.1)
 
     ┌──────────────────────────────────────┐
     │         AlfredMemoryDB               │
@@ -222,3 +222,4 @@ Sources consulted via Z.AI tools (GLM-5 web_search + web_read):
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) for details.
+CENSE) for details.

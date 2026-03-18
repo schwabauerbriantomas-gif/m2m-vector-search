@@ -7,14 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-03-17
+
 ### Added
 - Security audit, pentest report, and chaos testing reports
 - Optimization analysis with concrete patches
 - GitHub issue and PR templates
-
-## [2.1.0] - 2026-03-17
-
-### Added
 - CUDA backend support (NVIDIA GPUs)
 - Transformed backend with pre-computed index
 - Advanced cluster features: semantic/geo sharding, load balancing

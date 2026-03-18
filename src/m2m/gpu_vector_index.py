@@ -1,4 +1,4 @@
-﻿"""
+"""
 GPUVectorIndex — Persistent full-index GPU buffer with batch query dispatch.
 
 Soporta dos backends GPU:
