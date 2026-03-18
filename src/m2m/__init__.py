@@ -49,6 +49,8 @@ try:
     from .splats import SplatStore
     from .storage import M2MPersistence
     from .storage import WriteAheadLog as WriteAheadLog
+    from .alfred_memory import AlfredMemoryDB
+    from .alfred_memory import MemoryResult
     from .search_supervisor import SearchSupervisor, BackendType, QueryComplexity
     from .query_router import QueryRouter, SearchStrategy, QueryProfile
     from .quality_reflector import QualityReflector, QualityLevel, QualityReport
