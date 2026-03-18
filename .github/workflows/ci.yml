@@ -118,3 +118,31 @@ jobs:
     
     - name: Run Safety
       run: safety check
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pdoc3
+      - run: pip install -e ".[dev]"
+      - run: pdoc --html src/m2m --output-dir docs/api/ --force
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/api/
+
+  deploy-docs:
+    needs: docs
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
