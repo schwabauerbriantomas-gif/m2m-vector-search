@@ -457,6 +457,7 @@ class SimpleVectorDB:
         self.storage = None
         if storage_path and mode != "edge":
             self.storage = M2MPersistence(storage_path, enable_wal=(enable_wal and mode != "edge"))
+            self._restore_from_storage()
 
         # EBM
         self.ebm_enabled = enable_ebm or mode == "ebm"
@@ -465,6 +466,40 @@ class SimpleVectorDB:
         if self.ebm_enabled:
             self._ebm_energy = EBMEnergy()
             self._ebm_exploration = EBMExploration(self._ebm_energy)
+
+    def _restore_from_storage(self):
+        """Restore documents from persistence into memory dicts."""
+        if not self.storage:
+            return
+        try:
+            doc_ids = self.storage.get_all_ids(include_deleted=False)
+            if not doc_ids:
+                return
+            # Load shard vectors
+            shards = self.storage.list_shards()
+            shard_vectors = {}
+            for shard_name in shards:
+                vecs = self.storage.load_vectors(shard_name)
+                if vecs is not None:
+                    shard_vectors[shard_name] = vecs
+            # Restore each document
+            for doc_id in doc_ids:
+                meta = self.storage.get_metadata(doc_id)
+                if meta is None:
+                    continue
+                shard_idx = meta.get("shard_idx", 0)
+                vector_idx = meta.get("vector_idx", 0)
+                shard_name = f"shard_{shard_idx + 1:03d}" if shard_idx > 0 else "shard_001"
+                if shard_name in shard_vectors and vector_idx < len(shard_vectors[shard_name]):
+                    self._vectors[doc_id] = shard_vectors[shard_name][vector_idx]
+                    self._metadata[doc_id] = meta.get("metadata", {})
+                    self._documents[doc_id] = meta.get("document", "")
+            if self._vectors:
+                import logging
+                logging.getLogger("m2m").info(f"Restored {len(self._vectors)} documents from storage")
+        except Exception as e:
+            import logging
+            logging.getLogger("m2m").warning(f"Failed to restore from storage: {e}")
 
     def _compute_silhouette(self, vectors: np.ndarray, sample_size: int = 1000) -> float:
         try:

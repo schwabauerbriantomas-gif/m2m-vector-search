@@ -224,11 +224,13 @@ def index_workspace(
     # Create DB
     db = AlfredMemoryDB(
         encoder=encoder,
-        latent_dim=dim,
+        latent_dim=384,
         storage_path=storage_path,
         auto_categorize=True,
         temporal_decay=True,
-        temporal_half_life_days=60.0,  # Workspace docs decay slowly
+        temporal_half_life_days=60.0,
+        device="cpu",
+        mode="standard",
     )
 
     # Find all files
