@@ -4,6 +4,9 @@ import numpy as np
 
 from .hrm2_engine import HRM2Engine
 from .splat_types import GaussianSplat
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class SplatStore:
@@ -257,7 +260,7 @@ class SplatStore:
                 return mu_out, alpha_out, kappa_out
 
             except Exception as e:
-                print(f"[SplatStore] GPU batch search failed ({e}), falling back to CPU.")
+                logger.warning("GPU batch search failed (%s), falling back to CPU.", e)
 
         # ── CPU fallback: vectorized brute-force ───────────────────
         n = self.n_active
@@ -288,10 +291,82 @@ class SplatStore:
         return mu_out, alpha_out, kappa_out
 
     def entropy(self, x=None):
-        return 0.5
+        """
+        Compute Shannon entropy of the active kappa (concentration) distribution.
+
+        Normalizes kappa values to a probability distribution and computes:
+            H = -sum(p * log(p))
+
+        Returns:
+            float in [0.0, 1.0] — 0.0 = all identical, 1.0 = uniform distribution.
+        """
+        if self.n_active == 0:
+            return 0.0
+
+        kappa = self.kappa[: self.n_active]
+        # Remove non-positive kappa (invalid concentration)
+        kappa = kappa[kappa > 0]
+
+        if len(kappa) == 0:
+            return 0.0
+
+        # Normalize to probability distribution
+        total = kappa.sum()
+        if total <= 0:
+            return 0.0
+
+        p = kappa / total
+        # Shannon entropy (nats)
+        h = -np.sum(p * np.log(p))
+
+        # Normalize by max entropy (uniform distribution)
+        max_h = np.log(len(p))
+        if max_h <= 0:
+            return 0.0
+
+        return float(np.clip(h / max_h, 0.0, 1.0))
 
     def compact(self):
-        pass
+        """
+        Remove invalid/dead splats and recompact arrays in-place.
+
+        Removes splats where:
+        - alpha ≈ 0 (< 1e-6)
+        - mu contains NaN or Inf
+
+        After removal, shifts remaining splats to contiguous indices.
+        """
+        if self.n_active == 0:
+            return
+
+        n = self.n_active
+        mu = self.mu[:n]
+        alpha = self.alpha[:n]
+        kappa = self.kappa[:n]
+        frequency = self.frequency[:n]
+
+        # Build mask: keep splats that are valid
+        valid_alpha = alpha >= 1e-6
+        valid_mu = np.all(np.isfinite(mu), axis=1)
+        mask = valid_alpha & valid_mu
+
+        n_kept = int(mask.sum())
+        if n_kept == n:
+            return  # Nothing to compact
+
+        # Reassign compacted data
+        self.mu[:n_kept] = mu[mask]
+        self.alpha[:n_kept] = alpha[mask]
+        self.kappa[:n_kept] = kappa[mask]
+        self.frequency[:n_kept] = frequency[mask]
+
+        # Zero out the rest
+        self.mu[n_kept:n] = 0.0
+        self.alpha[n_kept:n] = 0.0
+        self.kappa[n_kept:n] = 0.0
+        self.frequency[n_kept:n] = 0.0
+
+        self.n_active = n_kept
 
     def get_statistics(self):
         return {

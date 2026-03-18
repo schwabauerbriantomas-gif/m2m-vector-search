@@ -17,6 +17,9 @@ from . import AdvancedVectorDB, M2MConfig, SimpleVectorDB
 from .auto_scaling import AutoScaler, HorizontalScaler, NodeMetrics
 from .gpu_auto_tune import GPUAutoTuner, get_gpu_tuner
 from .query_optimizer import QueryOptimizer
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class M2MOptimized:
@@ -82,9 +85,9 @@ class M2MOptimized:
             if profile:
                 self.gpu_config = tuner.get_optimal_config()
                 device = device or "vulkan"
-                print(f"[M2M] GPU detected: {profile.device_name}")
-                print(f"[M2M] VRAM: {profile.vram_mb}MB")
-                print(f"[M2M] Optimal batch size: {profile.optimal_batch_size}")
+                logger.info("GPU detected: %s", profile.device_name)
+                logger.info("VRAM: %sMB", profile.vram_mb)
+                logger.info("Optimal batch size: %s", profile.optimal_batch_size)
             else:
                 print("[M2M] No GPU detected, using CPU")
                 device = "cpu"

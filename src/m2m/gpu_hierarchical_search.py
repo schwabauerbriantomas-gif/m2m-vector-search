@@ -12,6 +12,9 @@ import time
 from typing import Optional, Tuple
 
 import numpy as np
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class HierarchicalGPUSearch:
@@ -69,9 +72,9 @@ class HierarchicalGPUSearch:
         vectors = np.ascontiguousarray(vectors, dtype=np.float32)
         n, d = vectors.shape
 
-        print(
-            f"[HierarchicalGPUSearch] Building index: {n:,} vectors × {d} dims, "
-            f"C={self.n_clusters}, n_probe={self.n_probe}"
+        logger.info(
+            "Building index: %s vectors x %s dims, C=%s, n_probe=%s",
+            f"{n:,}", d, self.n_clusters, self.n_probe
         )
 
         # ── KMeans clustering (CPU — done once at build time) ────────
@@ -100,9 +103,9 @@ class HierarchicalGPUSearch:
 
         self._is_built = True
         build_time = time.perf_counter() - t0
-        print(
-            f"[HierarchicalGPUSearch] Built in {build_time:.2f}s  "
-            f"| avg cluster size: {n // self.n_clusters}"
+        logger.info(
+            "Built in %.2fs | avg cluster size: %s",
+            build_time, n // self.n_clusters
         )
 
     def _make_gpu_index(self, vectors: np.ndarray, use_gpu: bool):
@@ -113,7 +116,7 @@ class HierarchicalGPUSearch:
 
                 return GPUVectorIndex(vectors, max_batch_size=self.max_batch_size)
             except Exception as e:
-                print(f"[HierarchicalGPUSearch] GPU init failed ({e}), using CPU fallback.")
+                logger.warning("GPU init failed (%s), using CPU fallback.", e)
         return _CPUFallbackIndex(vectors)
 
     # ─────────────────────────────────────────────────────────────────

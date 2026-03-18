@@ -15,6 +15,9 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
 import numpy as np
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -118,7 +121,7 @@ class GPUAutoTuner:
             print("[WARNING] Vulkan SDK no disponible")
             return None
         except Exception as e:
-            print(f"[ERROR] GPU detection failed: {e}")
+            logger.error("GPU detection failed: %s", e)
             return None
 
     def _estimate_optimal_batch(self, vram_mb: int) -> int:
@@ -197,7 +200,7 @@ class GPUAutoTuner:
             return self.benchmarks
 
         except Exception as e:
-            print(f"[ERROR] GPU benchmark failed: {e}")
+            logger.error("GPU benchmark failed: %s", e)
             return {}
 
     def get_optimal_config(self) -> Dict:

@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 import numpy as np
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class M2MEngine:
@@ -32,9 +35,9 @@ class M2MEngine:
                         dummy = np.zeros((1, dim), dtype="float32")
                         self.gpu_router = CUDAVectorIndex(dummy, max_batch_size=1)
                         self.use_cuda = True
-                        print("[INFO] Initialized CUDA GPU Router.")
+                        logger.info("Initialized CUDA GPU Router.")
                 except Exception as e:
-                    print(f"[WARNING] CUDA init failed: {e}. Trying Vulkan.")
+                    logger.warning("CUDA init failed: %s. Trying Vulkan.", e)
 
             # 2. Try Vulkan
             if not self.use_cuda and getattr(config, "enable_vulkan", False):
@@ -45,9 +48,9 @@ class M2MEngine:
                     dummy = np.zeros((1, dim), dtype="float32")
                     self.gpu_router = GPUVectorIndex(dummy, max_batch_size=1)
                     self.use_vulkan = True
-                    print("[INFO] Initialized Vulkan GPU Router.")
+                    logger.info("Initialized Vulkan GPU Router.")
                 except Exception as e:
-                    print(f"[WARNING] Vulkan init failed: {e}. Falling back to CPU.")
+                    logger.warning("Vulkan init failed: %s. Falling back to CPU.", e)
 
         self.compute_device = "cuda" if self.use_cuda else ("vulkan" if self.use_vulkan else "cpu")
 

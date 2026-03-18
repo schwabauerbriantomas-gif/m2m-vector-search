@@ -22,6 +22,9 @@ __license__ = "AGPL-3.0"
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # M2M Core Modules
 try:
@@ -121,10 +124,10 @@ class M2MMemory:
         # Energy Function
         self.energy_fn = EnergyFunction(config)
 
-        print(f"[INFO] M2M initialized on {config.device} (compute_device={config.compute_device})")
-        print(f"[INFO] Latent dim: {config.latent_dim}")
-        print(f"[INFO] Max splats: {config.max_splats}")
-        print(f"[INFO] 3-tier memory: {config.enable_3_tier_memory}")
+        logger.info("M2M initialized on %s (compute_device=%s)", config.device, config.compute_device)
+        logger.info("Latent dim: %s", config.latent_dim)
+        logger.info("Max splats: %s", config.max_splats)
+        logger.info("3-tier memory: %s", config.enable_3_tier_memory)
 
     def encode(self, x: np.ndarray) -> np.ndarray:
         """Encode input x to spherical latent space S^639."""
@@ -184,7 +187,7 @@ class M2MMemory:
         if n_removed > 0:
             self.splats.compact()
             self.splats.build_index()  # C-04 fix: rebuild HRM2 index after consolidate
-            print(f"[INFO] SOC: Consolidated {n_removed} splats")
+            logger.info("SOC: Consolidated %d splats", n_removed)
 
         return n_removed
 
@@ -228,13 +231,13 @@ class M2MEngine:
                 from .engine import M2MEngine as VulkanEngine
 
                 self.vulkan_engine = None  # Vulkan GPU is handled via gpu_vector_index
-                print("[INFO] Vulkan GPU acceleration enabled via compute shaders")
+                logger.info("Vulkan GPU acceleration enabled via compute shaders")
             except ImportError:
-                print("[WARNING] Engine module import failed, falling back to CPU.")
+                logger.warning("Engine module import failed, falling back to CPU.")
                 self.vulkan_engine = None
         else:
             self.vulkan_engine = None
-            print("[INFO] Vulkan acceleration disabled")
+            logger.info("Vulkan acceleration disabled")
 
     def add_splats(self, vectors: np.ndarray, labels: List[str] = None) -> int:
         """Add new splats to the system."""
@@ -244,12 +247,12 @@ class M2MEngine:
             if self.m2m.splats.add_splat(vector_norm):
                 n_added += 1
             else:
-                print(f"[WARNING] Failed to add splat {i}")
+                logger.warning("Failed to add splat %d", i)
 
         if n_added > 0:
             self.m2m.splats.build_index()
 
-        print(f"[INFO] Added {n_added} splats and built HRM2 index")
+        logger.info("Added %d splats and built HRM2 index", n_added)
         return n_added
 
     def search(self, query: np.ndarray, k: int = None) -> np.ndarray:
@@ -313,7 +316,7 @@ class M2MEngine:
             splats = load_m2m_dataset(path)
             self._build_hrm2_from_splats(splats)
         except Exception as e:
-            print(f"[WARNING] Could not load optimized dataset: {e}")
+            logger.warning("Could not load optimized dataset: %s", e)
         return self
 
     def _build_hrm2_from_splats(self, splats):
@@ -436,9 +439,14 @@ class SimpleVectorDB:
         enable_wal: bool = True,
         enable_ebm: bool = False,
         mode: str = "standard",  # 'edge', 'standard', 'ebm'
+        _config: Optional["M2MConfig"] = None,  # internal: allows subclass to pass custom config
     ):
-        config = M2MConfig.simple(device=device)
-        config.latent_dim = latent_dim
+        if _config is not None:
+            config = _config
+            config.latent_dim = latent_dim
+        else:
+            config = M2MConfig.simple(device=device)
+            config.latent_dim = latent_dim
         self.engine = M2MEngine(config)
         self.latent_dim = latent_dim
 
@@ -518,7 +526,7 @@ class SimpleVectorDB:
             labels = kmeans.fit_predict(sample)
             return silhouette_score(sample, labels)
         except ImportError:
-            print("[WARNING] scikit-learn is required for data distribution analysis.")
+            logger.warning("scikit-learn is required for data distribution analysis.")
             return 1.0
 
     def _update_ebm_splats(self):
@@ -596,8 +604,8 @@ class SimpleVectorDB:
         if self.enable_lsh_fallback and n >= 3:
             silhouette = self._compute_silhouette(vectors)
             if silhouette < self.lsh_threshold:
-                print(f"[M2M] Distribución uniforme (silhouette={silhouette:.4f})")
-                print("[M2M] Activando LSH fallback...")
+                logger.info("Distribución uniforme (silhouette=%.4f)", silhouette)
+                logger.info("Activando LSH fallback...")
                 try:
                     from .lsh_index import CrossPolytopeLSH, LSHConfig
 
@@ -618,7 +626,7 @@ class SimpleVectorDB:
                         self._documents[doc_id] = documents[i] if documents else None
                     return n
                 except ImportError as e:
-                    print(f"[WARNING] Could not load LSH module: {e}.")
+                    logger.warning("Could not load LSH module: %s.", e)
 
         self._use_lsh = False
         n_added = self.engine.add_splats(vectors)
@@ -833,6 +841,18 @@ class SimpleVectorDB:
         if query.ndim > 1:
             query = query.squeeze()
 
+        # SPEC-20: Input validation for search
+        if query.ndim != 1:
+            raise ValueError(f"query must be 1D (got {query.ndim}D)")
+        if query.shape[0] != self.latent_dim:
+            raise ValueError(
+                f"query dimension mismatch: expected {self.latent_dim}, got {query.shape[0]}"
+            )
+        if not np.all(np.isfinite(query)):
+            raise ValueError("query contains NaN or Inf values")
+        if k < 1:
+            raise ValueError(f"k must be >= 1 (got {k})")
+
         if self._use_lsh and self.lsh is not None:
             indices, distances = self.lsh.query(query, k=k)
             candidate_vectors = self.lsh.vectors[indices]
@@ -1045,18 +1065,18 @@ class AdvancedVectorDB(SimpleVectorDB):
         enable_soc: bool = True,
         enable_energy_features: bool = True,
     ):
+        # SPEC-12: Pass advanced config directly to parent to avoid double engine creation
+        config = M2MConfig.advanced(device=device)
+        config.latent_dim = latent_dim
+
         super().__init__(
             device=device,
             latent_dim=latent_dim,
             storage_path=storage_path,
             enable_ebm=enable_energy_features,
             mode="ebm" if enable_energy_features else "standard",
+            _config=config,
         )
-
-        # Reconfigurar engine con config avanzada
-        config = M2MConfig.advanced(device=device)
-        config.latent_dim = latent_dim
-        self.engine = M2MEngine(config)
 
         # SOC Engine
         self.soc_enabled = enable_soc
@@ -1162,7 +1182,7 @@ class M2MClient:
             self._requests = requests
         except ImportError:
             self._requests = None
-            print("[WARNING] 'requests' no instalado. Instala con: pip install requests")
+            logger.warning("requests not installed. Install with: pip install requests")
 
     def _headers(self) -> Dict:
         h = {"Content-Type": "application/json"}

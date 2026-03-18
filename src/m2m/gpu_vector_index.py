@@ -22,6 +22,9 @@ import subprocess
 from typing import Optional, Tuple
 
 import numpy as np
+import logging
+logger = logging.getLogger(__name__)
+
 
 try:
     import vulkan as vk
@@ -233,7 +236,7 @@ class GPUVectorIndex:
             self._dim,
         ), "Shape mismatch; create a new GPUVectorIndex for different N or D."
         self._upload(self._idx_mem, new_idx)
-        print(f"[GPUVectorIndex] Index rebuilt ({self._n:,} vectors)")
+        logger.info("GPUVectorIndex Index rebuilt (%s vectors)", f"{self._n:,}")
 
     def compute_distances(
         self, query_np: np.ndarray, expert_embeddings_np: np.ndarray

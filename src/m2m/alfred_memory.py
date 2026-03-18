@@ -281,6 +281,10 @@ class AlfredMemoryDB:
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text must be a non-empty string")
 
+        # SPEC-20: Validate metadata type
+        if metadata is not None and not isinstance(metadata, dict):
+            raise ValueError(f"metadata must be a dict or None, got {type(metadata).__name__}")
+
         if doc_id is None:
             import uuid
             doc_id = str(uuid.uuid4())
@@ -330,6 +334,10 @@ class AlfredMemoryDB:
         """
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text must be a non-empty string")
+
+        # SPEC-20: Validate metadata type
+        if metadata is not None and not isinstance(metadata, dict):
+            raise ValueError(f"metadata must be a dict or None, got {type(metadata).__name__}")
 
         if doc_id is None:
             import uuid
@@ -433,6 +441,14 @@ class AlfredMemoryDB:
             List of MemoryResult sorted by fused score
         """
         t0 = time.perf_counter()
+
+        # SPEC-20: Validate inputs
+        if isinstance(query, str) and not query.strip():
+            raise ValueError("query must not be empty")
+        if not isinstance(query, (str, np.ndarray)):
+            raise TypeError(f"query must be str or np.ndarray, got {type(query).__name__}")
+        if k < 1:
+            raise ValueError(f"k must be >= 1 (got {k})")
 
         # Determine effective fusion method
         if not hybrid or self.fusion_method == "vector_only":

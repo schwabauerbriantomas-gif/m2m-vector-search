@@ -16,6 +16,9 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 class ScalingDirection(Enum):
@@ -447,7 +450,7 @@ class HorizontalScaler:
         time.sleep(0.1)  # En producción: esperar health check
         self._active_nodes[node_id]["status"] = "ready"
 
-        print(f"[AutoScale] Added node {node_id}")
+        logger.info("AutoScale: Added node %s", node_id)
         return True
 
     def scale_down(self) -> bool:
@@ -469,7 +472,7 @@ class HorizontalScaler:
         time.sleep(0.1)  # Simular drenado
         del self._active_nodes[node_id]
 
-        print(f"[AutoScale] Removed node {node_id}")
+        logger.info("AutoScale: Removed node %s", node_id)
         return True
 
     def get_active_nodes(self) -> List[str]:
