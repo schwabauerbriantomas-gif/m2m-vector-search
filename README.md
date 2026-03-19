@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.1.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
-  <img src="https://img.shields.io/badge/license-Apache%202.0-orange" alt="License">
+  <img src="https://img.shields.io/badge/license-AGPL-3.0-orange" alt="License">
   <img src="https://img.shields.io/badge/tests-166%20passed-success" alt="Tests">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
@@ -9,7 +9,7 @@
 <h1 align="center">🔬 M2M Vector Search</h1>
 
 <p align="center">
-  <strong>Machine-to-Memory</strong> — Búsqueda vectorial con Gaussian Splats, Modelos Basados en Energía y GPU multi-backend
+  <strong>Machine-to-Memory</strong> - Búsqueda vectorial con Gaussian Splats, Modelos Basados en Energía y GPU multi-backend
 </p>
 
 <p align="center">
@@ -38,7 +38,7 @@
 
 ## 🎩 Alfred Memory (v2.2)
 
-**AlfredMemoryDB** — Semantic memory system purpose-built for AI assistants.
+**AlfredMemoryDB** - Semantic memory system purpose-built for AI assistants.
 
 ```python
 from m2m import AlfredMemoryDB
@@ -96,14 +96,14 @@ Based on research via Z.AI tools (RRF used by Elasticsearch, OpenSearch, Pinecon
 
 ### Phase 2 Features (Research-Backed)
 
-**Temporal Decay** — Exponential decay: `boost = exp(-λ × age)` where `λ = ln(2) / half_life`
+**Temporal Decay** - Exponential decay: `boost = exp(-λ × age)` where `λ = ln(2) / half_life`
 - Recent memories receive higher scores (configurable half-life)
 - Based on: temporal relevance in information retrieval research
 
-**Auto-Categorization** — Keyword-based classification into 10 categories:
+**Auto-Categorization** - Keyword-based classification into 10 categories:
 `decision`, `preference`, `project`, `error`, `learning`, `question`, `conversation`, `task`, `config`
 
-**Auto-Date** — Automatically sets `date` metadata to current date if not provided
+**Auto-Date** - Automatically sets `date` metadata to current date if not provided
 
 ### Workspace Indexing
 
@@ -186,7 +186,7 @@ for r in results:
 
 > ⚠️ **Todos los datos son mediciones reales.** Ver `benchmark_stats.md` para el análisis completo.
 
-**Sistema:** AMD Ryzen 5 3400G, 16GB RAM, NVIDIA RTX 3090, Python 3.12  
+**Sistema:** AMD Ryzen 5 3400G, 16GB RAM, NVIDIA RTX 3090, Python 3.12
 **Config:** 10K splats, 1K queries, k=10, dim=640
 
 | Backend | Latencia (ms) | Throughput (QPS) | vs Linear |
@@ -209,17 +209,17 @@ pytest tests/ -v  # 166 tests
 
 Sources consulted via Z.AI tools (GLM-5 web_search + web_read):
 
-1. **Hybrid Search Fusion** — RRF is industry standard (ES, OpenSearch, Pinecone). Score-agnostic, no normalization needed, k=60 default. Cross-encoder reranking for highest accuracy (RRF → reranker pattern).
+1. **Hybrid Search Fusion** - RRF is industry standard (ES, OpenSearch, Pinecone). Score-agnostic, no normalization needed, k=60 default. Cross-encoder reranking for highest accuracy (RRF → reranker pattern).
 
-2. **Embedding Models** — bge-small-en-v1.5: best all-rounder. gte-small: highest MTEB accuracy. all-MiniLM-L6-v2: fastest but aging. All 384D. all-MiniLM-L12-v2: avoid (slower, not better).
+2. **Embedding Models** - bge-small-en-v1.5: best all-rounder. gte-small: highest MTEB accuracy. all-MiniLM-L6-v2: fastest but aging. All 384D. all-MiniLM-L12-v2: avoid (slower, not better).
 
-3. **Vector Compression** — Scalar Quantization (int8): 4x memory reduction, <1% recall loss. Binary Quantization: 32x reduction but needs oversampling+reranking. Matryoshka embeddings: store 1024D, index 256D.
+3. **Vector Compression** - Scalar Quantization (int8): 4x memory reduction, <1% recall loss. Binary Quantization: 32x reduction but needs oversampling+reranking. Matryoshka embeddings: store 1024D, index 256D.
 
-4. **Index Algorithms** — HNSW: best speed/accuracy (30-50% memory overhead). IVF: good balance, tunable via nprobe. PQ: memory compression only, lossy.
+4. **Index Algorithms** - HNSW: best speed/accuracy (30-50% memory overhead). IVF: good balance, tunable via nprobe. PQ: memory compression only, lossy.
 
-5. **Production Architecture** — Separate storage/compute. Tenant-based sharding. Time-based sharding for RAG. Mutability requirements in 2025.
+5. **Production Architecture** - Separate storage/compute. Tenant-based sharding. Time-based sharding for RAG. Mutability requirements in 2025.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+GNU Affero General Public License v3.0 - see [LICENSE](LICENSE) for details.
 CENSE) for details.

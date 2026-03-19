@@ -10,7 +10,7 @@ The following versions receive active security updates:
 | 1.x.x    | :x:                |
 | < 1.0.0  | :x:                |
 
-> **Current stable release**: `2.0.0`
+> **Current stable release**: `2.1.0`
 
 ## Security Scope
 
