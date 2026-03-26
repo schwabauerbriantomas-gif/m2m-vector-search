@@ -178,3 +178,6 @@ docs/api/
 
 # Temp files
 benchmark_temp*
+
+# Archive/audit artifacts
+archive/
