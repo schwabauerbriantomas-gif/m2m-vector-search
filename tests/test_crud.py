@@ -324,3 +324,52 @@ class TestStats:
         stats = db.get_stats()
         assert stats["deleted_documents"] == 1
         assert stats["active_documents"] == 9
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCases:
+    def test_search_empty_collection(self, db):
+        """Test: buscar en colección vacía no crashea y retorna resultados vacios o trivial."""
+        query = np.random.randn(64).astype(np.float32)
+        # Without include_metadata, search returns a tuple; should not crash
+        results = db.search(query, k=5)
+        assert results is not None
+        # With include_metadata, returns list
+        results_meta = db.search(query, k=5, include_metadata=True)
+        assert isinstance(results_meta, list)
+        assert len(results_meta) == 0
+
+    def test_add_duplicate_id(self, db, sample_vectors):
+        """Test: añadir mismo ID dos veces — segundo add sobrescribe."""
+        vec1 = sample_vectors[0:1]
+        vec2 = sample_vectors[1:2]
+        db.add(ids=["dup"], vectors=vec1, metadata=[{"v": 1}])
+        db.add(ids=["dup"], vectors=vec2, metadata=[{"v": 2}])
+        np.testing.assert_allclose(db._vectors["dup"], vec2[0])
+        assert db._metadata["dup"]["v"] == 2
+
+    def test_delete_nonexistent_id(self, db):
+        """Test: eliminar ID inexistente no crashea, retorna 0."""
+        result = db.delete(id="ghost_id")
+        assert result.deleted == 0
+        assert isinstance(result, DeleteResult)
+
+    def test_batch_add_and_search(self, db):
+        """Test: añadir y buscar múltiples documentos en batch."""
+        np.random.seed(99)
+        ids = [f"batch_{i}" for i in range(50)]
+        vecs = np.random.randn(50, 64).astype(np.float32)
+        meta = [{"group": "a" if i < 25 else "b"} for i in range(50)]
+        n = db.add(ids=ids, vectors=vecs, metadata=meta)
+        assert n == 50
+        stats = db.get_stats()
+        assert stats["total_documents"] == 50
+
+        query = vecs[0]
+        results = db.search(query, k=10, include_metadata=True)
+        assert isinstance(results, list)
+        assert len(results) >= 1

@@ -18,7 +18,7 @@ class BM25Index:
     BM25 (Okapi BM25) full-text search index.
 
     Indexes documents by tokenized text and supports fast keyword search.
-    Designed for small-to-medium collections (Alfred's memory scale: ~1-10K docs).
+    Designed for small-to-medium collections (AI agent memory scale: ~1-10K docs).
 
     Args:
         k1: Term frequency saturation parameter (default 1.5)
@@ -28,7 +28,7 @@ class BM25Index:
     Example:
         >>> bm25 = BM25Index()
         >>> bm25.add("doc_1", "M2M vector search for semantic memory")
-        >>> bm25.add("doc_2", "Brian decided to use M2M for Alfred")
+        >>> bm25.add("doc_2", "Brian decided to use M2M for semantic memory")
         >>> scores = bm25.search("M2M semantic", k=5)
         >>> # scores = [("doc_2", 0.85), ("doc_1", 0.72)]
     """

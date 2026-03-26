@@ -232,7 +232,7 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# ── SECURITY: CORS configuration (M-01 fix) ────────────────────────────
+# -- SECURITY: CORS configuration (M-01 fix) ----------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure appropriately for production
@@ -241,7 +241,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── SECURITY: Rate limiting (H-03, P-07 fix) ──────────────────────────
+# -- SECURITY: Rate limiting (H-03, P-07 fix) --------------------------
 _rate_limit_store: Dict[str, List[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_MAX_REQUESTS = 100  # per window per IP
@@ -262,7 +262,7 @@ def _check_rate_limit(client_ip: str) -> None:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
 
-# ── SECURITY: API Key validation (C-01, P-06 fix) ─────────────────────
+# -- SECURITY: API Key validation (C-01, P-06 fix) ---------------------
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
@@ -280,7 +280,7 @@ def _validate_api_key(request: Request) -> None:
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-# ── SECURITY: Collection name sanitization (H-01, P-03 fix) ───────────
+# -- SECURITY: Collection name sanitization (H-01, P-03 fix) -----------
 _COLLECTION_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 
 
@@ -294,7 +294,7 @@ def _validate_collection_name(name: str) -> str:
     return name
 
 
-# ── SECURITY: Backup path sanitization (P-04 fix) ────────────────────
+# -- SECURITY: Backup path sanitization (P-04 fix) --------------------
 def _validate_backup_path(path: str) -> str:
     """Prevents path traversal in backup operations."""
     from pathlib import Path
@@ -305,7 +305,7 @@ def _validate_backup_path(path: str) -> str:
     return str(resolved)
 
 
-# ── SECURITY: Global error handler (H-04 fix) ────────────────────────
+# -- SECURITY: Global error handler (H-04 fix) ------------------------
 @app.exception_handler(Exception)
 async def global_error_handler(request: Request, exc: Exception):
     """Prevents internal error details from leaking to clients."""
@@ -735,12 +735,21 @@ def _ensure_legacy_collection():
 
 
 @app.post("/ingest")
-def legacy_ingest(request: dict):
+async def legacy_ingest(request: Request):
     """Legacy ingest endpoint - maps to default 'legacy' collection."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    body = await request.json()
     _ensure_legacy_collection()
-    vectors = request.get("vectors", [])
-    doc_ids = request.get("doc_ids", None)
+    vectors = body.get("vectors", [])
+    if not isinstance(vectors, list) or len(vectors) == 0:
+        raise HTTPException(status_code=400, detail="vectors must be a non-empty list")
+    if len(vectors) > _RATE_LIMIT_MAX_VECTORS_PER_INSERT:
+        raise HTTPException(status_code=400, detail=f"Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request")
+    doc_ids = body.get("doc_ids", None)
     vecs = np.array(vectors, dtype=np.float32)
+    if np.any(np.isnan(vecs)):
+        raise HTTPException(status_code=400, detail="vectors contain NaN values")
     db = _manager.get(_LEGACY_COLLECTION)
     added = db.add(ids=doc_ids, vectors=vecs)
     _manager.update_count(_LEGACY_COLLECTION, added)
@@ -748,11 +757,19 @@ def legacy_ingest(request: dict):
 
 
 @app.post("/search")
-def legacy_search(request: dict):
+async def legacy_search(request: Request):
     """Legacy search endpoint - maps to default 'legacy' collection."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
+    body = await request.json()
+    query_vec = body.get("query", [])
+    if not isinstance(query_vec, list) or len(query_vec) == 0:
+        raise HTTPException(status_code=400, detail="query must be a non-empty list")
+    k = min(max(body.get("k", 10), 1), 10000)
     _ensure_legacy_collection()
-    query = np.array(request.get("query", []), dtype=np.float32)
-    k = request.get("k", 10)
+    query = np.array(query_vec, dtype=np.float32)
+    if np.any(np.isnan(query)):
+        raise HTTPException(status_code=400, detail="query contains NaN values")
     db = _manager.get(_LEGACY_COLLECTION)
     raw = db.search(query, k=k, include_metadata=True)
     if isinstance(raw, list):

@@ -233,9 +233,9 @@ class SearchSupervisor:
         """
         Determina el orden de preferencia de backends según complejidad.
 
-        SIMPLE → CPU (rápido, sin overhead de GPU)
-        MODERATE → Vulkan > CUDA > CPU
-        COMPLEX → CUDA > Vulkan > CPU
+        SIMPLE -> CPU (rápido, sin overhead de GPU)
+        MODERATE -> Vulkan > CUDA > CPU
+        COMPLEX -> CUDA > Vulkan > CPU
         """
         # Filtrar por dimensión si hay límite
         valid = [

@@ -25,12 +25,16 @@ M2M is a **local-first, offline vector database**. The primary attack surface is
 - By default the API binds to `127.0.0.1` (localhost). **Never expose it to the public internet without authentication middleware.**
 - All collection endpoints accept arbitrary JSON payloads — validate and sanitize inputs before deploying in multi-tenant environments.
 - No authentication is built in. Use reverse proxies (nginx, Traefik) or API gateways with token validation for production deployments.
+- Legacy endpoints (`/ingest`, `/search`) are now protected by the same API key and rate limiting as v1 endpoints.
+- All vector inputs are validated for NaN values and size limits.
 
 ### Persistence Security
 
 - WAL files (`.wal`) and SQLite databases contain raw vector data and metadata. Restrict file-system permissions appropriately.
-- Pickle-based index shards (`.pkl`) are **not safe to load from untrusted sources**. Only load indexes you created yourself.
+- Pickle-based index shards (`.pkl`) are protected with HMAC-SHA256 signing (requires `M2M_HMAC_SECRET` env var). Tampered files are rejected at load time. Only load indexes you created yourself.
 - Backup archives (`.tar.gz`) should be encrypted at rest when they contain sensitive embeddings.
+- The `restore()` endpoint does not validate backup paths — restrict access to the admin API.
+- Collection `storage_path` is user-supplied in `CreateCollectionRequest` — validate or restrict to a designated storage root in multi-tenant deployments.
 
 ## Reporting a Vulnerability
 

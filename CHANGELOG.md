@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- HRM2 query_with_details IndexError with precomputed_embeddings
+- Unicode crash on Windows in benchmark scripts
+
+### Changed
+- Repo cleanup, test suite expanded 53→352
+
 ## [2.1.0] - 2026-03-17
 
 ### Added
@@ -24,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - EBM (Energy-Based Model) features: energy computation, exploration suggestions
 - SOC (Self-Organized Criticality) for memory consolidation
 - Query optimizer with LRU cache
-- Comprehensive test suite (53 tests, 100% pass rate)
+- Comprehensive test suite (415 tests, 100% pass rate)
 
 ### Changed
 - Improved HRM2 engine with batch query support

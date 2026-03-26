@@ -46,7 +46,7 @@ class M2MPersistence:
             storage_path: Directorio raíz de almacenamiento
             enable_wal: Si True, habilita Write-Ahead Log
         """
-        # ── H-01 FIX: Path traversal prevention ───────────────────────
+        # -- H-01 FIX: Path traversal prevention -----------------------
         resolved = Path(storage_path).resolve()
         if ".." in Path(storage_path).parts:
             raise ValueError(f"Path traversal detected in storage_path: {storage_path}")
@@ -313,9 +313,10 @@ class M2MPersistence:
         """Guarda el índice serializado con firma HMAC (H-05 fix)."""
         index_path = self.storage_path / "index" / f"{name}.idx"
         import hashlib, hmac, os
+        secret = os.environ.get("M2M_HMAC_SECRET")
+        if not secret:
+            raise RuntimeError("M2M_HMAC_SECRET environment variable required for secure deserialization")
         data = pickle.dumps(index_data, protocol=pickle.HIGHEST_PROTOCOL)
-        # HMAC signature to detect tampering
-        secret = os.environ.get("M2M_HMAC_SECRET", "m2m-default-hmac-secret-change-in-production")
         sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
         with open(str(index_path), "wb") as f:
             f.write(sig + data)
@@ -323,9 +324,11 @@ class M2MPersistence:
     def load_index(self, name: str = "hrm2") -> Optional[Any]:
         """Carga el índice desde disco con verificación HMAC (H-05 fix)."""
         import hashlib, hmac, os
+        secret = os.environ.get("M2M_HMAC_SECRET")
+        if not secret:
+            raise RuntimeError("M2M_HMAC_SECRET environment variable required for secure deserialization")
         index_path = self.storage_path / "index" / f"{name}.idx"
         if index_path.exists():
-            secret = os.environ.get("M2M_HMAC_SECRET", "m2m-default-hmac-secret-change-in-production")
             with open(str(index_path), "rb") as f:
                 raw = f.read()
             sig, data = raw[:32], raw[32:]
@@ -366,7 +369,7 @@ class M2MPersistence:
         """Crea un backup completo del storage."""
         import shutil
 
-        # ── P-04 FIX: Path traversal prevention ───────────────────────
+        # -- P-04 FIX: Path traversal prevention -----------------------
         backup_dir = Path(backup_path).resolve()
         if ".." in Path(backup_path).parts:
             raise ValueError(f"Path traversal detected in backup_path: {backup_path}")

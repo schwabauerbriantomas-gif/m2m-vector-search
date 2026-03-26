@@ -10,7 +10,7 @@ import uuid
 import numpy as np
 import pytest
 
-from m2m.alfred_memory import AlfredMemoryDB, MemoryResult, auto_categorize
+from m2m.semantic_memory import SemanticMemoryDB, MemoryResult, auto_categorize
 from m2m.bm25_index import BM25Index
 
 
@@ -31,7 +31,7 @@ def _mock_encoder(text):
 
 
 def _make_db(**kwargs):
-    return AlfredMemoryDB(encoder=_mock_encoder, latent_dim=384, **kwargs)
+    return SemanticMemoryDB(encoder=_mock_encoder, latent_dim=384, **kwargs)
 
 
 # ===========================================================================
@@ -421,7 +421,7 @@ class TestChaosBM25EdgeCases:
 
 
 class TestChaosMemoryDB:
-    """Chaos tests for AlfredMemoryDB."""
+    """Chaos tests for SemanticMemoryDB."""
 
     def test_store_and_search_many(self):
         """Store 500 memories and search."""

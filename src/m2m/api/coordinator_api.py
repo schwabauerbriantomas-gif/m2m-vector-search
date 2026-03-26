@@ -20,7 +20,7 @@ from ..cluster.protocol import (
 )
 from ..cluster.router import ClusterRouter
 
-# ── SECURITY: API Key for coordinator (C-01, P-09 fix) ───────────────
+# -- SECURITY: API Key for coordinator (C-01, P-09 fix) ---------------
 import os
 _COORDINATOR_API_KEY = os.environ.get("M2M_COORDINATOR_API_KEY")
 
@@ -34,7 +34,7 @@ def _validate_coordinator_key(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-# ── SECURITY: URL validation for edge nodes (P-12 fix) ───────────────
+# -- SECURITY: URL validation for edge nodes (P-12 fix) ---------------
 _ALLOWED_EDGE_SCHEMES = {"http", "https"}
 _ALLOWED_EDGE_PORTS = {8000, 8001, 8080, 8888, 9000, 3000, 5000}
 

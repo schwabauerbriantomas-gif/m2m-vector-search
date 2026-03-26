@@ -1,0 +1,81 @@
+﻿........................................................................ [ 20%]
+........................................................................ [ 40%]
+........................................................................ [ 61%]
+........................................................................ [ 81%]
+....................sss.........................................         [100%]
+============================== warnings summary ===============================
+tests\test_m2m_advanced.py:651
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_m2m_advanced.py:651: PytestUnknownMarkWarning: Unknown pytest.mark.slow - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.slow
+
+tests\test_m2m_advanced.py:667
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_m2m_advanced.py:667: PytestUnknownMarkWarning: Unknown pytest.mark.slow - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.slow
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2CosineMetric::test_cosine_better_than_euclidean
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:49: UserWarning: HRM2 silhouette=-0.0137 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine_euc.index(precomputed_embeddings=emb.copy())
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2CosineMetric::test_cosine_better_than_euclidean
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:54: UserWarning: HRM2 silhouette=0.0001 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine_cos.index(precomputed_embeddings=emb.copy())
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2CosineMetric::test_cosine_silhouette_above_threshold
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:67: UserWarning: HRM2 silhouette=0.0001 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine.index(precomputed_embeddings=emb)
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2CosineMetric::test_search_returns_results
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:82: UserWarning: HRM2 silhouette=0.0001 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine.index(precomputed_embeddings=emb)
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2CosineMetric::test_diagnostics_printed
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:94: UserWarning: HRM2 silhouette=0.0001 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine.index(precomputed_embeddings=emb)
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2AutoK::test_auto_k_runs
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:110: UserWarning: HRM2 silhouette=0.0014 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine.index(precomputed_embeddings=emb)
+
+tests/test_hrm2_dense_embeddings.py::TestHRM2BackwardCompat::test_query_with_details_cosine
+  C:\Users\Brian\Desktop\m2m-vector-search-main\tests\test_hrm2_dense_embeddings.py:132: UserWarning: HRM2 silhouette=0.0009 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    engine.index(precomputed_embeddings=emb)
+
+tests/test_phase2_features.py::TestChaosMemoryDB::test_store_and_search_many
+  C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\splats.py:93: UserWarning: HRM2 silhouette=-0.0055 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    self.engine.index(precomputed_embeddings=embeddings)
+
+tests/test_phase2_features.py::TestChaosConcurrent::test_rapid_store_search_cycle
+  C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\splats.py:93: UserWarning: HRM2 silhouette=-0.0108 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    self.engine.index(precomputed_embeddings=embeddings)
+
+tests/test_rag_dataset.py::TestBasicRetrieval::test_topic_returns_relevant_results[hierarchical reasoning model-HRM-0.3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/test_rag_dataset.py::TestBasicRetrieval::test_topic_returns_relevant_results[hierarchical reasoning model-HRM-0.3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+tests/test_specs_validation.py::TestP2ConcurrentOps::test_sequential_add_search_is_correct
+  C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\splats.py:93: UserWarning: HRM2 silhouette=0.0126 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    self.engine.index(precomputed_embeddings=embeddings)
+
+tests/test_specs_validation.py::TestP3Robustness::test_large_batch_add
+  C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\splats.py:93: UserWarning: HRM2 silhouette=0.0059 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    self.engine.index(precomputed_embeddings=embeddings)
+
+tests/test_specs_validation.py::TestI9ConcurrentWALPersistence::test_sequential_add_with_persistence
+  C:\Users\Brian\Desktop\m2m-vector-search-main\src\m2m\splats.py:93: UserWarning: HRM2 silhouette=0.0138 < 0.1. Consider using HNSW for better recall with dense embeddings.
+    self.engine.index(precomputed_embeddings=embeddings)
+
+..\..\AppData\Local\Programs\Python\Python312\Lib\site-packages\_pytest\cacheprovider.py:475
+  C:\Users\Brian\AppData\Local\Programs\Python\Python312\Lib\site-packages\_pytest\cacheprovider.py:475: PytestCacheWarning: could not create cache path C:\Users\Brian\Desktop\m2m-vector-search-main\.pytest_cache\v\cache\nodeids: [WinError 5] Acceso denegado: 'C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+349 passed, 3 skipped, 17 warnings in 201.68s (0:03:21)
+python : sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+En línea: 1 Carácter: 82
++ ... OENCODING="utf-8"; python -m pytest tests/ --tb=short -q 2>&1 | Out-F ...
++                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (sys:1: Deprecat...ule__ attribute:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

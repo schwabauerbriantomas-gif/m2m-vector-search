@@ -56,7 +56,7 @@ class TransformConfig:
 
     # Number of clusters at leaf level — controls compression ratio.
     # Higher = better precision, lower compression.
-    # 2000 → ~5x compression, 5000 → ~2x, 500 → ~20x
+    # 2000 -> ~5x compression, 5000 -> ~2x, 500 -> ~20x
     n_clusters: int = 2000
 
     # Number of hierarchy levels (1 = flat, 2 = coarse+fine)
@@ -183,7 +183,7 @@ class M2MDatasetTransformer:
         if cached is not None:
             self.splats = cached["splats"]
             self.hierarchy = cached["hierarchy"]
-            self.access_patterns = cached["access_patterns"]
+            self.access_patterns = cached.get("access_patterns", None)
             self._transform_time = cached.get("transform_time", 0.0)
             return {
                 "splats": self.splats,
@@ -532,12 +532,12 @@ class M2MDatasetTransformer:
         with open(meta_path, "w") as f:
             json.dump(result["stats"], f, indent=2)
 
-        print(f"✅ Saved: {output_path}")
+        print(f"[OK] Saved: {output_path}")
         print(f"   Splats: {len(self.splats):,}")
         print(f"   Compression: {result['stats']['compression_ratio']:.1f}x")
         print(f"   Savings: {result['stats']['memory_savings_pct']:.1f}%")
         print(f"   Transform time: {self._transform_time:.2f}s")
         if result.get("cached"):
-            print(f"   ⚡ Loaded from cache")
+            print(f"   * Loaded from cache")
 
         return result

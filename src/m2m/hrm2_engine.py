@@ -5,11 +5,14 @@ Implements a two-level hierarchical index for fast similarity search
 in large-scale Gaussian splat datasets.
 """
 
+import math
 import time
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+from sklearn.metrics import calinski_harabasz_score, silhouette_score
 
 from .clustering import KMeans
 from .encoding import FullEmbeddingBuilder
@@ -37,6 +40,11 @@ class HRM2Config:
     n_probe: int = 5  # Clusters to probe during search
     batch_size: int = 10000  # Batch size for K-Means
     random_state: int = 42
+    adaptive_probing: bool = False  # SPEC 3: adaptive probe count
+    adaptive_threshold: float = 1.5  # score ratio top1/top2 to use fewer probes
+    adaptive_min_probe: int = 1  # minimum probes for "easy" queries
+    metric: str = "euclidean"  # "euclidean" or "cosine"
+    auto_k: bool = False  # Auto-detect optimal k via silhouette analysis
 
 
 @dataclass
@@ -78,6 +86,8 @@ class HRM2Engine:
         batch_size: int = 10000,
         random_state: int = 42,
         config=None,
+        metric: str = "euclidean",
+        auto_k: bool = False,
     ):
         """
         Initialize HRM2 Engine.
@@ -90,6 +100,8 @@ class HRM2Engine:
             batch_size: Batch size for K-Means
             random_state: Random seed
             config: M2MConfig for hardware acceleration
+            metric: Distance metric - "euclidean" or "cosine"
+            auto_k: Auto-detect optimal k via silhouette analysis
         """
         self.n_coarse = n_coarse
         self.n_fine = n_fine
@@ -98,9 +110,18 @@ class HRM2Engine:
         self.batch_size = batch_size
         self.random_state = random_state
         self.config = config
+        self.adaptive_probing = False  # SPEC 3
+        self.adaptive_threshold = 1.5
+        self.adaptive_min_probe = 1
+        self.metric = metric
+        self.auto_k = auto_k
 
         # Initialize hardware router if configured
         self.router = M2MEngine(config) if config else None
+
+        # Statistics
+        self._is_indexed = False
+        self._stats = HRM2Stats()
 
         # Storage
         self.splats: List[GaussianSplat] = []
@@ -119,9 +140,61 @@ class HRM2Engine:
         # Encoder
         self.encoder = FullEmbeddingBuilder()
 
-        # Statistics
-        self._is_indexed = False
-        self._stats = HRM2Stats()
+        # Quality diagnostics
+        self._silhouette_score: Optional[float] = None
+        self._calinski_harabasz: Optional[float] = None
+        self._auto_k_cache: Optional[int] = None
+
+    def _normalize(self, vectors: np.ndarray) -> np.ndarray:
+        """L2-normalize vectors for cosine distance (makes euclidean ≡ cosine)."""
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-10)
+        return vectors / norms
+
+    def _auto_detect_k(self, embeddings: np.ndarray) -> int:
+        """Auto-detect optimal k using silhouette analysis."""
+        n = embeddings.shape[0]
+        max_k = min(50, max(5, int(math.sqrt(n))))
+        # Use a subsample for speed
+        sample_size = min(n, 5000)
+        rng = np.random.RandomState(self.random_state)
+        indices = rng.choice(n, sample_size, replace=False)
+        sample = embeddings[indices]
+
+        best_k = 5
+        best_score = -2.0
+
+        for k in range(5, max_k + 1, 5):
+            try:
+                km = KMeans(
+                    n_clusters=k,
+                    batch_size=min(self.batch_size, sample_size),
+                    random_state=self.random_state,
+                    use_mini_batch=True,
+                )
+                labels = km.fit_predict(sample)
+                if len(set(labels)) < 2:
+                    continue
+                score = silhouette_score(sample, labels, metric="euclidean")
+                if score > best_score:
+                    best_score = score
+                    best_k = k
+            except Exception:
+                continue
+
+        self._auto_k_cache = best_k
+        return best_k
+
+    def _adaptive_n_probe(self, coarse_distances: np.ndarray) -> int:
+        """SPEC 3: Return adaptive probe count based on distance ratio."""
+        if not self.adaptive_probing or len(coarse_distances) < 2:
+            return self.n_probe
+        sorted_dists = np.sort(coarse_distances)
+        if sorted_dists[0] > 0:
+            ratio = sorted_dists[1] / sorted_dists[0]
+            if ratio > self.adaptive_threshold:
+                return self.adaptive_min_probe
+        return self.n_probe
 
     def add_splats(self, splats: List[GaussianSplat]) -> None:
         """
@@ -163,6 +236,16 @@ class HRM2Engine:
             # Ensure correct dtype
             self.embeddings = np.ascontiguousarray(self.embeddings.astype(np.float32))
             n_samples = len(self.splats)
+
+        # Normalize for cosine metric (euclidean on normalized vectors == cosine distance)
+        if self.metric == "cosine":
+            self.embeddings = self._normalize(self.embeddings)
+
+        # Auto-detect k if enabled
+        if self.auto_k and self._auto_k_cache is None:
+            detected_k = self._auto_detect_k(self.embeddings)
+            self.n_coarse = detected_k
+            print(f"[HRM2] Auto-detected n_coarse={detected_k} via silhouette analysis")
 
         # Level 1: Coarse clustering
         n_coarse_effective = min(self.n_coarse, n_samples // 10)
@@ -216,6 +299,39 @@ class HRM2Engine:
         for cid in range(n_coarse_effective):
             self._cluster_masks[cid] = (self.coarse_assignments == cid)
 
+        self._is_indexed = False  # temp
+
+        # Quality diagnostics
+        if n_samples >= 100 and n_coarse_effective >= 2:
+            try:
+                sample_size = min(n_samples, 5000)
+                rng = np.random.RandomState(self.random_state)
+                diag_indices = rng.choice(n_samples, sample_size, replace=False)
+                diag_sample = self.embeddings[diag_indices]
+                diag_labels = self.coarse_assignments[diag_indices]
+                unique_labels = len(set(diag_labels.tolist()))
+                if unique_labels >= 2:
+                    self._silhouette_score = silhouette_score(
+                        diag_sample, diag_labels, metric="euclidean"
+                    )
+                    self._calinski_harabasz = calinski_harabasz_score(diag_sample, diag_labels)
+                    metric_label = self.metric.upper()
+                    print(
+                        f"[HRM2] Diagnostics ({metric_label}, n={n_samples}, "
+                        f"k={n_coarse_effective}): "
+                        f"silhouette={self._silhouette_score:.4f}, "
+                        f"CH={self._calinski_harabasz:.1f}"
+                    )
+                    if self._silhouette_score < 0.1:
+                        warnings.warn(
+                            f"HRM2 silhouette={self._silhouette_score:.4f} < 0.1. "
+                            f"Consider using HNSW for better recall with dense embeddings.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+            except Exception as e:
+                print(f"[HRM2] Diagnostics skipped: {e}")
+
         self._is_indexed = True
 
         # Update stats
@@ -249,20 +365,27 @@ class HRM2Engine:
 
         query_vector = np.ascontiguousarray(np.asarray(query_vector, dtype=np.float32).flatten())
 
+        # Normalize query for cosine metric
+        if self.metric == "cosine":
+            norm = np.linalg.norm(query_vector)
+            if norm > 1e-10:
+                query_vector = query_vector / norm
+
         # Find nearest coarse clusters
         coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
-        closest_coarse = np.argsort(coarse_distances)[: self.n_probe]
+        n_probe_actual = self._adaptive_n_probe(coarse_distances)
+        closest_coarse = np.argsort(coarse_distances)[:n_probe_actual]
 
         candidates = []
 
         if lod == 0:
-            # LOD 0: Ultra-fast coarse approximation. Just return vectors from the nearest macro-clusters.
             for coarse_id in closest_coarse:
-                dist = coarse_distances[coarse_id]
                 mask = self.coarse_assignments == coarse_id
                 indices = np.where(mask)[0][:k]
                 for idx in indices:
-                    candidates.append((idx, float(dist), int(coarse_id)))
+                    # Compute actual distance to this vector
+                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
+                    candidates.append((idx, float(vec_dist), int(coarse_id)))
                 if len(candidates) >= k:
                     break
 
@@ -274,7 +397,6 @@ class HRM2Engine:
                     continue
                 fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
                 closest_fine = np.argsort(fine_dists)[0]  # Top 1 fine cluster inside this coarse
-                dist = fine_dists[closest_fine]
 
                 coarse_mask = self.coarse_assignments == coarse_id
                 coarse_indices = np.where(coarse_mask)[0]
@@ -286,7 +408,9 @@ class HRM2Engine:
                 fine_mask = fine_assigns == closest_fine
                 indices = coarse_indices[fine_mask][:k]
                 for idx in indices:
-                    candidates.append((idx, float(dist), int(coarse_id)))
+                    # Compute actual distance to this vector within fine cluster
+                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
+                    candidates.append((idx, float(vec_dist), int(coarse_id)))
                 if len(candidates) >= k:
                     break
         else:
@@ -335,9 +459,16 @@ class HRM2Engine:
                     candidates = [(r[0], r[1], r[2]) for r in results]
                 else:  # CPU fallback - Opt #2: squared distance via einsum (no sqrt)
                     diff = expert_embeddings - query_vector
-                    distances_sq = np.einsum("ij,ij->i", diff, diff)
-                    for idx, dist_sq, cid in zip(expert_indices, distances_sq, coarse_ids):
-                        candidates.append((idx, float(np.sqrt(dist_sq)), int(cid)))
+                    if self.metric == "cosine":
+                        # On normalized vectors, euclidean dist squared = 2 - 2*cos_sim
+                        # So euclidean dist already encodes cosine distance
+                        distances_sq = np.einsum("ij,ij->i", diff, diff)
+                        for idx, dist_sq, cid in zip(expert_indices, distances_sq, coarse_ids):
+                            candidates.append((idx, float(np.sqrt(dist_sq)), int(cid)))
+                    else:
+                        distances_sq = np.einsum("ij,ij->i", diff, diff)
+                        for idx, dist_sq, cid in zip(expert_indices, distances_sq, coarse_ids):
+                            candidates.append((idx, float(np.sqrt(dist_sq)), int(cid)))
 
         # Sort by distance and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -350,7 +481,11 @@ class HRM2Engine:
             self._stats.avg_query_time * (self._stats.total_queries - 1) + query_time
         ) / self._stats.total_queries
 
-        return [(self.splats[idx], dist) for idx, dist, _ in results]
+        # Return (index, distance) tuples. If splats exist, return splat objects.
+        if self.splats and len(self.splats) > max(r[0] for r in results):
+            return [(self.splats[idx], dist) for idx, dist, _ in results]
+        else:
+            return [(idx, dist) for idx, dist, _ in results]
 
     def query_with_details(
         self, query_vector: np.ndarray, k: int = 10, lod: int = 2
@@ -371,20 +506,29 @@ class HRM2Engine:
 
         query_vector = np.ascontiguousarray(np.asarray(query_vector, dtype=np.float32).flatten())
 
+        # Normalize query for cosine metric
+        if self.metric == "cosine":
+            norm = np.linalg.norm(query_vector)
+            if norm > 1e-10:
+                query_vector = query_vector / norm
+
         # Find nearest coarse clusters
         coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
-        closest_coarse = np.argsort(coarse_distances)[: self.n_probe]
+        n_probe_actual = self._adaptive_n_probe(coarse_distances)
+        closest_coarse = np.argsort(coarse_distances)[:n_probe_actual]
 
         candidates = []
 
+        _has_splats = self.splats and len(self.splats) > 0
+
         if lod == 0:
             for coarse_id in closest_coarse:
-                dist = coarse_distances[coarse_id]
                 mask = self.coarse_assignments == coarse_id
                 indices = np.where(mask)[0][:k]
                 for idx in indices:
-                    # Provide an approximation for fine_id (e.g. 0) since we didn't search
-                    candidates.append((self.splats[idx].id, float(dist), int(coarse_id), 0))
+                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
+                    sid = self.splats[int(idx)].id if _has_splats else int(idx)
+                    candidates.append((sid, float(vec_dist), int(coarse_id), 0))
                 if len(candidates) >= k:
                     break
 
@@ -395,7 +539,6 @@ class HRM2Engine:
                     continue
                 fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
                 closest_fine = np.argsort(fine_dists)[0]
-                dist = fine_dists[closest_fine]
 
                 coarse_mask = self.coarse_assignments == coarse_id
                 coarse_indices = np.where(coarse_mask)[0]
@@ -406,13 +549,10 @@ class HRM2Engine:
                 fine_mask = fine_assigns == closest_fine
                 indices = coarse_indices[fine_mask][:k]
                 for idx in indices:
+                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
+                    sid = self.splats[int(idx)].id if _has_splats else int(idx)
                     candidates.append(
-                        (
-                            self.splats[idx].id,
-                            float(dist),
-                            int(coarse_id),
-                            int(closest_fine),
-                        )
+                        (sid, float(vec_dist), int(coarse_id), int(closest_fine))
                     )
                 if len(candidates) >= k:
                     break
@@ -437,7 +577,6 @@ class HRM2Engine:
                 expert_indices.append(cluster_indices)
                 coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
 
-                # Form fine assignments
                 fine_assigns = self.fine_assignments.get(
                     int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32)
                 )
@@ -449,20 +588,24 @@ class HRM2Engine:
                 coarse_ids = np.array(coarse_ids)
                 fine_ids = np.array(fine_ids)
 
-                if self.router:  # Hardware-accelerated MoE distance
+                if self.router:
                     results = self.router.compute_expert_distances(
-                        query_vector,
-                        expert_embeddings,
-                        expert_indices,
-                        coarse_ids,
-                        fine_ids,
+                        query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids,
                     )
-                    candidates = [(self.splats[r[0]].id, r[1], r[2], r[3]) for r in results]
-                else:  # CPU fallback - Opt #2: einsum squared distance
+                    candidates = [
+                        (self.splats[int(r[0])].id if _has_splats else int(r[0]), r[1], r[2], r[3])
+                        for r in results
+                    ]
+                else:
                     diff = expert_embeddings - query_vector
                     distances_sq = np.einsum("ij,ij->i", diff, diff)
-                    for idx, dist_sq, cid, fid in zip(expert_indices, distances_sq, coarse_ids, fine_ids):
-                        candidates.append((self.splats[idx].id, float(np.sqrt(dist_sq)), int(cid), int(fid)))
+                    for idx, dist_sq, cid, fid in zip(
+                        expert_indices, distances_sq, coarse_ids, fine_ids
+                    ):
+                        sid = self.splats[int(idx)].id if _has_splats else int(idx)
+                        candidates.append(
+                            (sid, float(np.sqrt(dist_sq)), int(cid), int(fid))
+                        )
 
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -559,6 +702,8 @@ class HRM2Engine:
         self._cluster_masks = {}
         self._is_indexed = False
         self._stats = HRM2Stats()
+        self._silhouette_score = None
+        self._calinski_harabasz = None
 
 
 def generate_test_splats(n_splats: int, seed: int = 42) -> List[GaussianSplat]:

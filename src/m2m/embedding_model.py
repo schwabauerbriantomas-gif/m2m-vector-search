@@ -4,7 +4,7 @@ M2M Custom Embedding Model
 Lightweight 640D embedding model with Matryoshka representations,
 trained via knowledge distillation from larger teacher embeddings.
 
-Architecture: MiniLM-L6 → Projection Head → 640D (Matryoshka: 64/128/256/640)
+Architecture: MiniLM-L6 -> Projection Head -> 640D (Matryoshka: 64/128/256/640)
 """
 
 import torch
@@ -14,7 +14,7 @@ from typing import Tuple, List, Optional
 
 
 class ProjectionHead(nn.Module):
-    """Projection head: base_dim → embedding_dim with Matryoshka support."""
+    """Projection head: base_dim -> embedding_dim with Matryoshka support."""
     
     def __init__(
         self,
@@ -26,7 +26,7 @@ class ProjectionHead(nn.Module):
         self.output_dim = output_dim
         self.matryoshka_dims = matryoshka_dims or []
         
-        # Main projection: input_dim → output_dim
+        # Main projection: input_dim -> output_dim
         self.projection = nn.Sequential(
             nn.Linear(input_dim, output_dim),
             nn.GELU(),
@@ -37,7 +37,7 @@ class ProjectionHead(nn.Module):
         self.layer_norm = nn.LayerNorm(output_dim)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """x: (batch, input_dim) → (batch, output_dim)"""
+        """x: (batch, input_dim) -> (batch, output_dim)"""
         h = self.projection(x)
         h = self.layer_norm(h)
         return F.normalize(h, p=2, dim=-1)
@@ -108,7 +108,7 @@ class M2MEmbeddingModel(nn.Module):
             param.requires_grad = False
     
     def encode(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        """Encode text tokens → 640D embeddings.
+        """Encode text tokens -> 640D embeddings.
         
         Args:
             input_ids: (batch, seq_len)

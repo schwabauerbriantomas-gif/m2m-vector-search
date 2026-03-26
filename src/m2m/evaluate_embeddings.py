@@ -85,7 +85,7 @@ BENCHMARK_TEXTS = [
 
 def load_model(checkpoint_path: str, device: torch.device) -> M2MEmbeddingModel:
     """Load trained M2M embedding model from checkpoint."""
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     
     config_dict = checkpoint["config"]
     config = EmbeddingConfig(**{k: v for k, v in config_dict.items() if hasattr(EmbeddingConfig, k)})
@@ -255,7 +255,7 @@ def main():
         teacher_dim=teacher_emb.shape[1],
     ).to(device)
     # Load alignment weights from checkpoint if available
-    checkpoint_data = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    checkpoint_data = torch.load(args.checkpoint, map_location=device, weights_only=True)
     if "model_state_dict" in checkpoint_data:
         # Extract align_teacher weights from loss_fn state (stored separately)
         pass  # alignment weights are part of the loss, not model

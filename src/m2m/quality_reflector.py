@@ -317,10 +317,10 @@ class QualityReflector:
         suggestions = []
 
         if level == QualityLevel.CRITICAL:
-            suggestions.append("⚠️ Calidad CRÍTICA: re-indexar inmediatamente")
+            suggestions.append("[!]️ Calidad CRÍTICA: re-indexar inmediatamente")
             self._stats.reindex_suggestions += 1
         elif level == QualityLevel.POOR:
-            suggestions.append("⚠️ Calidad baja: considerar re-indexación")
+            suggestions.append("[!]️ Calidad baja: considerar re-indexación")
             self._stats.reindex_suggestions += 1
         elif level == QualityLevel.ACCEPTABLE:
             if precision < self.precision_warning:

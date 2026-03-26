@@ -6,6 +6,8 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+from .config import M2MConfig
+
 
 
 class M2MEngine:
@@ -16,7 +18,7 @@ class M2MEngine:
     Auto-detect basado en config.device y disponibilidad.
     """
 
-    def __init__(self, config=None):
+    def __init__(self, config: Optional[M2MConfig] = None) -> None:
         self.config = config
         self.device = getattr(config, "compute_device", "cpu") if config else "cpu"
 

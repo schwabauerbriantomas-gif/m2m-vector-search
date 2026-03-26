@@ -22,17 +22,17 @@ class HierarchicalGPUSearch:
     Two-stage GPU hierarchical vector search.
 
     Architecture:
-        ┌──────────────────────────────────────────────────────┐
+        ┌------------------------------------------------------┐
         │  Stage 1 — Coarse   (GPU)                           │
         │  Compare Q queries vs C centroids                   │
         │  O(Q × C)    C = n_clusters (typically 100–1000)   │
-        │  → returns n_probe closest cluster ids per query    │
-        ├──────────────────────────────────────────────────────┤
+        │  -> returns n_probe closest cluster ids per query    │
+        ├------------------------------------------------------┤
         │  Stage 2 — Fine     (GPU)                           │
         │  Compare Q queries vs members of selected clusters  │
         │  O(Q × n_probe × M)   M = avg cluster size         │
-        │  → returns top-k results                            │
-        └──────────────────────────────────────────────────────┘
+        │  -> returns top-k results                            │
+        └------------------------------------------------------┘
 
     The full vector set is partitioned once at build() time.
     Centroids are stored in a persistent GPU index.
@@ -56,9 +56,9 @@ class HierarchicalGPUSearch:
         self._cluster_gpu_indices: list = []  # GPUVectorIndex per cluster
         self._all_original_ids: list = []  # original vector ids per cluster
 
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     # Index building
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
 
     def build(self, vectors: np.ndarray, use_gpu: bool = True):
         """
@@ -77,10 +77,10 @@ class HierarchicalGPUSearch:
             f"{n:,}", d, self.n_clusters, self.n_probe
         )
 
-        # ── KMeans clustering (CPU — done once at build time) ────────
+        # -- KMeans clustering (CPU — done once at build time) --------
         centroids, labels = self._kmeans(vectors, self.n_clusters)
 
-        # ── Group vectors by cluster ──────────────────────────────────
+        # -- Group vectors by cluster ----------------------------------
         self._cluster_members = []
         self._all_original_ids = []
         for c in range(self.n_clusters):
@@ -90,10 +90,10 @@ class HierarchicalGPUSearch:
             self._cluster_members.append(members)
             self._all_original_ids.append(ids)
 
-        # ── Build GPU index for centroids ─────────────────────────────
+        # -- Build GPU index for centroids -----------------------------
         self._gpu_centroids = self._make_gpu_index(centroids, use_gpu)
 
-        # ── Build GPU index per cluster ───────────────────────────────
+        # -- Build GPU index per cluster -------------------------------
         self._cluster_gpu_indices = []
         for members in self._cluster_members:
             if len(members) == 0:
@@ -119,9 +119,9 @@ class HierarchicalGPUSearch:
                 logger.warning("GPU init failed (%s), using CPU fallback.", e)
         return _CPUFallbackIndex(vectors)
 
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     # Search
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
 
     def batch_search(self, queries: np.ndarray, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -139,11 +139,11 @@ class HierarchicalGPUSearch:
         queries = np.ascontiguousarray(queries, dtype=np.float32)
         batch_size, d = queries.shape
 
-        # ── Stage 1: Coarse — queries vs centroids (GPU) ──────────────
+        # -- Stage 1: Coarse — queries vs centroids (GPU) --------------
         _, coarse_dists = self._gpu_centroids.batch_search(queries, k=self.n_probe)
         coarse_ids, _ = self._gpu_centroids.batch_search(queries, k=self.n_probe)
 
-        # ── Stage 2: Fine — queries vs candidate clusters (GPU) ───────
+        # -- Stage 2: Fine — queries vs candidate clusters (GPU) -------
         all_indices = [[] for _ in range(batch_size)]
         all_dists = [[] for _ in range(batch_size)]
 
@@ -168,7 +168,7 @@ class HierarchicalGPUSearch:
                 all_indices[qi].append(global_ids)
                 all_dists[qi].append(local_dists[i])
 
-        # ── Merge and top-k ───────────────────────────────────────────
+        # -- Merge and top-k -------------------------------------------
         final_ids = np.zeros((batch_size, k), dtype=np.int64)
         final_dists = np.full((batch_size, k), np.inf, dtype=np.float32)
 
@@ -194,9 +194,9 @@ class HierarchicalGPUSearch:
         ids, dists = self.batch_search(query.reshape(1, -1), k=k)
         return ids[0], dists[0]
 
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     # KMeans (CPU — only at build time)
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
 
     def _kmeans(
         self, vectors: np.ndarray, n_clusters: int, max_iter: int = 30
@@ -232,9 +232,9 @@ class HierarchicalGPUSearch:
         return centroids, labels
 
 
-# ─────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------
 # CPU fallback (when Vulkan unavailable)
-# ─────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------
 
 
 class _CPUFallbackIndex:

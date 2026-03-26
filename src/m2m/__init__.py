@@ -52,13 +52,14 @@ try:
     from .splats import SplatStore
     from .storage import M2MPersistence
     from .storage import WriteAheadLog as WriteAheadLog
-    from .alfred_memory import AlfredMemoryDB
-    from .alfred_memory import MemoryResult
+    from .semantic_memory import SemanticMemoryDB
+    from .semantic_memory import MemoryResult
     from .search_supervisor import SearchSupervisor, BackendType, QueryComplexity
     from .query_router import QueryRouter, SearchStrategy, QueryProfile
     from .quality_reflector import QualityReflector, QualityLevel, QualityReport
     from .backend_comm import BackendComm, BackendMessage, BackendMsgType, BackendHealth, BackendMetrics
     from .mapreduce_indexer import parallel_index
+    from .hrm2_engine import HRM2Engine
 except ImportError:
     from .config import M2MConfig
 
@@ -305,7 +306,7 @@ class M2MEngine:
 
     def forward(self, x: np.ndarray) -> np.ndarray:
         """Forward pass (energy computation)."""
-        return self.m2m(x)
+        return self.m2m.forward(x)
 
     def load_optimized(self, path: str):
         """Loads optimized dataset with pre-computed Gaussian Splats."""
@@ -454,6 +455,8 @@ class SimpleVectorDB:
         self.lsh_threshold = lsh_threshold
         self.lsh = None
         self._use_lsh = False
+        self._lsh_id_map: List[str] = []  # maps LSH positional index -> doc_id
+        self._splat_id_order: List[str] = []  # maps splat position -> doc_id for consolidate cleanup
 
         # Almacenamiento interno en memoria (para compatibilidad)
         self._vectors: Dict[str, np.ndarray] = {}
@@ -576,7 +579,7 @@ class SimpleVectorDB:
 
         n = len(vectors)
 
-        # ── H-02 FIX: Dimension validation ────────────────────────────
+        # -- H-02 FIX: Dimension validation ----------------------------
         if vectors.ndim != 2:
             raise ValueError(f"vectors must be 2D (got {vectors.ndim}D)")
         if vectors.shape[1] != self.latent_dim:
@@ -619,6 +622,8 @@ class SimpleVectorDB:
                     self.lsh = CrossPolytopeLSH(config)
                     self.lsh.index(vectors)
                     self._use_lsh = True
+                    self._lsh_id_map = list(ids)
+                    self._splat_id_order.extend(ids)
                     # Guardar metadata en memoria
                     for i, doc_id in enumerate(ids):
                         self._vectors[doc_id] = vectors[i]
@@ -630,6 +635,10 @@ class SimpleVectorDB:
 
         self._use_lsh = False
         n_added = self.engine.add_splats(vectors)
+
+        # Track which doc_ids correspond to splat positions (first n_added accepted)
+        self._splat_id_order.extend(ids[:n_added])
+        self._lsh_id_map = []  # LSH no longer active after normal add
 
         # Guardar en memoria
         for i, doc_id in enumerate(ids):
@@ -863,15 +872,18 @@ class SimpleVectorDB:
             if not include_energy and not include_metadata and filter is None:
                 return candidate_vectors, dummy_alpha, dummy_kappa
 
-            # Build DocResult list from LSH indices using _vector store
-            lsh_ids = list(self._vectors.keys())
+            # Build DocResult list from LSH indices using _lsh_id_map
             results = []
             for i, idx in enumerate(indices):
                 if i >= k:
                     break
-                # Map LSH index to doc_id if possible
-                doc_id = lsh_ids[idx] if idx < len(lsh_ids) else f"lsh_{idx}"
-                if doc_id in self._deleted:
+                # Map LSH positional index to doc_id using stored map
+                if idx < len(self._lsh_id_map):
+                    doc_id = self._lsh_id_map[idx]
+                else:
+                    continue  # stale index, skip
+                # Skip deleted or hard-removed documents
+                if doc_id in self._deleted or doc_id not in self._vectors:
                     continue
                 meta = self._metadata.get(doc_id, {}) if include_metadata else {}
                 if filter and not self._match_filter(meta, filter):
@@ -1094,7 +1106,37 @@ class AdvancedVectorDB(SimpleVectorDB):
 
     def consolidate(self, threshold: float = None) -> int:
         """Run Self-Organized Criticality memory consolidation."""
-        return self.engine.m2m.consolidate(threshold)
+        # Identify which splats will be removed before consolidation
+        mem = self.engine.m2m
+        if threshold is None:
+            threshold = mem.soc_threshold
+
+        splats_to_remove = set()
+        if mem.splats.n_active > 0:
+            removed_indices = np.where(mem.splats.alpha[: mem.splats.n_active] < threshold)[0]
+            splats_to_remove = set(int(i) for i in removed_indices)
+
+        # Call the underlying consolidate
+        n_removed = mem.consolidate(threshold)
+
+        # Clean up orphaned doc_ids from _vectors, _metadata, _documents
+        if n_removed > 0 and self._splat_id_order:
+            # Build set of doc_ids to remove based on splat positions
+            orphans = {self._splat_id_order[idx] for idx in splats_to_remove
+                       if idx < len(self._splat_id_order)}
+            # Rebuild _splat_id_order keeping only surviving splats
+            kept = [self._splat_id_order[i] for i in range(len(self._splat_id_order))
+                    if i not in splats_to_remove]
+            self._splat_id_order = kept
+            # Remove orphaned entries
+            for doc_id in orphans:
+                self._vectors.pop(doc_id, None)
+                self._metadata.pop(doc_id, None)
+                self._documents.pop(doc_id, None)
+                self._deleted.discard(doc_id)
+            logger.info("SOC cleanup: removed %d orphaned doc_ids", len(orphans))
+
+        return n_removed
 
     def check_criticality(self) -> CriticalityReport:
         """

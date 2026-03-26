@@ -92,7 +92,7 @@ class BackendMessage:
     def __repr__(self) -> str:
         return (
             f"BackendMessage({self.msg_type.value}, "
-            f"{self.sender}→{self.receiver}, "
+            f"{self.sender}->{self.receiver}, "
             f"priority={self.priority})"
         )
 

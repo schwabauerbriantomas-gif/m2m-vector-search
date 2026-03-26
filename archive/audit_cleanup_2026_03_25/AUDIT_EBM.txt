@@ -1,0 +1,48 @@
+EBM-Splats Validation Audit
+===========================
+Date: 2026-03-21 03:11 GMT-3
+Location: C:\Users\Brian\.openclaw\workspace\projects\ebm
+
+PROJECT STRUCTURE
+-----------------
+40 Python source files, 1 test file, 3 checkpoint dirs, 1 venv (pdf_env), shaders dir
+No setup.py or pyproject.toml found — not installable as a package
+
+KEY MODULES
+-----------
+config.py, model.py, score_network.py, energy.py, splats.py, soc.py
+langevin.py, decoder.py, context_hierarchy.py, geometry.py
+train.py, train_scorematching.py, train_ebm_optimized.py, train_tinystories*.py
+train_rectified_flow.py, train_cuda.py, evaluate.py, generate.py
+vulkan_engine.py, dataset_loader.py, dataset_utils.py, logger.py
+test_generate.py, test_geometry.py, test_score_network.py, test_scorematching.py,
+test_train.py, test_vulkan.py, smoke_test.py, diagnose.py, final_diagnostic.py,
+diagnostic_launcher.py, run_benchmarks.py, launch_training.py
+
+ROOT-LEVEL TEST FILES (not in tests/)
+-------------------------------------
+test_generate.py, test_geometry.py, test_score_network.py, test_scorematching.py,
+test_train.py, test_vulkan.py, smoke_test.py
+(These are NOT collected by pytest tests/ — only tests/test_ebm_real.py was run)
+
+TESTS DIRECTORY
+---------------
+tests/__init__.py
+tests/test_ebm_real.py
+
+TEST RESULTS: 41/41 PASSED (47.69s)
+------------------------------------
+TestScoreNetwork:    13 passed (forward shape, determinism, gradient flow, sigma,
+                     batch sizes, mixed precision, CPU output, tangent condition,
+                     zero input handling, output norm)
+TestEnergyFunction:  9 passed (finite values, near-splat negative energy,
+                     far-splat positive energy, smoothness, scale invariance,
+                     gradient orthogonality, no NaN, variance)
+TestLangevinDynamics: 7 passed (energy decrease, no NaN, sphere constraint,
+                      step acceptance, temperature exploration, convergence)
+TestContextHierarchy: 4 passed (beta values, EMA update, token counts, context)
+TestSOCController:    4 passed (consolidation, search, no NaN, ring buffer)
+TestConfig:           3 passed (v2 params, vocab size, default values)
+TestDecoder:          3 passed (valid token range, unique ratio, no repetition)
+
+STATUS: ✅ ALL VALIDATED — No failures, no warnings, no skipped tests.

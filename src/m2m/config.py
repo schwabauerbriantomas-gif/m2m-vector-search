@@ -103,6 +103,7 @@ class M2MConfig:
     # --- Hardware Acceleration ---
     enable_vulkan: bool = False  # Enable Vulkan GPU acceleration
     enable_cuda: bool = False  # Enable CUDA GPU acceleration
+    cuda_metric: str = "cosine"  # CUDA search metric: 'cosine' or 'l2'
 
     # --- Memory Hierarchy ---
     enable_3_tier_memory: bool = True  # Enable VRAM/RAM/SSD hierarchy
@@ -122,7 +123,7 @@ class M2MConfig:
     # --- Training Configuration ---
     batch_size: int = 32
     seq_length: int = 32
-    noise_levels: tuple = (0.01, 0.05, 0.1, 0.2, 0.5)
+    noise_levels: tuple[float, ...] = (0.01, 0.05, 0.1, 0.2, 0.5)
 
     # --- Optimization ---
     learning_rate: float = 1e-4

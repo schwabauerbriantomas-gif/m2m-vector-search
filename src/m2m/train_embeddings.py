@@ -1,7 +1,7 @@
 """
 M2M Embedding Training Script
 ==============================
-Knowledge distillation: MiniLM-L6 → 640D embeddings with Matryoshka.
+Knowledge distillation: MiniLM-L6 -> 640D embeddings with Matryoshka.
 
 Training data: Generated synthetic text pairs with teacher embeddings from
 a pre-trained sentence-transformer model (as proxy for OpenAI embeddings).

@@ -118,6 +118,70 @@ class M2MVectorStore(VectorStore):
 
         return results
 
+    def delete(self, ids: List[str]) -> None:
+        """
+        Remove documents by ID from the store.
+        """
+        if not ids:
+            return
+        id_set = set(ids)
+        indices_to_remove = [
+            idx for idx, info in self._store.items() if info["id"] in id_set
+        ]
+        for idx in indices_to_remove:
+            del self._store[idx]
+
+    def update(
+        self,
+        documents: List[Document],
+        ids: Optional[List[str]] = None,
+    ) -> None:
+        """
+        Update existing documents. Matches by id and replaces text/metadata.
+        """
+        if ids is None:
+            ids = [doc.metadata.get("id") for doc in documents]
+
+        id_to_idx = {
+            info["id"]: idx for idx, info in self._store.items()
+        }
+        id_to_doc = {doc_id: doc for doc_id, doc in zip(ids, documents)}
+
+        for doc_id, doc in id_to_doc.items():
+            if doc_id in id_to_idx:
+                store_idx = id_to_idx[doc_id]
+                self._store[store_idx]["text"] = doc.page_content
+                self._store[store_idx]["metadata"] = doc.metadata
+
+    def filter_by_metadata(
+        self,
+        metadata: dict,
+        k: int = 4,
+    ) -> List[Document]:
+        """
+        Search with metadata constraints. Returns only documents whose metadata
+        contains all key-value pairs from the filter.
+        """
+        matching = []
+        for idx, info in self._store.items():
+            if all(
+                info["metadata"].get(key) == value
+                for key, value in metadata.items()
+            ):
+                matching.append(info)
+
+        if len(matching) <= k:
+            return [
+                Document(page_content=m["text"], metadata=m["metadata"])
+                for m in matching
+            ]
+
+        # Return first k matches
+        return [
+            Document(page_content=m["text"], metadata=m["metadata"])
+            for m in matching[:k]
+        ]
+
     @classmethod
     def from_texts(
         cls,

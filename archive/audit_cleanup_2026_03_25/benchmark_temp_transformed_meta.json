@@ -1,0 +1,9 @@
+{
+  "original_count": 10000,
+  "splat_count": 192,
+  "compression_ratio": 52.083333333333336,
+  "original_size_mb": 24.4140625,
+  "compressed_size_mb": 0.5479736328125,
+  "memory_savings_pct": 97.7555,
+  "transform_time_s": 9.403793299999961
+}

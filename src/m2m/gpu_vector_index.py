@@ -9,10 +9,10 @@ Auto-detección: si CUDA está disponible y se solicita, usa CUDA.
 Si no, falla back a Vulkan. Si tampoco, usa CPU.
 
 Reference pattern implemented:
-  ✅ Index uploaded ONCE at __init__, never re-uploaded
-  ✅ Only queries (tiny) are transferred per search call
-  ✅ Batch dispatch: all B queries processed in a single vkCmdDispatch
-  ✅ Shared memory query cache in the GLSL kernel
+  [OK] Index uploaded ONCE at __init__, never re-uploaded
+  [OK] Only queries (tiny) are transferred per search call
+  [OK] Batch dispatch: all B queries processed in a single vkCmdDispatch
+  [OK] Shared memory query cache in the GLSL kernel
 """
 
 from __future__ import annotations
@@ -68,18 +68,18 @@ class GPUVectorIndex:
 
     Memory layout (once at init, never reallocated unless rebuild() called):
 
-        ┌─────────────────────┬─────────────┬───────────────────────┐
+        ┌---------------------┬-------------┬-----------------------┐
         │ Region              │ Size        │ Contents              │
-        ├─────────────────────┼─────────────┼───────────────────────┤
+        ├---------------------┼-------------┼-----------------------┤
         │ Index Buffer        │ N × D × 4   │ Index vectors (float) │
         │ (Persistent)        │ bytes       │ — uploaded ONCE       │
-        ├─────────────────────┼─────────────┼───────────────────────┤
+        ├---------------------┼-------------┼-----------------------┤
         │ Query Buffer        │ B × D × 4   │ Batch of queries      │
         │ (Dynamic)           │ bytes       │ — copied per call     │
-        ├─────────────────────┼─────────────┼───────────────────────┤
+        ├---------------------┼-------------┼-----------------------┤
         │ Result Buffer       │ B × N × 4   │ L2 distances          │
         │ (Dynamic)           │ bytes       │ — read after dispatch │
-        └─────────────────────┴─────────────┴───────────────────────┘
+        └---------------------┴-------------┴-----------------------┘
 
     Dispatch: vkCmdDispatch(ceil(N/256), B, 1)
       — grid.x covers all index vectors in 256-thread workgroups
@@ -98,7 +98,7 @@ class GPUVectorIndex:
         self._max_batch = max_batch_size
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # ── Compile shader if needed ──────────────────────────────────
+        # -- Compile shader if needed ----------------------------------
         shader_spv = os.path.join(self._base_dir, "shaders", "moe_batch.spv")
         shader_comp = os.path.join(self._base_dir, "shaders", "moe_batch.comp")
         if not os.path.exists(shader_spv) or (
@@ -109,7 +109,7 @@ class GPUVectorIndex:
             subprocess.run(["glslc", shader_comp, "-o", shader_spv], check=True)
         self._shader_spv = shader_spv
 
-        # ── Vulkan init ───────────────────────────────────────────────
+        # -- Vulkan init -----------------------------------------------
         self._vk_instance = self._create_instance()
         self._physical_device = self._get_physical_device()
         self._queue_family = self._get_compute_queue_family()
@@ -120,7 +120,7 @@ class GPUVectorIndex:
         self._dsl = self._create_descriptor_set_layout()
         self._pipeline_layout, self._pipeline = self._create_pipeline()
 
-        # ── Persistent buffers ────────────────────────────────────────
+        # -- Persistent buffers ----------------------------------------
         # Index buffer (uploaded once)
         index_np = np.ascontiguousarray(index_vectors, dtype=np.float32)
         self._idx_buf, self._idx_mem = self._create_buffer(index_np.nbytes)
@@ -134,12 +134,12 @@ class GPUVectorIndex:
         self._chunk_size = min(_CHUNK_SIZE, self._n)
         self._r_buf, self._r_mem = self._create_buffer(max_batch_size * self._chunk_size * 4)
 
-        # ── Descriptor set ────────────────────────────────────────────
+        # -- Descriptor set --------------------------------------------
         self._desc_pool = self._make_descriptor_pool(3)
         self._desc_set = self._allocate_descriptor_set()
         self._update_descriptor_set()
 
-        # ── Pre-allocated command buffer ──────────────────────────────
+        # -- Pre-allocated command buffer ------------------------------
         self._cmd = self._alloc_command_buffer()
         self._p_cmds = vk.ffi.new("VkCommandBuffer[]", [self._cmd])
         self._p_sets = vk.ffi.new("VkDescriptorSet[]", [self._desc_set])
@@ -150,9 +150,9 @@ class GPUVectorIndex:
             f"chunk_size={self._chunk_size:,}"
         )
 
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     # Public API
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
 
     def batch_search(self, queries: np.ndarray, k: int = 64):
         """
@@ -267,8 +267,9 @@ class GPUVectorIndex:
         # For small expert sets (< CHUNK_SIZE), we can re-use the persistent index
         # buffer by uploading the experts as the "index" and running one chunk dispatch.
         # This matches VulkanMoERouter behaviour: experts change per call, query is tiny.
-        if n_experts > self._n:
-            # Expert set larger than our index — fall back to CPU NumPy
+        # Note: We need n_experts <= self._chunk_size to fit in result buffer
+        if n_experts > self._n or n_experts > self._chunk_size:
+            # Expert set too large for GPU path — fall back to CPU NumPy
             return np.linalg.norm(expert_embeddings_np - query_np, axis=1)
 
         # Upload experts as the current index (overwrites persistent buffer for this call)
@@ -298,9 +299,9 @@ class GPUVectorIndex:
 
         return out
 
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     # Internal helpers
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
 
     def _dispatch(self, batch_size: int):
         """Full dispatch — all N vectors (use only when N <= CHUNK_SIZE)."""
@@ -595,7 +596,8 @@ class CUDAVectorIndex:
     def __init__(self, index_vectors: np.ndarray, max_batch_size: int = 100):
         import torch
 
-        assert _has_cuda(), "CUDA no disponible. Instala PyTorch con soporte CUDA."
+        if not _has_cuda():
+            raise RuntimeError("CUDA no disponible. Instala PyTorch con soporte CUDA.")
 
         self._device = torch.device("cuda")
         index_np = np.ascontiguousarray(index_vectors, dtype=np.float32)
@@ -603,7 +605,13 @@ class CUDAVectorIndex:
         self._dim = index_np.shape[1]
         self._max_batch = max_batch_size
 
-        self._index_tensor = torch.from_numpy(index_np).to(self._device)
+        try:
+            self._index_tensor = torch.from_numpy(index_np).to(self._device)
+        except torch.cuda.OutOfMemoryError:
+            raise RuntimeError(
+                f"CUDA OOM: cannot allocate {index_np.nbytes / 1024**2:.1f} MB. "
+                f"Reduce dataset size or free GPU memory."
+            )
 
         free_mem = torch.cuda.mem_get_info()[0]
         bytes_per_row = self._dim * 4
@@ -624,7 +632,10 @@ class CUDAVectorIndex:
         batch_size = queries.shape[0]
         k = min(k, self._n)
 
-        query_tensor = torch.from_numpy(queries).to(self._device)
+        try:
+            query_tensor = torch.from_numpy(queries).to(self._device)
+        except torch.cuda.OutOfMemoryError:
+            raise RuntimeError("CUDA OOM during batch query upload. Reduce batch size.")
 
         best_ids = np.full((batch_size, k), -1, dtype=np.int64)
         best_dists = np.full((batch_size, k), np.inf, dtype=np.float32)

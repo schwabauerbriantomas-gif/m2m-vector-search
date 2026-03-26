@@ -1,9 +1,14 @@
-from typing import Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from .hrm2_engine import HRM2Engine
 from .splat_types import GaussianSplat
+
+if TYPE_CHECKING:
+    from .config import M2MConfig
 import logging
 logger = logging.getLogger(__name__)
 
@@ -12,7 +17,7 @@ logger = logging.getLogger(__name__)
 class SplatStore:
     """Wrapper around the CPU-optimized HRM2Engine to interface with NumPy."""
 
-    def __init__(self, config):
+    def __init__(self, config: M2MConfig) -> None:
         self.config = config
 
         self.max_splats = config.max_splats
@@ -43,6 +48,10 @@ class SplatStore:
         # Rebuilds automatically when index changes (dirty flag).
         self._gpu_index = None
         self._gpu_index_dirty = True
+
+        # CUDASearcher: lazy-init for CUDA brute-force path.
+        self._cuda_searcher = None
+        self._cuda_dirty = True
 
     def add_splat(self, x: np.ndarray) -> bool:
         """Add a batch of splats or a single splat."""
@@ -77,9 +86,10 @@ class SplatStore:
 
         # Add dummy splats to engine so it knows the size
         self.engine.add_splats(new_splats)
+        self._cuda_dirty = True
         return True
 
-    def build_index(self):
+    def build_index(self) -> None:
         """Build the semantic router index from active vectors."""
         if self.n_active == 0:
             return
@@ -88,6 +98,7 @@ class SplatStore:
         self.engine.index(precomputed_embeddings=embeddings)
         # Mark GPU index dirty so it is rebuilt on next batch_find_neighbors call
         self._gpu_index_dirty = True
+        self._cuda_dirty = True
 
     def find_neighbors(
         self, query: np.ndarray, k: int = 64, lod: int = 2
@@ -101,7 +112,7 @@ class SplatStore:
         dim = query_np.shape[1]
         n = self.n_active
 
-        # ── CHAOS FIX: Validate inputs ─────────────────────────────────
+        # -- CHAOS FIX: Validate inputs ---------------------------------
         if k < 1:  # C-01 fix: k=0 causes crash
             k = 1
         if query_np.size == 0:  # C-02 fix: empty query
@@ -209,7 +220,7 @@ class SplatStore:
         Batch k-NN search — uses GPUVectorIndex (persistent index, single dispatch)
         when Vulkan is enabled, falls back to sequential find_neighbors() on CPU.
 
-        ✅ CORRECT pattern (reference implementation):
+        [OK] CORRECT pattern (reference implementation):
           - Index uploaded to GPU ONCE (or when dirty after rebuild)
           - Only queries (small) are transferred per call
           - All B queries dispatched in one vkCmdDispatch(ceil(N/256), B, 1)
@@ -231,7 +242,52 @@ class SplatStore:
         dim = queries.shape[1]
         k = min(k, max(1, self.n_active))
 
-        # ── GPU path: GPUVectorIndex ──────────────────────────────────
+        # -- CUDA path: CUDASearcher (SPEC 1) -------------------------
+        cuda_enabled = getattr(self.config, "enable_cuda", False)
+        if cuda_enabled and self.n_active > 0:
+            try:
+                if self._cuda_searcher is None or self._cuda_dirty:
+                    from .cuda_search import CUDASearcher
+
+                    index_vecs = self.mu[: self.n_active]
+                    metric = getattr(self.config, "cuda_metric", "cosine")
+                    self._cuda_searcher = CUDASearcher(index_vecs, metric=metric)
+                    self._cuda_dirty = False
+
+                queries_np = queries.astype(np.float32)
+                # Handle single query
+                if queries_np.ndim == 1:
+                    queries_np = queries_np[np.newaxis, :]
+
+                if queries_np.shape[0] == 1:
+                    gpu_ids, gpu_dists = self._cuda_searcher.search(
+                        queries_np[0], k=k
+                    )
+                    gpu_ids = gpu_ids[np.newaxis, :]
+                    gpu_dists = gpu_dists[np.newaxis, :]
+                else:
+                    gpu_ids, gpu_dists = self._cuda_searcher.search_batch(
+                        queries_np, k=k
+                    )
+
+                mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
+                alpha_out = np.zeros((batch_size, k), dtype=np.float32)
+                kappa_out = np.zeros((batch_size, k), dtype=np.float32)
+
+                for i in range(batch_size):
+                    for j, idx in enumerate(gpu_ids[i]):
+                        idx = int(idx)
+                        if idx < self.n_active:
+                            mu_out[i, j] = self.mu[idx]
+                            alpha_out[i, j] = self.alpha[idx]
+                            kappa_out[i, j] = self.kappa[idx]
+
+                return mu_out, alpha_out, kappa_out
+
+            except Exception as e:
+                logger.warning("CUDA batch search failed (%s), falling back.", e)
+
+        # -- GPU path: GPUVectorIndex (Vulkan) ------------------------
         vulkan_enabled = getattr(self.config, "enable_vulkan", False)
         if vulkan_enabled and self.n_active > 0:
             try:
@@ -262,7 +318,7 @@ class SplatStore:
             except Exception as e:
                 logger.warning("GPU batch search failed (%s), falling back to CPU.", e)
 
-        # ── CPU fallback: vectorized brute-force ───────────────────
+        # -- CPU fallback: vectorized brute-force -------------------
         n = self.n_active
         index_data = self.mu[:n].astype(np.float32)
         index_alpha = self.alpha[:n]
@@ -290,7 +346,7 @@ class SplatStore:
 
         return mu_out, alpha_out, kappa_out
 
-    def entropy(self, x=None):
+    def entropy(self, x: Optional[np.ndarray] = None) -> float:
         """
         Compute Shannon entropy of the active kappa (concentration) distribution.
 
@@ -326,7 +382,7 @@ class SplatStore:
 
         return float(np.clip(h / max_h, 0.0, 1.0))
 
-    def compact(self):
+    def compact(self) -> None:
         """
         Remove invalid/dead splats and recompact arrays in-place.
 
@@ -368,14 +424,14 @@ class SplatStore:
 
         self.n_active = n_kept
 
-    def get_statistics(self):
+    def get_statistics(self) -> Dict[str, object]:
         return {
             "n_active": self.n_active,
             "max_splats": self.max_splats,
             "hrm2_stats": self.engine.get_stats(),
         }
 
-    def _build_hrm2_from_splats(self, splats):
+    def _build_hrm2_from_splats(self, splats: List[GaussianSplat]) -> None:
         """Construye índice HRM2 desde splats pre-computados."""
         from .splat_types import GaussianSplat as HrmSplat
 

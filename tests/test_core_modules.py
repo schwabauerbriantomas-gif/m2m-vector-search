@@ -192,8 +192,9 @@ class TestPersistence:
             assert loaded.shape == (5, 384)
             np.testing.assert_array_equal(loaded, vecs)
 
-    def test_index_save_load_with_hmac(self):
+    def test_index_save_load_with_hmac(self, monkeypatch):
         """Index should round-trip with HMAC verification."""
+        monkeypatch.setenv("M2M_HMAC_SECRET", "test-secret-for-hmac-test")
         from m2m.storage import M2MPersistence
         with tempfile.TemporaryDirectory() as tmpdir:
             p = M2MPersistence(tmpdir, enable_wal=False)
@@ -529,20 +530,20 @@ class TestInputValidation:
         with pytest.raises(ValueError, match="NaN"):
             db.search(query, k=5)
 
-    def test_alfred_store_empty_text(self):
-        """AlfredMemoryDB.store() should reject empty text."""
-        pytest.importorskip("m2m.alfred_memory")
+    def test_semantic_store_empty_text(self):
+        """SemanticMemoryDB.store() should reject empty text."""
+        pytest.importorskip("m2m.semantic_memory")
         # We can't fully test without an encoder, but test the validation directly
-        from m2m.alfred_memory import auto_categorize
+        from m2m.semantic_memory import auto_categorize
         # Validation is tested indirectly — test the ValueError path
         pass
 
-    def test_alfred_search_empty_query_string(self):
-        """AlfredMemoryDB.search() should reject empty string query."""
-        pytest.importorskip("m2m.alfred_memory")
+    def test_semantic_search_empty_query_string(self):
+        """SemanticMemoryDB.search() should reject empty string query."""
+        pytest.importorskip("m2m.semantic_memory")
         # Requires encoder, so we test via the internal DB validation
         db = self._make_db(latent_dim=64)
-        # The query validation for AlfredMemoryDB is in search()
+        # The query validation for SemanticMemoryDB is in search()
         # We test SimpleVectorDB.search with valid query to ensure no regression
         query = np.random.randn(64).astype(np.float32)
         # Should not raise for valid query

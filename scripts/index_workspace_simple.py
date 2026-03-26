@@ -9,7 +9,7 @@ WORKSPACE = Path.home() / ".openclaw" / "workspace"
 M2M_PROJECT = Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main")
 sys.path.insert(0, str(M2M_PROJECT / "src"))
 
-INDEX_PATH = M2M_PROJECT / "alfred_index"
+INDEX_PATH = M2M_PROJECT / "semantic_index"
 
 # Load sentence-transformers once (global)
 print("Loading encoder...", flush=True)
@@ -19,10 +19,10 @@ ENCODER_DIM = _encoder.get_sentence_embedding_dimension()
 
 print(f"Encoder ready. Dimension: {ENCODER_DIM}", flush=True)
 
-# Initialize AlfredMemoryDB
-from m2m import AlfredMemoryDB
+# Initialize SemanticMemoryDB
+from m2m import SemanticMemoryDB
 
-db = AlfredMemoryDB(
+db = SemanticMemoryDB(
     encoder=lambda t: _encoder.encode(t, show_progress_bar=False),
     latent_dim=384,
     storage_path=str(INDEX_PATH),

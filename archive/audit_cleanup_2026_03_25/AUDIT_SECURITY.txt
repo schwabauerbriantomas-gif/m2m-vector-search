@@ -1,0 +1,150 @@
+===============================================================
+SECURITY & CODE QUALITY AUDIT
+Generated: 2026-03-21 03:11 ART
+Repos: m2m-vector-search-main, ebm
+===============================================================
+
+===============================================================
+1. SECURITY SCAN - M2M-VECTOR-SEARCH-MAIN (Project Files)
+===============================================================
+
+CRITICAL:
+  validate_project.py:151: exec(f"import {module}")
+    → DYNAMIC EXEC with user-controlled module name. Code injection risk.
+    → RECOMMEND: Validate module name against allowlist or use importlib.import_module()
+
+  persistence.py:338: return pickle.loads(data)
+    → PICKLE DESERIALIZATION of untrusted data. Remote code execution risk.
+    → MITIGATED by: HMAC signature verification (lines 316-335) requires M2M_HMAC_SECRET.
+    → RECOMMEND: Add explicit weights_only=True-style safety or use JSON serialization.
+
+MEDIUM (safe patterns):
+  evaluate_embeddings.py:88,258: torch.load(..., weights_only=True) ✓ SAFE
+  evaluate_embeddings.py:104,224: model.eval() — PyTorch eval mode, not eval()
+  train_embeddings.py:377,501: model.eval() — PyTorch eval mode, not eval()
+
+===============================================================
+2. SECURITY SCAN - EBM (Project Files)
+===============================================================
+
+HIGH:
+  diagnose.py:25: checkpoint = torch.load(checkpoint_path)
+    → torch.load WITHOUT weights_only=True. Risk if loading untrusted checkpoints.
+  diagnose.py:149: checkpoint = torch.load(...)
+    → Same issue.
+  train.py:271: checkpoint = torch.load(checkpoint_path)
+    → Same issue.
+
+LOW (safe patterns):
+  generate_samples.py:122,129: torch.load(..., weights_only=True) ✓ SAFE
+  train_tinystories.py:55: torch.load(..., weights_only=True) ✓ SAFE
+  evaluate.py:9,49,157: torch.load(...) — no weights_only=True but loading own checkpoints
+  generate.py:5: model.eval() — PyTorch eval mode
+  test_scorematching.py:22,57,85: model.eval() — PyTorch eval mode
+  test_score_network.py:72: model.eval() — PyTorch eval mode
+  train_ebm_optimized.py:691: model.eval() — PyTorch eval mode
+
+===============================================================
+3. SECRETS CHECK - M2M-VECTOR-SEARCH-MAIN
+===============================================================
+
+STATUS: ✓ NO HARDCODED SECRETS FOUND
+
+All credentials are loaded from environment variables:
+  - M2M_COORDINATOR_API_KEY (coordinator_api.py)
+  - M2M_API_KEY (edge_api.py)
+  - M2M_HMAC_SECRET (persistence.py)
+  - api_key parameter in M2MClient (__init__.py:1213)
+
+Test files use test-only values:
+  - test_core_modules.py:197: "test-secret-for-hmac-test"
+  - test_persistence_security.py: "test-secret-for-ci"
+
+NOTE: __init__.py:1203 has example code: api_key='your-key' — this is in a
+docstring/example, not a real credential. Verify it's clearly marked as example.
+
+===============================================================
+4. SECRETS CHECK - EBM
+===============================================================
+
+STATUS: ✓ NO HARDCODED SECRETS FOUND
+
+Matches are tokenizer.eos_token references (not secrets):
+  - dataset_loader.py:91,116 — tokenizer.pad_token = tokenizer.eos_token
+  - dataset_utils.py:48 — same
+  - generate.py:30,35 — eos_token_id checks
+  - train_tinystories_fast.py:44 — same
+  - train_tinystories_streaming.py:122 — same
+
+===============================================================
+5. TODO/FIXME/HACK - M2M-VECTOR-SEARCH-MAIN
+===============================================================
+
+HACK:
+  splats.py:78: "# We will hack the embedding index later, for now we just add it to HRM2Engine"
+
+TODO (false positives - Spanish "todo" = "all"):
+  auto_scaling.py:74,121 — "todas" = "all metrics"
+  backend_comm.py:322,410,490 — "todos" = "all"
+  gpu_auto_tune.py:289 — "todo" = "all"
+  graph_splat.py:149 — "todos" = "all"
+  mapreduce_indexer.py:146,153 — "todo" = "all"
+  query_optimizer.py:228 — "todo" = "all"
+  search_supervisor.py:294,336,365 — "todos" = "all"
+  router.py:147 — "todos" = "all"
+  persistence.py:136,220 — "todos" = "all"
+
+LEGIT TODOs:
+  None found (Spanish "todo" matches are false positives)
+
+===============================================================
+6. TODO/FIXME/HACK - EBM
+===============================================================
+
+None found.
+
+===============================================================
+7. CODE QUALITY - FILES >500 LINES (Project Source)
+===============================================================
+
+M2M-VECTOR-SEARCH-MAIN:
+  alfred_memory.py:    585 lines
+  gpu_vector_index.py: 588 lines
+  hrm2_engine.py:      603 lines
+  train_embeddings.py: 649 lines
+  __init__.py:        1246 lines ⚠️
+  edge_api.py:         621 lines
+  test_specs_validation.py: 587 lines
+
+EBM:
+  train_ebm_optimized.py: 615 lines
+
+NOTE: EBM repo contains many large vendored/dependency files (accelerator.py: 3707,
+typing_extensions.py: 3583, etc.) — these are third-party, not project source.
+
+===============================================================
+8. SUMMARY & RECOMMENDATIONS
+===============================================================
+
+PRIORITY 1 (Fix Now):
+  [M2M] validate_project.py:151 — exec(f"import {module}") → Use importlib.import_module()
+
+PRIORITY 2 (Fix Soon):
+  [EBM] diagnose.py:25,149; train.py:271 — Add weights_only=True to torch.load()
+
+PRIORITY 3 (Review):
+  [M2M] persistence.py:338 — pickle.loads with HMAC guard (currently mitigated)
+  [M2M] __init__.py — 1246 lines, consider splitting into modules
+
+PASSED:
+  ✓ No hardcoded secrets in either repo
+  ✓ HMAC-based deserialization protection in M2M
+  ✓ All new torch.load calls in M2M use weights_only=True
+  ✓ No shell injection (subprocess with shell=True) in project code
+  ✓ No os.system calls in project code
+  ✓ No real TODO/FIXME/HACK items (only Spanish false positives)
+  ✓ 1 hack comment in splats.py — track for cleanup
+
+FILES REQUIRING ATTENTION:
+  M2M: 7 files >500 lines (1 critical at 1246 lines)
+  EBM: 1 file >500 lines (train_ebm_optimized.py at 615 lines)

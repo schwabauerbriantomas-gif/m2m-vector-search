@@ -248,7 +248,7 @@ class EnergyRouter:
             m = (load_metrics or {}).get(node_id)
             load_score = min(m.active_queries / 100.0, 1.0) if m else 0.0
 
-            # Localidad (menor energía = mayor localidad local → menor score)
+            # Localidad (menor energía = mayor localidad local -> menor score)
             locality_score = energy_score
 
             # Latencia proxy (0 por defecto, se actualizaría con pings reales)

@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ─── Paths ─────────────────────────────────────────────────────────────────
+# --- Paths -----------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
 ASSETS_DIR = PROJECT_DIR / "assets"
@@ -29,7 +29,7 @@ BENCHMARK_LATEST = BENCHMARKS_DIR / "benchmark_latest.json"
 
 ASSETS_DIR.mkdir(exist_ok=True)
 
-# ─── Scientific Style Configuration ─────────────────────────────────────────
+# --- Scientific Style Configuration -----------------------------------------
 # Nature/IEEE inspired style
 plt.rcParams.update({
     "figure.dpi": 150,

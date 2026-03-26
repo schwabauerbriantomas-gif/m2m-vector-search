@@ -2,10 +2,10 @@
 Query Router — Patrón Router para clasificación y enrutamiento de queries.
 
 Clasifica queries y las dirige a la estrategia de búsqueda más apropiada:
-- Exact search → k-NN directo (brute force)
-- Approximate search → HRM2 clustering
-- Range search → brute force filtrado
-- Batch search → paralelo
+- Exact search -> k-NN directo (brute force)
+- Approximate search -> HRM2 clustering
+- Range search -> brute force filtrado
+- Batch search -> paralelo
 
 Incluye auto-learning: registra latencias y ajusta rutas dinámicamente.
 
@@ -165,19 +165,19 @@ class QueryRouter:
             return adjusted_strategy
 
         if profile.dataset_size < self._HRM2_MIN_DATASET or profile.k < self._HRM2_MIN_K:
-            # Dataset chico o k pequeño → exact
+            # Dataset chico o k pequeño -> exact
             strategy = SearchStrategy.EXACT
-            reason = f"Dataset={profile.dataset_size}, k={profile.k} → exact"
+            reason = f"Dataset={profile.dataset_size}, k={profile.k} -> exact"
             confidence = 0.9
         elif profile.dataset_size <= self._EXACT_MAX_DATASET and profile.k <= 20:
-            # Dataset medio y k pequeño → exact sigue siendo bueno
+            # Dataset medio y k pequeño -> exact sigue siendo bueno
             strategy = SearchStrategy.EXACT
-            reason = f"Dataset={profile.dataset_size}, k={profile.k} → exact viable"
+            reason = f"Dataset={profile.dataset_size}, k={profile.k} -> exact viable"
             confidence = 0.75
         else:
-            # Dataset grande → HRM2
+            # Dataset grande -> HRM2
             strategy = SearchStrategy.APPROXIMATE_HRM2
-            reason = f"Dataset={profile.dataset_size}, k={profile.k} → HRM2"
+            reason = f"Dataset={profile.dataset_size}, k={profile.k} -> HRM2"
             confidence = 0.85
 
         return RouteDecision(
