@@ -24,9 +24,18 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
-import torch
-import torch.nn.functional as F
-from sentence_transformers import SentenceTransformer
+
+# Heavy dependencies - may not be installed in all environments
+try:
+    import torch
+    import torch.nn.functional as F
+    from sentence_transformers import SentenceTransformer
+    _HAS_TORCH = True
+except ImportError:
+    torch = None
+    F = None
+    SentenceTransformer = None
+    _HAS_TORCH = False
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -206,6 +215,9 @@ def measure_latency(
 
 
 def main():
+    if not _HAS_TORCH:
+        print("Error: PyTorch not installed. Install with: pip install m2m-vector-search[embeddings]")
+        sys.exit(1)
     parser = argparse.ArgumentParser(description="Evaluate M2M custom embeddings")
     parser.add_argument(
         "--checkpoint", type=str, required=True, help="Path to model checkpoint (.pt)"

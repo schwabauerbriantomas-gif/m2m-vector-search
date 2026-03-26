@@ -24,10 +24,21 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
+
+# Heavy dependencies - may not be installed in all environments
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from torch.cuda.amp import GradScaler, autocast
+    _HAS_TORCH = True
+except ImportError:
+    torch = None
+    nn = None
+    F = None
+    GradScaler = None
+    autocast = None
+    _HAS_TORCH = False
 from torch.utils.data import DataLoader, Dataset
 
 # Ensure project root is in path
@@ -462,6 +473,9 @@ def evaluate(
 
 
 def main():
+    if not _HAS_TORCH:
+        print("Error: PyTorch not installed. Install with: pip install m2m-vector-search[embeddings]")
+        sys.exit(1)
     parser = argparse.ArgumentParser(description="Train M2M custom embedding model")
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--train-size", type=int, default=10000)
