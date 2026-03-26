@@ -200,6 +200,7 @@ class TestCUDASearcher:
         assert growth < 1024 * 1024, f"VRAM grew by {growth / 1024:.1f} KB after 100 searches"
 
 
+@pytest.mark.gpu
 def test_cuda_searcher_raises_runtime_when_no_cuda(monkeypatch):
     """CUDASearcher.__init__ raises RuntimeError when CUDA is unavailable."""
     import m2m.cuda_search as cs

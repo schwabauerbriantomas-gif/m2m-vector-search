@@ -550,8 +550,8 @@ class TestI3DatasetTransformerSaveLoadSearch:
 
 
 class TestI4LangChainAddSearchDelete:
-    """I4: LangChain add_documents → search → delete."""
-
+    """I4: LangChain add_documents -> search -> delete."""
+    @pytest.mark.integration
     def test_langchain_lifecycle(self):
         """Basic LangChain integration: add, search."""
         from integrations.langchain import M2MVectorStore

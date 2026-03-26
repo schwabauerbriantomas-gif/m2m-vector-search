@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.embeddings
+
 # Project root
 PROJECT_ROOT = Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main")
 DATASET_DIR = PROJECT_ROOT / "datasets" / "rag_test"
