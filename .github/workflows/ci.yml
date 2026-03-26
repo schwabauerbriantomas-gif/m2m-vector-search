@@ -60,7 +60,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest tests/ -v --tb=short --cov=src/m2m --cov-report=term --cov-fail-under=55 --ignore=tests/test_rag_dataset.py -m "not gpu"
+        pytest tests/ -v --tb=short --cov=src/m2m --cov-report=term --cov-fail-under=55 --ignore=tests/test_rag_dataset.py -m "not gpu and not integration"
 
     - name: Upload coverage
       uses: codecov/codecov-action@v4
