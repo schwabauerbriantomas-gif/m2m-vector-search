@@ -30,6 +30,7 @@ try:
     import torch
     import torch.nn.functional as F
     from sentence_transformers import SentenceTransformer
+
     _HAS_TORCH = True
 except ImportError:
     torch = None
@@ -216,7 +217,9 @@ def measure_latency(
 
 def main():
     if not _HAS_TORCH:
-        print("Error: PyTorch not installed. Install with: pip install m2m-vector-search[embeddings]")
+        print(
+            "Error: PyTorch not installed. Install with: pip install m2m-vector-search[embeddings]"
+        )
         sys.exit(1)
     parser = argparse.ArgumentParser(description="Evaluate M2M custom embeddings")
     parser.add_argument(

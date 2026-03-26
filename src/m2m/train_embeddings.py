@@ -31,6 +31,7 @@ try:
     import torch.nn as nn
     import torch.nn.functional as F
     from torch.cuda.amp import GradScaler, autocast
+
     _HAS_TORCH = True
 except ImportError:
     torch = None
@@ -474,7 +475,9 @@ def evaluate(
 
 def main():
     if not _HAS_TORCH:
-        print("Error: PyTorch not installed. Install with: pip install m2m-vector-search[embeddings]")
+        print(
+            "Error: PyTorch not installed. Install with: pip install m2m-vector-search[embeddings]"
+        )
         sys.exit(1)
     parser = argparse.ArgumentParser(description="Train M2M custom embedding model")
     parser.add_argument("--epochs", type=int, default=1)

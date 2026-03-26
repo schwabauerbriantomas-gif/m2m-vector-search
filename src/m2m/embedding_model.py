@@ -17,6 +17,7 @@ try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
+
     _HAS_TORCH = True
 except ImportError:
     torch = None
@@ -67,7 +68,6 @@ if _HAS_TORCH:
                 outputs.append(F.normalize(truncated, p=2, dim=-1))
 
             return outputs
-
 
     class M2MEmbeddingModel(nn.Module):
         """
@@ -179,7 +179,6 @@ if _HAS_TORCH:
                 "projection": projection_params,
             }
 
-
     class DistillationLoss(nn.Module):
         """
         Combined loss for knowledge distillation of embeddings.
@@ -231,7 +230,6 @@ if _HAS_TORCH:
             # We'll handle this in the training loop with proper teacher projection
             total = 0.0
             return total, losses
-
 
     class ProjectionDistillationLoss(nn.Module):
         """
