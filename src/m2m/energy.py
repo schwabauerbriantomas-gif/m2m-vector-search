@@ -34,15 +34,15 @@ class EnergyFunction:
             x = x[np.newaxis, :]
 
         n = splats.n_active
-        mu = splats.mu[:n]       # [N, D]
-        alpha = splats.alpha[:n] # [N]
-        kappa = splats.kappa[:n] # [N]
+        mu = splats.mu[:n]  # [N, D]
+        alpha = splats.alpha[:n]  # [N]
+        kappa = splats.kappa[:n]  # [N]
 
         # Vectorized over batch: for each query, compute energy
         energies = np.zeros(x.shape[0], dtype=np.float32)
         for i in range(x.shape[0]):
-            diff = mu - x[i][np.newaxis, :]   # [N, D]
-            dist_sq = np.sum(diff ** 2, axis=1)  # [N]
+            diff = mu - x[i][np.newaxis, :]  # [N, D]
+            dist_sq = np.sum(diff**2, axis=1)  # [N]
             contributions = alpha * np.exp(-kappa * dist_sq)  # [N]
             total = np.sum(contributions)
             energies[i] = -np.log(max(total, 1e-10))

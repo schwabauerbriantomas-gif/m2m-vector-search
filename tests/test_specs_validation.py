@@ -21,7 +21,6 @@ from m2m import (
     SimpleVectorDB,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -36,8 +35,9 @@ def db_64():
 @pytest.fixture
 def adv_db_64():
     """AdvancedVectorDB with SOC + EBM, latent_dim=64, LSH disabled."""
-    return AdvancedVectorDB(latent_dim=64, enable_soc=True, enable_energy_features=True,
-                            enable_lsh_fallback=False)
+    return AdvancedVectorDB(
+        latent_dim=64, enable_soc=True, enable_energy_features=True, enable_lsh_fallback=False
+    )
 
 
 @pytest.fixture
@@ -146,7 +146,7 @@ class TestP0LSHDeletionMapping:
 
 class TestP0SOCConsolidationOrphans:
     """TEST 3: SOC consolidation cleans _vectors dict (Bug P0-3 fixed).
-    
+
     Note: AdvancedVectorDB doesn't accept enable_lsh_fallback, so we disable
     it after construction to ensure vectors go to the splat store.
     """
@@ -180,9 +180,9 @@ class TestP0SOCConsolidationOrphans:
         removed = db.consolidate(threshold=0.01)
         assert removed == 10
         # _vectors should now have 40 entries (50 - 10)
-        assert len(db._vectors) == 40, (
-            f"Expected 40 vectors after removing 10, got {len(db._vectors)}"
-        )
+        assert (
+            len(db._vectors) == 40
+        ), f"Expected 40 vectors after removing 10, got {len(db._vectors)}"
 
     def test_splat_id_order_stays_consistent(self):
         """After consolidation, _splat_id_order length matches n_active splats."""
@@ -197,9 +197,9 @@ class TestP0SOCConsolidationOrphans:
         db.consolidate(threshold=0.01)
 
         n_active = db.engine.m2m.splats.n_active
-        assert len(db._splat_id_order) == n_active, (
-            f"_splat_id_order ({len(db._splat_id_order)}) != n_active ({n_active})"
-        )
+        assert (
+            len(db._splat_id_order) == n_active
+        ), f"_splat_id_order ({len(db._splat_id_order)}) != n_active ({n_active})"
 
 
 # =============================================================================
@@ -336,7 +336,9 @@ class TestP2SearchSupervisor:
 
         supervisor = SearchSupervisor()
         complexity = supervisor.classify_complexity(
-            k=10, dataset_size=100, query_dim=64,
+            k=10,
+            dataset_size=100,
+            query_dim=64,
         )
         assert complexity is not None
 
@@ -375,7 +377,7 @@ class TestP2QualityReflector:
 
 class TestP2ConcurrentOps:
     """TEST 12: Concurrent database operations should not corrupt state.
-    
+
     Note: M2MEngine is NOT thread-safe (no locks). This test documents the
     current limitation rather than asserting zero errors. Concurrent writes
     to the engine splat store can cause race conditions.
@@ -444,9 +446,7 @@ class TestP3Robustness:
             vectors=_make_vectors(1, 64, seed=51),
             metadata=[meta],
         )
-        results = db.search(
-            np.random.randn(64).astype(np.float32), k=1, include_metadata=True
-        )
+        results = db.search(np.random.randn(64).astype(np.float32), k=1, include_metadata=True)
         assert results[0].metadata["title"] == "日本語テスト"
         assert results[0].metadata["desc"] == "Ñoño señor"
         assert results[0].metadata["emoji"] == "🚀✨"
@@ -573,7 +573,9 @@ class TestI4LangChainAddSearchDelete:
         config.latent_dim = 64
         store = M2MVectorStore(embeddings=FakeEmbeddings(), config=config)
 
-        ids = store.add_texts(["hello world", "goodbye world"], metadatas=[{"id": "1"}, {"id": "2"}])
+        ids = store.add_texts(
+            ["hello world", "goodbye world"], metadatas=[{"id": "1"}, {"id": "2"}]
+        )
         assert len(ids) == 2
 
         results = store.similarity_search("hello", k=2)
@@ -584,7 +586,7 @@ class TestI5MultiBackendSupervisor:
     """I5: Multi-backend supervisor search."""
 
     def test_supervisor_backend_registration(self):
-        from m2m.search_supervisor import SearchSupervisor, BackendType
+        from m2m.search_supervisor import BackendType, SearchSupervisor
 
         supervisor = SearchSupervisor()
 
@@ -680,7 +682,7 @@ class TestI8QualityReflectorSearchLoop:
 
 class TestI9ConcurrentWALPersistence:
     """I9: Concurrent WAL + persistence under load.
-    
+
     Note: M2MEngine lacks thread-safety locks, so concurrent writes may race.
     This test validates sequential persistence correctness.
     """

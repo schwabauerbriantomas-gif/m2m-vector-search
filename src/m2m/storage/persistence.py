@@ -312,10 +312,15 @@ class M2MPersistence:
     def save_index(self, index_data: Any, name: str = "hrm2"):
         """Guarda el índice serializado con firma HMAC (H-05 fix)."""
         index_path = self.storage_path / "index" / f"{name}.idx"
-        import hashlib, hmac, os
+        import hashlib
+        import hmac
+        import os
+
         secret = os.environ.get("M2M_HMAC_SECRET")
         if not secret:
-            raise RuntimeError("M2M_HMAC_SECRET environment variable required for secure deserialization")
+            raise RuntimeError(
+                "M2M_HMAC_SECRET environment variable required for secure deserialization"
+            )
         data = pickle.dumps(index_data, protocol=pickle.HIGHEST_PROTOCOL)
         sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
         with open(str(index_path), "wb") as f:
@@ -323,10 +328,15 @@ class M2MPersistence:
 
     def load_index(self, name: str = "hrm2") -> Optional[Any]:
         """Carga el índice desde disco con verificación HMAC (H-05 fix)."""
-        import hashlib, hmac, os
+        import hashlib
+        import hmac
+        import os
+
         secret = os.environ.get("M2M_HMAC_SECRET")
         if not secret:
-            raise RuntimeError("M2M_HMAC_SECRET environment variable required for secure deserialization")
+            raise RuntimeError(
+                "M2M_HMAC_SECRET environment variable required for secure deserialization"
+            )
         index_path = self.storage_path / "index" / f"{name}.idx"
         if index_path.exists():
             with open(str(index_path), "rb") as f:

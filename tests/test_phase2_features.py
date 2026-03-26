@@ -3,6 +3,7 @@ Tests for Phase 2 features: temporal decay, auto-categorize, fusion methods, cha
 
 Research-backed via Z.AI tools investigation (2026-03-18).
 """
+
 import math
 import time
 import uuid
@@ -10,8 +11,8 @@ import uuid
 import numpy as np
 import pytest
 
-from m2m.semantic_memory import SemanticMemoryDB, MemoryResult, auto_categorize
 from m2m.bm25_index import BM25Index
+from m2m.semantic_memory import MemoryResult, SemanticMemoryDB, auto_categorize
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@ def _mock_encoder(text):
     seed = abs(hash(text)) % (2**31)
     rng = np.random.RandomState(seed)
     vec = rng.randn(384).astype(np.float32)
-    vec /= (np.linalg.norm(vec) + 1e-8)
+    vec /= np.linalg.norm(vec) + 1e-8
     return vec
 
 
@@ -256,11 +257,13 @@ class TestAutoCategorizeIntegration:
 
     def test_batch_store_auto_categorize(self):
         db = _make_db(auto_categorize=True)
-        ids = db.batch_store([
-            "Fix the encoding bug in BM25",
-            "Learned that RRF is score-agnostic",
-            "Question: what is the best vector DB?",
-        ])
+        ids = db.batch_store(
+            [
+                "Fix the encoding bug in BM25",
+                "Learned that RRF is score-agnostic",
+                "Question: what is the best vector DB?",
+            ]
+        )
         for doc_id in ids:
             mem = db.get(doc_id)
             assert "category" in mem["metadata"]
@@ -317,7 +320,7 @@ class TestChaosUnicode:
 
     def test_zero_width_chars(self):
         db = _make_db()
-        text = "Test\u200Bzero\u200Cwidth\u200Dchars"
+        text = "Test\u200bzero\u200cwidth\u200dchars"
         doc_id = db.store(text)
         results = db.search("test", k=5)
         assert any(r.id == doc_id for r in results)

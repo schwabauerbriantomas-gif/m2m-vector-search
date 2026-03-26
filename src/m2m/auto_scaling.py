@@ -10,15 +10,15 @@ Características:
 - Cost optimization
 """
 
+import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
-import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 
 class ScalingDirection(Enum):

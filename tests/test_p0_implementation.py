@@ -336,8 +336,9 @@ class TestBugFixes:
             # After fix, orphaned vectors should be cleaned up
             # The _vectors dict should reflect the removal
             active_docs = [d for d in db._vectors if d not in db._deleted]
-            assert len(active_docs) == initial_count - removed, \
-                f"Expected {initial_count - removed} active docs, got {len(active_docs)}"
+            assert (
+                len(active_docs) == initial_count - removed
+            ), f"Expected {initial_count - removed} active docs, got {len(active_docs)}"
 
 
 class TestDenseEmbeddingDiagnostics:
@@ -386,7 +387,7 @@ class TestDenseEmbeddingDiagnostics:
 
     def test_strategy_selection_report(self):
         """IndexSelectionResult should contain all diagnostic fields."""
-        from m2m.interfaces import select_index_strategy, IndexSelectionResult
+        from m2m.interfaces import IndexSelectionResult, select_index_strategy
 
         vecs = np.random.randn(1000, 64).astype(np.float32)
         result = select_index_strategy(vecs)

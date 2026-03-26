@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from m2m.api.edge_api import app as edge_app, _manager
+from m2m.api.edge_api import _manager
+from m2m.api.edge_api import app as edge_app
 
 client = TestClient(edge_app)
 
@@ -134,9 +135,9 @@ class TestVectorCRUD:
     def test_insert_and_get(self):
         name = self._setup()
         vecs = _rand_vecs(3)
-        r = client.post(f"/v1/collections/{name}/vectors", json={
-            "vectors": vecs, "ids": ["a", "b", "c"]
-        })
+        r = client.post(
+            f"/v1/collections/{name}/vectors", json={"vectors": vecs, "ids": ["a", "b", "c"]}
+        )
         assert r.status_code == 200
         assert r.json()["added"] == 3
 
@@ -154,12 +155,15 @@ class TestVectorCRUD:
     def test_insert_with_metadata_and_documents(self):
         name = self._setup()
         vecs = _rand_vecs(2)
-        r = client.post(f"/v1/collections/{name}/vectors", json={
-            "vectors": vecs,
-            "ids": ["m1", "m2"],
-            "metadata": [{"cat": "x"}, {"cat": "y"}],
-            "documents": ["doc one", "doc two"],
-        })
+        r = client.post(
+            f"/v1/collections/{name}/vectors",
+            json={
+                "vectors": vecs,
+                "ids": ["m1", "m2"],
+                "metadata": [{"cat": "x"}, {"cat": "y"}],
+                "documents": ["doc one", "doc two"],
+            },
+        )
         assert r.status_code == 200
         r2 = client.get(f"/v1/collections/{name}/vectors/m1")
         assert r2.json()["metadata"]["cat"] == "x"
@@ -170,7 +174,10 @@ class TestVectorCRUD:
         vecs = _rand_vecs(1)
         client.post(f"/v1/collections/{name}/vectors", json={"vectors": vecs, "ids": ["u1"]})
         new_vec = np.zeros(DIM, dtype=np.float32).tolist()
-        r = client.put(f"/v1/collections/{name}/vectors/u1", json={"vector": new_vec, "metadata": {"updated": True}})
+        r = client.put(
+            f"/v1/collections/{name}/vectors/u1",
+            json={"vector": new_vec, "metadata": {"updated": True}},
+        )
         assert r.status_code == 200
         assert r.json()["success"] is True
 
@@ -224,18 +231,22 @@ class TestSearchV1:
     def _seed(self, name="search"):
         client.post("/v1/collections", json={"name": name, "dimension": DIM})
         vecs = _rand_vecs(5)
-        client.post(f"/v1/collections/{name}/vectors", json={
-            "vectors": vecs,
-            "ids": ["s1", "s2", "s3", "s4", "s5"],
-            "metadata": [{"cat": "a"}, {"cat": "b"}, {"cat": "a"}, {"cat": "b"}, {"cat": "a"}],
-        })
+        client.post(
+            f"/v1/collections/{name}/vectors",
+            json={
+                "vectors": vecs,
+                "ids": ["s1", "s2", "s3", "s4", "s5"],
+                "metadata": [{"cat": "a"}, {"cat": "b"}, {"cat": "a"}, {"cat": "b"}, {"cat": "a"}],
+            },
+        )
         return name, vecs
 
     def test_search_returns_k_results(self):
         name, vecs = self._seed()
-        r = client.post(f"/v1/collections/{name}/search", json={
-            "vector": vecs[0], "k": 3, "include_metadata": False
-        })
+        r = client.post(
+            f"/v1/collections/{name}/search",
+            json={"vector": vecs[0], "k": 3, "include_metadata": False},
+        )
         assert r.status_code == 200
         data = r.json()
         assert data["count"] == 3
@@ -243,12 +254,15 @@ class TestSearchV1:
 
     def test_search_with_filter(self):
         name, vecs = self._seed()
-        r = client.post(f"/v1/collections/{name}/search", json={
-            "vector": vecs[0],
-            "k": 10,
-            "filter": {"cat": {"$eq": "a"}},
-            "include_metadata": True,
-        })
+        r = client.post(
+            f"/v1/collections/{name}/search",
+            json={
+                "vector": vecs[0],
+                "k": 10,
+                "filter": {"cat": {"$eq": "a"}},
+                "include_metadata": True,
+            },
+        )
         assert r.status_code == 200
         for item in r.json()["results"]:
             assert item["metadata"]["cat"] == "a"
@@ -261,9 +275,10 @@ class TestSearchV1:
 
     def test_search_with_documents(self):
         name, vecs = self._seed()
-        r = client.post(f"/v1/collections/{name}/search", json={
-            "vector": vecs[0], "k": 1, "include_documents": True
-        })
+        r = client.post(
+            f"/v1/collections/{name}/search",
+            json={"vector": vecs[0], "k": 1, "include_documents": True},
+        )
         # May or may not have documents depending on insert
         assert r.status_code == 200
 
@@ -303,9 +318,9 @@ class TestValidation:
     def test_insert_vectors_exceeds_rate_limit(self):
         """Test that inserting >100K vectors in one request is rejected."""
         client.post("/v1/collections", json={"name": "big", "dimension": DIM})
-        r = client.post("/v1/collections/big/vectors", json={
-            "vectors": [[0.0] * DIM for _ in range(100_001)]
-        })
+        r = client.post(
+            "/v1/collections/big/vectors", json={"vectors": [[0.0] * DIM for _ in range(100_001)]}
+        )
         assert r.status_code == 422
 
 
@@ -338,9 +353,9 @@ class TestHealthStats:
 
 class TestEBMCollection:
     def test_create_ebm_collection(self):
-        r = client.post("/v1/collections", json={
-            "name": "ebm1", "dimension": DIM, "enable_ebm": True
-        })
+        r = client.post(
+            "/v1/collections", json={"name": "ebm1", "dimension": DIM, "enable_ebm": True}
+        )
         assert r.status_code == 201
 
     def test_energy_endpoint_on_ebm_collection(self):
@@ -391,15 +406,13 @@ class TestBulkOperations:
 
 class TestNonexistentCollection:
     def test_insert_into_nonexistent(self):
-        r = client.post("/v1/collections/ghost/vectors", json={
-            "vectors": _rand_vecs(1), "ids": ["x"]
-        })
+        r = client.post(
+            "/v1/collections/ghost/vectors", json={"vectors": _rand_vecs(1), "ids": ["x"]}
+        )
         assert r.status_code == 404
 
     def test_search_nonexistent_collection(self):
-        r = client.post("/v1/collections/ghost/search", json={
-            "vector": _rand_vecs(1)[0], "k": 5
-        })
+        r = client.post("/v1/collections/ghost/search", json={"vector": _rand_vecs(1)[0], "k": 5})
         assert r.status_code == 404
 
     def test_stats_nonexistent_collection(self):

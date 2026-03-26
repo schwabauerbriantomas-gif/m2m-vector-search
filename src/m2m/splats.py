@@ -9,9 +9,10 @@ from .splat_types import GaussianSplat
 
 if TYPE_CHECKING:
     from .config import M2MConfig
-import logging
-logger = logging.getLogger(__name__)
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SplatStore:
@@ -260,15 +261,11 @@ class SplatStore:
                     queries_np = queries_np[np.newaxis, :]
 
                 if queries_np.shape[0] == 1:
-                    gpu_ids, gpu_dists = self._cuda_searcher.search(
-                        queries_np[0], k=k
-                    )
+                    gpu_ids, gpu_dists = self._cuda_searcher.search(queries_np[0], k=k)
                     gpu_ids = gpu_ids[np.newaxis, :]
                     gpu_dists = gpu_dists[np.newaxis, :]
                 else:
-                    gpu_ids, gpu_dists = self._cuda_searcher.search_batch(
-                        queries_np, k=k
-                    )
+                    gpu_ids, gpu_dists = self._cuda_searcher.search_batch(queries_np, k=k)
 
                 mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
                 alpha_out = np.zeros((batch_size, k), dtype=np.float32)

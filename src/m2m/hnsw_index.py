@@ -21,7 +21,8 @@ from .interfaces import IndexSearchResult, VectorIndex
 
 class HNSWNode:
     """A node in the HNSW graph."""
-    __slots__ = ('idx', 'level', 'neighbors')
+
+    __slots__ = ("idx", "level", "neighbors")
 
     def __init__(self, idx: int, level: int):
         self.idx = idx
@@ -181,8 +182,10 @@ class HNSWIndex(VectorIndex):
                 if len(neighbor.neighbors[lev]) > M_max:
                     # Prune: keep only M_max closest
                     neighbor_vec = self._vectors[neighbor_idx]
-                    scored = [(self._distance(neighbor_vec, self._vectors[ni]), ni)
-                              for ni in neighbor.neighbors[lev]]
+                    scored = [
+                        (self._distance(neighbor_vec, self._vectors[ni]), ni)
+                        for ni in neighbor.neighbors[lev]
+                    ]
                     scored.sort()
                     neighbor.neighbors[lev] = [ni for _, ni in scored[:M_max]]
 
@@ -224,7 +227,7 @@ class HNSWIndex(VectorIndex):
 
         # Min-heap for candidates (closest first), max-heap for results (farthest first for pruning)
         candidates = [(dist_ep, entry)]  # min-heap
-        results = [(-dist_ep, entry)]    # max-heap (negate for max behavior)
+        results = [(-dist_ep, entry)]  # max-heap (negate for max behavior)
 
         while candidates:
             dist_c, c = heapq.heappop(candidates)

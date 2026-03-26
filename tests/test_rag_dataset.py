@@ -2,12 +2,13 @@
 RAG Test Dataset Tests for M2M-Vector-Search
 Tests: basic retrieval, edge cases, RAG pipeline, semantic memory, numerical stability.
 """
+
 import json
 import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pytest
@@ -50,6 +51,7 @@ def texts():
 @pytest.fixture(scope="session")
 def embedder():
     from sentence_transformers import SentenceTransformer
+
     return SentenceTransformer("all-MiniLM-L6-v2")
 
 
@@ -62,7 +64,9 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (na * nb))
 
 
-def linear_search(query_emb: np.ndarray, embeddings: np.ndarray, k: int = 5) -> List[Tuple[int, float]]:
+def linear_search(
+    query_emb: np.ndarray, embeddings: np.ndarray, k: int = 5
+) -> List[Tuple[int, float]]:
     """Brute-force cosine similarity search. Returns [(index, similarity), ...]."""
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
     norms = np.clip(norms, 1e-10, None)
@@ -107,23 +111,30 @@ class TestNumericalStability:
 # BASIC RETRIEVAL
 # ═══════════════════════════════════════════════════════════════════
 class TestBasicRetrieval:
-    @pytest.mark.parametrize("query,expected_source_keyword,threshold", [
-        ("hierarchical reasoning model", "HRM", 0.3),
-        ("flow matching generative models", "equilibrium_matching", 0.25),
-        ("latent chain of thought", "latent_cot", 0.3),
-        ("Langevin dynamics score", "langevin", 0.25),
-        ("M2M vector search gaussian splats", "README", 0.3),
-        ("tiny recursive model", "tiny_recursive", 0.3),
-    ])
-    def test_topic_returns_relevant_results(self, embedder, embeddings, metadata, texts, query, expected_source_keyword, threshold):
+    @pytest.mark.parametrize(
+        "query,expected_source_keyword,threshold",
+        [
+            ("hierarchical reasoning model", "HRM", 0.3),
+            ("flow matching generative models", "equilibrium_matching", 0.25),
+            ("latent chain of thought", "latent_cot", 0.3),
+            ("Langevin dynamics score", "langevin", 0.25),
+            ("M2M vector search gaussian splats", "README", 0.3),
+            ("tiny recursive model", "tiny_recursive", 0.3),
+        ],
+    )
+    def test_topic_returns_relevant_results(
+        self, embedder, embeddings, metadata, texts, query, expected_source_keyword, threshold
+    ):
         q_emb = embedder.encode([query])[0]
         results = linear_search(q_emb, embeddings, k=5)
         assert len(results) > 0, "No results returned"
-        
+
         # At least one top-5 result should come from expected source
         sources = [metadata[i]["source"] for i, _ in results]
         match = any(expected_source_keyword.lower() in s.lower() for s in sources)
-        assert match, f"Query '{query}': none of top-5 match '{expected_source_keyword}'. Sources: {sources}"
+        assert (
+            match
+        ), f"Query '{query}': none of top-5 match '{expected_source_keyword}'. Sources: {sources}"
 
     def test_search_returns_k_results(self, embedder, embeddings):
         q_emb = embedder.encode(["machine learning"])[0]
@@ -182,7 +193,9 @@ class TestEdgeCases:
         results = linear_search(q_emb, embeddings, k=5)
         assert len(results) == 5
         # All similarities should be low
-        assert all(s < 0.4 for _, s in results), f"Nonexistent topic returned high sim: {results[0][1]:.4f}"
+        assert all(
+            s < 0.4 for _, s in results
+        ), f"Nonexistent topic returned high sim: {results[0][1]:.4f}"
 
     def test_k_larger_than_dataset(self, embedder, embeddings):
         q_emb = embedder.encode(["test"])[0]
@@ -199,11 +212,11 @@ class TestRAGPipeline:
         query = "What is flow matching and how does it work for generative models?"
         q_emb = embedder.encode([query])[0]
         results = linear_search(q_emb, embeddings, k=3)
-        
+
         # Assemble context
         context = "\n\n".join(texts[i] for i, _ in results)
         assert len(context) > 100, "Context too short"
-        
+
         # Verify context mentions flow matching
         assert "flow" in context.lower(), "Context should mention flow matching"
 
@@ -239,11 +252,11 @@ class TestSemanticMemory:
         """Simulate storing a memory and recalling it."""
         memory_text = "User is studying machine learning papers about reasoning models"
         memory_emb = embedder.encode([memory_text])[0]
-        
+
         # Query similar to the memory
         query = "What is the user researching?"
         q_emb = embedder.encode([query])[0]
-        
+
         sim = cosine_similarity(memory_emb, q_emb)
         assert sim > 0.3, f"Memory recall similarity too low: {sim:.4f}"
 
@@ -251,26 +264,26 @@ class TestSemanticMemory:
         """Two similar queries should return similar top results."""
         q1 = "How do transformers work?"
         q2 = "Transformer architecture explanation"
-        
+
         e1 = embedder.encode([q1])[0]
         e2 = embedder.encode([q2])[0]
-        
+
         r1 = set(i for i, _ in linear_search(e1, embeddings, k=10))
         r2 = set(i for i, _ in linear_search(e2, embeddings, k=10))
-        
+
         overlap = len(r1 & r2)
         assert overlap >= 5, f"Similar queries share only {overlap}/10 results"
 
     def test_dissimilar_queries_return_different_results(self, embedder, embeddings):
         q1 = "Langevin dynamics score matching"
         q2 = "M2M vector search API"
-        
+
         e1 = embedder.encode([q1])[0]
         e2 = embedder.encode([q2])[0]
-        
+
         r1 = set(i for i, _ in linear_search(e1, embeddings, k=5))
         r2 = set(i for i, _ in linear_search(e2, embeddings, k=5))
-        
+
         overlap = len(r1 & r2)
         # Dissimilar queries should have < 80% overlap in top-5
         assert overlap < 4, f"Dissimilar queries share too many: {overlap}/5"
@@ -282,15 +295,15 @@ class TestSemanticMemory:
             (2000, "User read about transformers"),
             (3000, "User discovered M2M vector search"),
         ]
-        
+
         # Embed all
         embs = embedder.encode([m[1] for m in memories])
-        
+
         # Recall recent (last one)
         query = "What did the user discover recently?"
         q_emb = embedder.encode([query])[0]
         sims = [cosine_similarity(e, q_emb) for e in embs]
-        
+
         # The most recent memory should have high similarity
         assert sims[2] > sims[0], "Recent memory should be more relevant"
 
@@ -298,15 +311,13 @@ class TestSemanticMemory:
 # ═══════════════════════════════════════════════════════════════════
 # M2M INTEGRATION (if available)
 # ═══════════════════════════════════════════════════════════════════
-@pytest.mark.skipif(
-    not (PROJECT_ROOT / "src" / "m2m").exists(),
-    reason="M2M source not available"
-)
+@pytest.mark.skipif(not (PROJECT_ROOT / "src" / "m2m").exists(), reason="M2M source not available")
 class TestM2MIntegration:
     @pytest.fixture(scope="class")
     def m2m_index(self, embeddings, metadata):
         try:
             from m2m import M2M, M2MConfig
+
             config = M2MConfig(
                 latent_dim=384,
                 max_splats=len(embeddings),
@@ -332,10 +343,10 @@ class TestM2MIntegration:
     def test_m2m_results_consistent_with_linear(self, m2m_index, embedder, embeddings):
         """M2M results should overlap significantly with linear scan."""
         q_emb = embedder.encode(["HRM reasoning model"])[0]
-        
+
         # Linear baseline
         linear = set(i for i, _ in linear_search(q_emb, embeddings, k=10))
-        
+
         # M2M search
         try:
             results = m2m_index.search(q_emb, k=10, include_metadata=True)

@@ -19,16 +19,18 @@ import numpy as np
 
 class QualityLevel(str, Enum):
     """Niveles de calidad."""
-    EXCELLENT = "excellent"    # score >= 0.9
-    GOOD = "good"              # score >= 0.7
+
+    EXCELLENT = "excellent"  # score >= 0.9
+    GOOD = "good"  # score >= 0.7
     ACCEPTABLE = "acceptable"  # score >= 0.5
-    POOR = "poor"              # score >= 0.3
-    CRITICAL = "critical"      # score < 0.3
+    POOR = "poor"  # score >= 0.3
+    CRITICAL = "critical"  # score < 0.3
 
 
 @dataclass
 class QualityReport:
     """Reporte de calidad de una búsqueda."""
+
     precision_at_k: float
     recall_at_k: float
     quality_level: QualityLevel
@@ -41,6 +43,7 @@ class QualityReport:
 @dataclass
 class ReflectorStats:
     """Estadísticas del reflector."""
+
     total_evaluations: int = 0
     avg_precision: float = 0.0
     avg_recall: float = 0.0
@@ -139,7 +142,9 @@ class QualityReflector:
 
         # Detección de duplicados
         if len(result_ids) != len(set(result_ids)):
-            anomalies.append(f"Se encontraron {len(result_ids) - len(set(result_ids))} IDs duplicados")
+            anomalies.append(
+                f"Se encontraron {len(result_ids) - len(set(result_ids))} IDs duplicados"
+            )
 
         # Verificar si se devolvieron menos resultados que k
         if len(result_ids) < k:
@@ -221,9 +226,7 @@ class QualityReflector:
         hits = sum(1 for rid in result_ids if rid in relevant)
         return hits / min(len(result_ids), k)
 
-    def _compute_recall(
-        self, result_ids: List[Any], ground_truth: Optional[List[Any]]
-    ) -> float:
+    def _compute_recall(self, result_ids: List[Any], ground_truth: Optional[List[Any]]) -> float:
         """Calcula recall@k."""
         if ground_truth is None or not ground_truth:
             return 1.0
@@ -275,7 +278,7 @@ class QualityReflector:
         if len(history) < self._DEGRADATION_WINDOW:
             return None
 
-        recent = history[-self._DEGRADATION_WINDOW:]
+        recent = history[-self._DEGRADATION_WINDOW :]
         recent_precision = [r.precision_at_k for r in recent]
         recent_recall = [r.recall_at_k for r in recent]
 
@@ -290,8 +293,7 @@ class QualityReflector:
             )
         if recall < avg_rec * 0.7 and avg_rec > 0.5:
             return (
-                f"Degradación de recall: actual={recall:.2f} vs "
-                f"promedio reciente={avg_rec:.2f}"
+                f"Degradación de recall: actual={recall:.2f} vs " f"promedio reciente={avg_rec:.2f}"
             )
 
         return None
@@ -333,6 +335,7 @@ class QualityReflector:
     def _compare_backend_reports(self, reports: Dict[str, QualityReport]) -> None:
         """Compara reportes entre backends (interna, solo logging)."""
         import logging
+
         logger = logging.getLogger("m2m.reflector")
 
         best_precision = max(reports.values(), key=lambda r: r.precision_at_k)
@@ -360,7 +363,7 @@ class QualityReflector:
 
         self._stats.quality_history.append(report)
         if len(self._stats.quality_history) > self._MAX_HISTORY:
-            self._stats.quality_history = self._stats.quality_history[-self._MAX_HISTORY:]
+            self._stats.quality_history = self._stats.quality_history[-self._MAX_HISTORY :]
 
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estadísticas del reflector."""
@@ -384,7 +387,7 @@ class QualityReflector:
         if len(history) < self._DEGRADATION_WINDOW:
             return False
 
-        recent = history[-self._DEGRADATION_WINDOW:]
+        recent = history[-self._DEGRADATION_WINDOW :]
         avg_recent = sum(r.precision_at_k for r in recent) / len(recent)
 
         return avg_recent < self.precision_critical

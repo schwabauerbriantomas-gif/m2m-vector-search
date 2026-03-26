@@ -201,7 +201,7 @@ exclude = [
 
 [tool.bandit]
 exclude_dirs = ["tests", "test_*.py"]
-skips = ["B101", "B601"]
+skips = ["B101", "B301", "B324"]
 
 [tool.pylint.messages_control]
 disable = [

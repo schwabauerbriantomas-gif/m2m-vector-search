@@ -14,17 +14,18 @@ Usage:
     python src/m2m/evaluate_embeddings.py --checkpoint models/m2m_embeddings/final_model.pt
 """
 
+import argparse
+import json
+import logging
 import os
 import sys
-import json
 import time
-import argparse
-import logging
+from pathlib import Path
+from typing import Dict, List, Tuple
+
 import numpy as np
 import torch
 import torch.nn.functional as F
-from pathlib import Path
-from typing import Dict, List, Tuple
 from sentence_transformers import SentenceTransformer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -86,14 +87,16 @@ BENCHMARK_TEXTS = [
 def load_model(checkpoint_path: str, device: torch.device) -> M2MEmbeddingModel:
     """Load trained M2M embedding model from checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    
+
     config_dict = checkpoint["config"]
-    config = EmbeddingConfig(**{k: v for k, v in config_dict.items() if hasattr(EmbeddingConfig, k)})
-    
+    config = EmbeddingConfig(
+        **{k: v for k, v in config_dict.items() if hasattr(EmbeddingConfig, k)}
+    )
+
     # Load teacher model to get encoder
     teacher_st = SentenceTransformer(config.teacher_model)
     auto_model = teacher_st[0].auto_model
-    
+
     student = M2MEmbeddingModel(
         encoder=auto_model,
         embedding_dim=config.embedding_dim,
@@ -102,7 +105,7 @@ def load_model(checkpoint_path: str, device: torch.device) -> M2MEmbeddingModel:
     student.load_state_dict(checkpoint["model_state_dict"])
     student = student.to(device)
     student.eval()
-    
+
     return student, config
 
 
@@ -117,7 +120,7 @@ def encode_with_student(
     """Encode texts using student model."""
     all_embeddings = []
     for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i + batch_size]
+        batch_texts = texts[i : i + batch_size]
         tokens = tokenizer(
             batch_texts, padding=True, truncation=True, max_length=256, return_tensors="pt"
         )
@@ -144,11 +147,11 @@ def compute_recall_at_k(
     """Compute recall@k: fraction of teacher's top-k neighbors in student's top-k."""
     n = len(student_emb)
     results = {}
-    
+
     # Compute similarity matrices
     student_sim = student_emb @ student_emb.T
     teacher_sim = teacher_emb @ teacher_emb.T
-    
+
     for k in k_values:
         if k >= n:
             continue
@@ -156,13 +159,13 @@ def compute_recall_at_k(
         # For teacher, since dims differ, use teacher's own space
         teacher_sim_local = teacher_emb @ teacher_emb.T
         teacher_nn = np.argsort(-teacher_sim_local, axis=1)[:, :k]
-        
+
         recall = 0.0
         for i in range(n):
             teacher_set = set(teacher_nn[i])
             recall += len(set(student_nn[i]) & teacher_set) / k
         results[f"recall@{k}"] = recall / n
-    
+
     return results
 
 
@@ -178,21 +181,21 @@ def measure_latency(
     # Warmup
     _ = encode_with_student(model, tokenizer, texts[:5], device)
     _ = encode_with_teacher(teacher, texts[:5])
-    
+
     # Student latency
     student_times = []
     for _ in range(n_runs):
         t0 = time.time()
         _ = encode_with_student(model, tokenizer, texts, device)
         student_times.append(time.time() - t0)
-    
+
     # Teacher latency
     teacher_times = []
     for _ in range(n_runs):
         t0 = time.time()
         _ = encode_with_teacher(teacher, texts)
         teacher_times.append(time.time() - t0)
-    
+
     return {
         "student_latency_ms": np.mean(student_times) * 1000 / len(texts),
         "student_latency_std": np.std(student_times) * 1000 / len(texts),
@@ -204,52 +207,59 @@ def measure_latency(
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate M2M custom embeddings")
-    parser.add_argument("--checkpoint", type=str, required=True,
-                       help="Path to model checkpoint (.pt)")
-    parser.add_argument("--num-samples", type=int, default=2000,
-                       help="Number of evaluation texts")
+    parser.add_argument(
+        "--checkpoint", type=str, required=True, help="Path to model checkpoint (.pt)"
+    )
+    parser.add_argument("--num-samples", type=int, default=2000, help="Number of evaluation texts")
     parser.add_argument("--k-values", type=int, nargs="+", default=[1, 5, 10, 50, 100])
     args = parser.parse_args()
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info(f"Device: {device}")
-    
+
     # Load model
     log.info(f"Loading model from {args.checkpoint}...")
     model, config = load_model(args.checkpoint, device)
     log.info(f"Model loaded. Embedding dim: {config.embedding_dim}")
-    
+
     # Load teacher
     teacher = SentenceTransformer(config.teacher_model)
     teacher.eval()
-    
+
     # Prepare evaluation texts
     np.random.seed(42)
     n_extra = max(0, args.num_samples - len(BENCHMARK_TEXTS))
-    eval_texts = BENCHMARK_TEXTS[:args.num_samples] if args.num_samples <= len(BENCHMARK_TEXTS) else \
-        BENCHMARK_TEXTS + [f"Random test sentence number {i} about various topics in AI and science." 
-                          for i in range(n_extra)]
-    
+    eval_texts = (
+        BENCHMARK_TEXTS[: args.num_samples]
+        if args.num_samples <= len(BENCHMARK_TEXTS)
+        else BENCHMARK_TEXTS
+        + [
+            f"Random test sentence number {i} about various topics in AI and science."
+            for i in range(n_extra)
+        ]
+    )
+
     log.info(f"Evaluating on {len(eval_texts)} texts...")
-    
+
     # Encode
     log.info("Encoding with student model...")
     student_emb = encode_with_student(model, teacher.tokenizer, eval_texts, device)
     log.info(f"Student embeddings: shape={student_emb.shape}")
-    
+
     log.info("Encoding with teacher model...")
     teacher_emb = encode_with_teacher(teacher, eval_texts)
     log.info(f"Teacher embeddings: shape={teacher_emb.shape}")
-    
+
     # Metrics
     log.info("\nComputing recall@k...")
     recall = compute_recall_at_k(student_emb, teacher_emb, tuple(args.k_values))
-    
+
     # Cosine similarity: align teacher to student space
     # Load alignment matrix from loss_fn (stored in checkpoint? No, create new one)
     # Instead, compare retrieval quality via recall@k only
     # For cosine sim, we compare teacher projected to student space
     from m2m.embedding_model import ProjectionDistillationLoss
+
     loss_fn = ProjectionDistillationLoss(
         student_dim=student_emb.shape[1],
         teacher_dim=teacher_emb.shape[1],
@@ -259,14 +269,14 @@ def main():
     if "model_state_dict" in checkpoint_data:
         # Extract align_teacher weights from loss_fn state (stored separately)
         pass  # alignment weights are part of the loss, not model
-    
+
     # Since we can't restore alignment weights, just compute recall@k
     cos_sims = np.zeros(len(student_emb))  # Can't compute direct cosine across dims
-    
+
     # Latency
     log.info("Measuring latency...")
     latency = measure_latency(model, teacher.tokenizer, teacher, eval_texts[:100], device)
-    
+
     # Matryoshka evaluation
     log.info("Evaluating Matryoshka sub-dimensions...")
     matryoshka_results = {}
@@ -274,12 +284,12 @@ def main():
         if d <= student_emb.shape[1]:
             sub_emb = student_emb[:, :d]
             sub_emb = sub_emb / np.linalg.norm(sub_emb, axis=1, keepdims=True)
-            sub_teacher = teacher_emb[:, :min(d, teacher_emb.shape[1])]
+            sub_teacher = teacher_emb[:, : min(d, teacher_emb.shape[1])]
             if sub_emb.shape[1] == sub_teacher.shape[1]:
                 sub_teacher = sub_teacher / np.linalg.norm(sub_teacher, axis=1, keepdims=True)
                 cos = float(np.mean(np.sum(sub_emb * sub_teacher, axis=1)))
                 matryoshka_results[f"dim_{d}_cosine_sim"] = cos
-    
+
     # Print results
     results = {
         "num_samples": len(eval_texts),
@@ -292,7 +302,7 @@ def main():
         "matryoshka": matryoshka_results,
         "latency": latency,
     }
-    
+
     log.info("\n" + "=" * 60)
     log.info("EVALUATION RESULTS")
     log.info("=" * 60)
@@ -308,17 +318,21 @@ def main():
     for d, cos in matryoshka_results.items():
         log.info(f"  {d}: {cos:.4f}")
     log.info(f"\nLatency (per text, avg over 100 texts):")
-    log.info(f"  Student: {latency['student_latency_ms']:.2f} ± {latency['student_latency_std']:.2f} ms")
-    log.info(f"  Teacher: {latency['teacher_latency_ms']:.2f} ± {latency['teacher_latency_std']:.2f} ms")
+    log.info(
+        f"  Student: {latency['student_latency_ms']:.2f} ± {latency['student_latency_std']:.2f} ms"
+    )
+    log.info(
+        f"  Teacher: {latency['teacher_latency_ms']:.2f} ± {latency['teacher_latency_std']:.2f} ms"
+    )
     log.info(f"  Speedup: {latency['speedup']:.2f}x")
-    
+
     # Save results
     results_path = Path(config.model_save_dir) / "eval_results.json"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     log.info(f"\nResults saved to {results_path}")
-    
+
     return results
 
 

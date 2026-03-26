@@ -1,4 +1,7 @@
 import asyncio
+
+# -- SECURITY: API Key for coordinator (C-01, P-09 fix) ---------------
+import os
 from contextlib import asynccontextmanager
 from typing import Dict, List, Tuple
 from urllib.parse import urlparse
@@ -20,8 +23,6 @@ from ..cluster.protocol import (
 )
 from ..cluster.router import ClusterRouter
 
-# -- SECURITY: API Key for coordinator (C-01, P-09 fix) ---------------
-import os
 _COORDINATOR_API_KEY = os.environ.get("M2M_COORDINATOR_API_KEY")
 
 
@@ -29,7 +30,11 @@ def _validate_coordinator_key(request: Request) -> None:
     if _COORDINATOR_API_KEY is None:
         return
     auth = request.headers.get("Authorization", "")
-    token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else request.headers.get("X-API-Key", "")
+    token = (
+        auth.replace("Bearer ", "")
+        if auth.startswith("Bearer ")
+        else request.headers.get("X-API-Key", "")
+    )
     if token != _COORDINATOR_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
@@ -49,6 +54,7 @@ def _validate_edge_url(url: str) -> str:
     else:
         # Block internal/private IPs (basic SSRF prevention)
         import ipaddress
+
         try:
             ip = ipaddress.ip_address(parsed.hostname)
             if ip.is_private or ip.is_loopback or ip.is_link_local:
@@ -58,6 +64,7 @@ def _validate_edge_url(url: str) -> str:
         except ValueError:
             pass  # hostname, not IP - allow
     return url
+
 
 # Global cluster dependencies
 router = ClusterRouter()
@@ -94,11 +101,11 @@ async def heartbeat(request: Request):
     body = await request.json()
     hb_req = HeartbeatRequest(**body)
     # Cap metrics to prevent abuse (P-10 fix)
-    if hb_req.metrics and hasattr(hb_req.metrics, '__dict__'):
+    if hb_req.metrics and hasattr(hb_req.metrics, "__dict__"):
         m = hb_req.metrics
-        if hasattr(m, 'cpu_usage'):
+        if hasattr(m, "cpu_usage"):
             m.cpu_usage = max(0.0, min(100.0, float(m.cpu_usage)))
-        if hasattr(m, 'memory_usage'):
+        if hasattr(m, "memory_usage"):
             m.memory_usage = max(0.0, min(100.0, float(m.memory_usage)))
     router.heartbeat(hb_req.edge_id, hb_req.metrics)
     return {"status": "success"}

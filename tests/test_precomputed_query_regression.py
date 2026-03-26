@@ -1,4 +1,5 @@
 """Regression test: query should not crash with precomputed_embeddings (no splats)."""
+
 import numpy as np
 import pytest
 

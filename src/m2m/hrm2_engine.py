@@ -297,7 +297,7 @@ class HRM2Engine:
         # Opt #3: Pre-compute cluster masks as boolean arrays
         self._cluster_masks: Dict[int, np.ndarray] = {}
         for cid in range(n_coarse_effective):
-            self._cluster_masks[cid] = (self.coarse_assignments == cid)
+            self._cluster_masks[cid] = self.coarse_assignments == cid
 
         self._is_indexed = False  # temp
 
@@ -551,9 +551,7 @@ class HRM2Engine:
                 for idx in indices:
                     vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
                     sid = self.splats[int(idx)].id if _has_splats else int(idx)
-                    candidates.append(
-                        (sid, float(vec_dist), int(coarse_id), int(closest_fine))
-                    )
+                    candidates.append((sid, float(vec_dist), int(coarse_id), int(closest_fine)))
                 if len(candidates) >= k:
                     break
         else:
@@ -590,7 +588,11 @@ class HRM2Engine:
 
                 if self.router:
                     results = self.router.compute_expert_distances(
-                        query_vector, expert_embeddings, expert_indices, coarse_ids, fine_ids,
+                        query_vector,
+                        expert_embeddings,
+                        expert_indices,
+                        coarse_ids,
+                        fine_ids,
                     )
                     candidates = [
                         (self.splats[int(r[0])].id if _has_splats else int(r[0]), r[1], r[2], r[3])
@@ -603,9 +605,7 @@ class HRM2Engine:
                         expert_indices, distances_sq, coarse_ids, fine_ids
                     ):
                         sid = self.splats[int(idx)].id if _has_splats else int(idx)
-                        candidates.append(
-                            (sid, float(np.sqrt(dist_sq)), int(cid), int(fid))
-                        )
+                        candidates.append((sid, float(np.sqrt(dist_sq)), int(cid), int(fid)))
 
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])

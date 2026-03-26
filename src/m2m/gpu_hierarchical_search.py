@@ -8,13 +8,13 @@ Both stages use GPUVectorIndex for persistent GPU buffers.
 Follows the pattern in the reference code provided by the user.
 """
 
+import logging
 import time
 from typing import Optional, Tuple
 
 import numpy as np
-import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 
 class HierarchicalGPUSearch:
@@ -74,7 +74,10 @@ class HierarchicalGPUSearch:
 
         logger.info(
             "Building index: %s vectors x %s dims, C=%s, n_probe=%s",
-            f"{n:,}", d, self.n_clusters, self.n_probe
+            f"{n:,}",
+            d,
+            self.n_clusters,
+            self.n_probe,
         )
 
         # -- KMeans clustering (CPU — done once at build time) --------
@@ -103,10 +106,7 @@ class HierarchicalGPUSearch:
 
         self._is_built = True
         build_time = time.perf_counter() - t0
-        logger.info(
-            "Built in %.2fs | avg cluster size: %s",
-            build_time, n // self.n_clusters
-        )
+        logger.info("Built in %.2fs | avg cluster size: %s", build_time, n // self.n_clusters)
 
     def _make_gpu_index(self, vectors: np.ndarray, use_gpu: bool):
         """Try to create GPUVectorIndex; fall back to numpy wrapper."""

@@ -13,11 +13,12 @@ Binary layout:
   Metadata: separate JSON file at <path>_meta.json
 """
 
-import struct
-import os
 import json
+import os
+import struct
+from typing import Any, Dict
+
 import numpy as np
-from typing import Dict, Any
 
 
 def load_m2m_dataset(path: str) -> Dict[str, Any]:
@@ -37,9 +38,7 @@ def load_m2m_dataset(path: str) -> Dict[str, Any]:
         if len(header) < struct.calcsize("IIII"):
             raise ValueError(f"File too small for header: {len(header)} bytes")
 
-        n_splats, dim, n_vectors_total, hierarchy_levels = struct.unpack(
-            "IIII", header
-        )
+        n_splats, dim, n_vectors_total, hierarchy_levels = struct.unpack("IIII", header)
 
         # mu is stored as float32 (the transformer uses MiniBatchKMeans which
         # produces float32 centroids)
@@ -61,9 +60,7 @@ def load_m2m_dataset(path: str) -> Dict[str, Any]:
             # Read alpha (float32), kappa (float32), n_vectors (uint32)
             afi_raw = f.read(afi_bytes)
             if len(afi_raw) < afi_bytes:
-                raise ValueError(
-                    f"Unexpected EOF reading afi at splat {len(splats)}"
-                )
+                raise ValueError(f"Unexpected EOF reading afi at splat {len(splats)}")
             alpha, kappa, n_vec = struct.unpack("ffI", afi_raw)
 
             # Read indices (int32 array of shape (n_vec,))
@@ -72,9 +69,7 @@ def load_m2m_dataset(path: str) -> Dict[str, Any]:
                 idx_bytes = int(n_vec) * np.int32().itemsize
                 idx_raw = f.read(idx_bytes)
                 if len(idx_raw) < idx_bytes:
-                    raise ValueError(
-                        f"Unexpected EOF reading indices at splat {len(splats)}"
-                    )
+                    raise ValueError(f"Unexpected EOF reading indices at splat {len(splats)}")
                 indices = np.frombuffer(idx_raw, dtype=np.int32).copy()
 
             splats.append(

@@ -9,8 +9,8 @@ import pytest
 
 from m2m.config import M2MConfig
 
-
 # ── Config Tests ──────────────────────────────────────────────────────
+
 
 class TestConfig:
     def test_default_config(self):
@@ -32,9 +32,11 @@ class TestConfig:
 
 # ── Geometry Tests ────────────────────────────────────────────────────
 
+
 class TestGeometry:
     def test_normalize_sphere(self):
         from m2m import normalize_sphere
+
         x = np.array([[3.0, 4.0], [0.0, 0.0]])
         result = normalize_sphere(x)
         assert result.shape == (2, 2)
@@ -43,6 +45,7 @@ class TestGeometry:
 
     def test_geodesic_distance(self):
         from m2m import geodesic_distance
+
         x = np.array([1.0, 0.0, 0.0])
         y = np.array([0.0, 1.0, 0.0])
         d = geodesic_distance(x, y)
@@ -50,6 +53,7 @@ class TestGeometry:
 
     def test_exp_log_map(self):
         from m2m import exp_map, log_map
+
         base = np.array([1.0, 0.0])
         point = np.array([2.0, 3.0])
         tangent = log_map(base, point)
@@ -59,9 +63,11 @@ class TestGeometry:
 
 # ── Splats Tests ──────────────────────────────────────────────────────
 
+
 class TestSplats:
     def test_add_and_find(self):
         from m2m import M2MConfig, SplatStore
+
         config = M2MConfig(device="cpu", latent_dim=640, max_splats=100)
         splats = SplatStore(config)
         vec = np.random.randn(640).astype(np.float32)
@@ -71,6 +77,7 @@ class TestSplats:
 
     def test_max_splats_limit(self):
         from m2m import M2MConfig, SplatStore
+
         config = M2MConfig(device="cpu", latent_dim=640, max_splats=5)
         splats = SplatStore(config)
         for i in range(10):
@@ -80,6 +87,7 @@ class TestSplats:
 
     def test_compact(self):
         from m2m import M2MConfig, SplatStore
+
         config = M2MConfig(device="cpu", latent_dim=640, max_splats=100)
         splats = SplatStore(config)
         for i in range(5):
@@ -92,9 +100,11 @@ class TestSplats:
 
 # ── WAL Tests ─────────────────────────────────────────────────────────
 
+
 class TestWAL:
     def test_log_and_recover(self):
         from m2m.storage import WriteAheadLog
+
         with tempfile.TemporaryDirectory() as tmpdir:
             wal_path = f"{tmpdir}/test_wal.log"
             wal = WriteAheadLog(wal_path)
@@ -113,6 +123,7 @@ class TestWAL:
 
     def test_truncate(self):
         from m2m.storage import WriteAheadLog
+
         with tempfile.TemporaryDirectory() as tmpdir:
             wal_path = f"{tmpdir}/test_wal.log"
             wal = WriteAheadLog(wal_path)
@@ -131,6 +142,7 @@ class TestWAL:
     def test_corrupted_wal_recovery(self):
         """WAL should handle truncated/corrupted files gracefully."""
         from m2m.storage import WriteAheadLog
+
         with tempfile.TemporaryDirectory() as tmpdir:
             wal_path = f"{tmpdir}/test_wal.log"
             wal = WriteAheadLog(wal_path)
@@ -152,9 +164,11 @@ class TestWAL:
 
 # ── Persistence Tests ────────────────────────────────────────────────
 
+
 class TestPersistence:
     def test_save_and_load_metadata(self):
         from m2m.storage import M2MPersistence
+
         with tempfile.TemporaryDirectory() as tmpdir:
             p = M2MPersistence(tmpdir, enable_wal=False)
             p.save_metadata("doc_1", 0, 0, metadata={"cat": "test"}, document="hello world")
@@ -165,6 +179,7 @@ class TestPersistence:
 
     def test_soft_delete_and_filter(self):
         from m2m.storage import M2MPersistence
+
         with tempfile.TemporaryDirectory() as tmpdir:
             p = M2MPersistence(tmpdir, enable_wal=False)
             p.save_metadata("d1", 0, 0, metadata={"cat": "a"})
@@ -183,6 +198,7 @@ class TestPersistence:
 
     def test_vectors_save_and_load(self):
         from m2m.storage import M2MPersistence
+
         with tempfile.TemporaryDirectory() as tmpdir:
             p = M2MPersistence(tmpdir, enable_wal=False)
             vecs = np.random.randn(5, 384).astype(np.float32)
@@ -196,6 +212,7 @@ class TestPersistence:
         """Index should round-trip with HMAC verification."""
         monkeypatch.setenv("M2M_HMAC_SECRET", "test-secret-for-hmac-test")
         from m2m.storage import M2MPersistence
+
         with tempfile.TemporaryDirectory() as tmpdir:
             p = M2MPersistence(tmpdir, enable_wal=False)
             test_data = {"key": "value", "arr": np.array([1, 2, 3])}
@@ -207,12 +224,15 @@ class TestPersistence:
 
 # ── Memory Manager Tests ─────────────────────────────────────────────
 
+
 class TestMemoryManager:
     @pytest.fixture
     def make_splats(self):
         """Create GaussianSplat instances with correct signature."""
+
         def _make(n, dim=10):
             from m2m.splat_types import GaussianSplat
+
             return [
                 GaussianSplat(
                     id=i,
@@ -224,10 +244,12 @@ class TestMemoryManager:
                 )
                 for i in range(n)
             ]
+
         return _make
 
     def test_basic_add_and_get(self, make_splats):
         from m2m.memory import SplatMemoryManager
+
         mgr = SplatMemoryManager(vram_limit=100, ram_limit=500)
         mgr.add_splats(make_splats(10), to_cold=True)
         s = mgr.get_splat(0)
@@ -236,6 +258,7 @@ class TestMemoryManager:
 
     def test_promotion_to_vram(self, make_splats):
         from m2m.memory import SplatMemoryManager
+
         mgr = SplatMemoryManager(vram_limit=5, ram_limit=100, access_threshold=3)
         mgr.add_splats(make_splats(3, dim=5), to_cold=False)
         for _ in range(5):
@@ -244,6 +267,7 @@ class TestMemoryManager:
 
     def test_stats(self, make_splats):
         from m2m.memory import SplatMemoryManager
+
         mgr = SplatMemoryManager()
         mgr.add_splats(make_splats(5, dim=3))
         stats = mgr.get_stats()
@@ -252,10 +276,12 @@ class TestMemoryManager:
 
 # ── Chaos / Edge Case Tests ──────────────────────────────────────────
 
+
 class TestChaosEdgeCases:
     def test_empty_search(self):
         """Search on empty DB returns empty list."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
         query = np.random.randn(384).astype(np.float32)
         results = db.search(query, k=5, include_metadata=True)
@@ -265,6 +291,7 @@ class TestChaosEdgeCases:
     def test_nan_vector_raises(self):
         """NaN vectors should raise ValueError."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
         nan_vec = np.full((1, 384), np.nan, dtype=np.float32)
         with pytest.raises(ValueError, match="NaN"):
@@ -273,6 +300,7 @@ class TestChaosEdgeCases:
     def test_wrong_dimension_raises(self):
         """Wrong dimension vectors should raise ValueError."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
         wrong_vec = np.random.randn(1, 128).astype(np.float32)
         with pytest.raises(ValueError, match="dimension mismatch"):
@@ -281,6 +309,7 @@ class TestChaosEdgeCases:
     def test_1d_vector_auto_expanded(self):
         """Single 1D vector should be auto-expanded to 2D."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
         vec = np.random.randn(384).astype(np.float32)
         n = db.add(ids=["d1"], vectors=vec)
@@ -289,6 +318,7 @@ class TestChaosEdgeCases:
     def test_delete_nonexistent(self):
         """Deleting nonexistent doc should not crash."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
         result = db.delete(id="nonexistent")
         assert result.deleted == 0
@@ -296,6 +326,7 @@ class TestChaosEdgeCases:
     def test_large_k_returns_fewer(self):
         """Requesting more results than available should return fewer."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
         for i in range(3):
             db.add(ids=[f"d{i}"], vectors=np.random.randn(1, 384).astype(np.float32))
@@ -306,11 +337,16 @@ class TestChaosEdgeCases:
     def test_metadata_filter_no_match(self):
         """Filter with no matches returns empty."""
         from m2m import SimpleVectorDB
+
         db = SimpleVectorDB(device="cpu", latent_dim=384, mode="edge")
-        db.add(ids=["d1"], vectors=np.random.randn(1, 384).astype(np.float32), metadata=[{"cat": "a"}])
+        db.add(
+            ids=["d1"], vectors=np.random.randn(1, 384).astype(np.float32), metadata=[{"cat": "a"}]
+        )
         results = db.search(
-            np.random.randn(384).astype(np.float32), k=5,
-            filter={"cat": "nonexistent"}, include_metadata=True
+            np.random.randn(384).astype(np.float32),
+            k=5,
+            filter={"cat": "nonexistent"},
+            include_metadata=True,
         )
         if isinstance(results, list):
             assert len(results) == 0
@@ -318,6 +354,7 @@ class TestChaosEdgeCases:
     def test_wal_with_many_ops(self):
         """WAL should handle many sequential operations."""
         from m2m.storage import WriteAheadLog
+
         with tempfile.TemporaryDirectory() as tmpdir:
             wal = WriteAheadLog(f"{tmpdir}/stress_wal.log", sync_interval=10)
             for i in range(200):
@@ -330,8 +367,11 @@ class TestChaosEdgeCases:
 
     def test_concurrent_writes(self):
         """Multiple threads writing to WAL shouldn't corrupt it."""
+        import atexit
+        import threading
+
         from m2m.storage import WriteAheadLog
-        import threading, atexit
+
         tmpdir = tempfile.mkdtemp()
         try:
             wal_path = f"{tmpdir}/concurrent_wal.log"
@@ -358,7 +398,9 @@ class TestChaosEdgeCases:
             assert len(ops) >= 200
             wal.close()
         finally:
-            import shutil, os
+            import os
+            import shutil
+
             try:
                 shutil.rmtree(tmpdir, ignore_errors=True)
             except Exception:
@@ -367,15 +409,18 @@ class TestChaosEdgeCases:
     def test_persistence_path_traversal_blocked(self):
         """Path traversal should be blocked."""
         from m2m.storage import M2MPersistence
+
         with pytest.raises(ValueError, match="Path traversal"):
             M2MPersistence("../../etc/malicious", enable_wal=False)
 
 
 # ── SPEC-13: compact() and entropy() ──────────────────────────────────
 
+
 class TestCompactAndEntropy:
     def _make_store(self, max_splats=100, latent_dim=64):
         from m2m import SplatStore
+
         config = M2MConfig(device="cpu", latent_dim=latent_dim, max_splats=max_splats)
         return SplatStore(config)
 
@@ -458,7 +503,7 @@ class TestCompactAndEntropy:
             vec = np.random.randn(64).astype(np.float32)
             store.add_splat(vec)
         # Set all kappa to the same value → uniform distribution → entropy = 1.0
-        store.kappa[:store.n_active] = 10.0
+        store.kappa[: store.n_active] = 10.0
         e = store.entropy()
         assert e > 0.99  # maximum entropy for uniform distribution
 
@@ -476,11 +521,13 @@ class TestCompactAndEntropy:
 
 # ── SPEC-12: AdvancedVectorDB single engine ───────────────────────────
 
+
 class TestAdvancedVectorDBSingleEngine:
     def test_no_double_engine_creation(self):
         """AdvancedVectorDB should create only one M2MEngine."""
-        from m2m import AdvancedVectorDB
         from unittest.mock import patch
+
+        from m2m import AdvancedVectorDB
 
         call_count = 0
         orig_init = type(M2MConfig.advanced(device="cpu").__class__.__init__) if False else None
@@ -493,9 +540,11 @@ class TestAdvancedVectorDBSingleEngine:
 
 # ── SPEC-20: Input Validation ────────────────────────────────────────
 
+
 class TestInputValidation:
     def _make_db(self, latent_dim=64):
         from m2m import SimpleVectorDB
+
         return SimpleVectorDB(latent_dim=latent_dim, mode="edge")
 
     def test_search_wrong_dimension(self):
@@ -535,6 +584,7 @@ class TestInputValidation:
         pytest.importorskip("m2m.semantic_memory")
         # We can't fully test without an encoder, but test the validation directly
         from m2m.semantic_memory import auto_categorize
+
         # Validation is tested indirectly — test the ValueError path
         pass
 

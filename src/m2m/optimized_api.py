@@ -8,6 +8,7 @@ Integra:
 - Distributed Cluster Mode
 """
 
+import logging
 import time
 from typing import Any, Dict, List, Optional
 
@@ -17,9 +18,8 @@ from . import AdvancedVectorDB, M2MConfig, SimpleVectorDB
 from .auto_scaling import AutoScaler, HorizontalScaler, NodeMetrics
 from .gpu_auto_tune import GPUAutoTuner, get_gpu_tuner
 from .query_optimizer import QueryOptimizer
-import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 
 class M2MOptimized:

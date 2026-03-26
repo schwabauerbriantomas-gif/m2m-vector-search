@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, r"C:\Users\Brian\Desktop\m2m-vector-search-main\src")
 
-from m2m.hrm2_engine import HRM2Engine, GaussianSplat
+from m2m.hrm2_engine import GaussianSplat, HRM2Engine
 
 
 def _make_dense_splats(n: int = 1000, dim: int = 640, seed: int = 42):
@@ -68,9 +68,9 @@ class TestHRM2CosineMetric:
 
         assert engine._silhouette_score is not None
         print(f"\n[DENSE] Cosine silhouette: {engine._silhouette_score:.4f}")
-        assert engine._silhouette_score > -0.01, (
-            f"Silhouette {engine._silhouette_score:.4f} too low"
-        )
+        assert (
+            engine._silhouette_score > -0.01
+        ), f"Silhouette {engine._silhouette_score:.4f} too low"
 
     def test_search_returns_results(self):
         """Search should return k results."""

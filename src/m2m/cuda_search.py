@@ -11,17 +11,18 @@ Target: <2ms per query on 10K embeddings × 640D (RTX 3090).
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Optional, Tuple
 
 import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 
 # Lazy torch import at module level for method usage
 try:
     import torch
+
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
@@ -30,6 +31,7 @@ except ImportError:
 def _has_cuda() -> bool:
     try:
         import torch
+
         return torch.cuda.is_available()
     except ImportError:
         return False
@@ -60,7 +62,11 @@ class CUDASearcher:
         self._device = torch.device(device)
         self._metric = metric
 
-        if embeddings is None or embeddings.nelement() == 0 if hasattr(embeddings, 'nelement') else (embeddings is None or embeddings.size == 0):
+        if (
+            embeddings is None or embeddings.nelement() == 0
+            if hasattr(embeddings, "nelement")
+            else (embeddings is None or embeddings.size == 0)
+        ):
             raise ValueError("embeddings must be a non-empty array")
 
         self._n, self._dim = embeddings.shape
@@ -77,12 +83,14 @@ class CUDASearcher:
 
         # SPEC 2: Precompute ‖x_i‖² for all embeddings
         with torch.no_grad():
-            self._norms_sq = (self._index ** 2).sum(dim=1)  # [N] on GPU
+            self._norms_sq = (self._index**2).sum(dim=1)  # [N] on GPU
 
         logger.info(
             "[CUDASearcher] Ready — %d vectors × %dD, metric=%s, "
             "%.1f MB on GPU, norms precomputed",
-            self._n, self._dim, self._metric,
+            self._n,
+            self._dim,
+            self._metric,
             self._index.nbytes / 1024**2,
         )
 
@@ -112,9 +120,9 @@ class CUDASearcher:
                 f"Query dimension mismatch: expected {self._dim}, got {query.shape[-1]}"
             )
         try:
-            q = torch.from_numpy(
-                np.ascontiguousarray(query, dtype=np.float32)
-            ).to(self._device)  # [1, D]
+            q = torch.from_numpy(np.ascontiguousarray(query, dtype=np.float32)).to(
+                self._device
+            )  # [1, D]
         except torch.cuda.OutOfMemoryError:
             raise RuntimeError(
                 "CUDA OOM during query upload. Reduce batch size or free GPU memory."
@@ -139,9 +147,7 @@ class CUDASearcher:
                     topk_dists.cpu().numpy().flatten().astype(np.float32),
                 )
         except torch.cuda.OutOfMemoryError:
-            raise RuntimeError(
-                "CUDA OOM during search. Reduce k or free GPU memory."
-            )
+            raise RuntimeError("CUDA OOM during search. Reduce k or free GPU memory.")
 
     def search_batch(
         self,
@@ -179,7 +185,9 @@ class CUDASearcher:
             else:
                 dists = self._l2_distances(q)  # [B, N]
                 topk_dists, topk_idx = torch.topk(dists, k, dim=1, largest=False)
-                return topk_idx.cpu().numpy().astype(np.int64), topk_dists.cpu().numpy().astype(np.float32)
+                return topk_idx.cpu().numpy().astype(np.int64), topk_dists.cpu().numpy().astype(
+                    np.float32
+                )
         except torch.cuda.OutOfMemoryError:
             raise RuntimeError("CUDA OOM during batch search. Reduce batch size or k.")
 
@@ -200,7 +208,7 @@ class CUDASearcher:
         L2 distances using precomputed norms (SPEC 2).
         dist²(q, x_i) = ‖q‖² + ‖x_i‖² - 2·q·x_i
         """
-        q_sq = (q ** 2).sum(dim=1, keepdim=True)  # [B, 1]
+        q_sq = (q**2).sum(dim=1, keepdim=True)  # [B, 1]
         x_sq = self._norms_sq.unsqueeze(0)  # [1, N]
         dots = q @ self._index.T  # [B, N]
         dist_sq = q_sq + x_sq - 2 * dots
@@ -210,11 +218,12 @@ class CUDASearcher:
     def rebuild(self, new_embeddings: np.ndarray):
         """Re-upload index (call when embeddings change)."""
         import torch
+
         idx_np = np.ascontiguousarray(new_embeddings, dtype=np.float32)
         self._n, self._dim = idx_np.shape
         self._index = torch.from_numpy(idx_np).to(self._device)
         with torch.no_grad():
-            self._norms_sq = (self._index ** 2).sum(dim=1)
+            self._norms_sq = (self._index**2).sum(dim=1)
         logger.info("[CUDASearcher] Index rebuilt — %d vectors", self._n)
 
     @property
@@ -241,6 +250,7 @@ class MultiStartSearcher:
         device: str = "cuda",
     ):
         import torch
+
         self._searcher = CUDASearcher(embeddings, metric=metric, device=device)
         self._n_starts = n_starts
         self._noise_scale = noise_scale
@@ -295,9 +305,7 @@ class MultiStartSearcher:
 
         top_k = candidates[:k]
         result_indices = np.array([c[0] for c in top_k], dtype=np.int64)
-        result_dists = np.array(
-            [vote_dists[c[0]] / c[1] for c in top_k], dtype=np.float32
-        )
+        result_dists = np.array([vote_dists[c[0]] / c[1] for c in top_k], dtype=np.float32)
 
         return result_indices, result_dists
 

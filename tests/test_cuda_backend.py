@@ -15,6 +15,7 @@ import pytest
 # Check CUDA availability once
 try:
     import torch
+
     CUDA_AVAILABLE = torch.cuda.is_available()
 except ImportError:
     CUDA_AVAILABLE = False
@@ -175,9 +176,9 @@ class TestCUDASearcher:
 
     def test_memory_no_leak(self):
         """Verify VRAM usage doesn't grow unbounded after repeated searches."""
-        from m2m.cuda_search import CUDASearcher
-
         import torch
+
+        from m2m.cuda_search import CUDASearcher
 
         emb = _make_embeddings(5000, 64)
         searcher = CUDASearcher(emb, metric="cosine")
@@ -202,6 +203,7 @@ class TestCUDASearcher:
 def test_cuda_searcher_raises_runtime_when_no_cuda(monkeypatch):
     """CUDASearcher.__init__ raises RuntimeError when CUDA is unavailable."""
     import m2m.cuda_search as cs
+
     # Monkeypatch _has_cuda to always return False
     monkeypatch.setattr(cs, "_has_cuda", lambda: False)
 
@@ -213,6 +215,7 @@ def test_cuda_searcher_raises_runtime_when_no_cuda(monkeypatch):
 def test_create_gpu_index_returns_none_when_no_backends(monkeypatch):
     """create_gpu_index returns None (CPU fallback) when CUDA and Vulkan are unavailable."""
     import m2m.gpu_vector_index as gi
+
     monkeypatch.setattr(gi, "_has_cuda", lambda: False)
     monkeypatch.setattr(gi, "_has_vulkan", lambda: False)
 

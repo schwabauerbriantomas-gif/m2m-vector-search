@@ -20,6 +20,7 @@ import numpy as np
 
 class BackendType(str, Enum):
     """Tipos de backend disponibles."""
+
     CPU = "cpu"
     CUDA = "cuda"
     VULKAN = "vulkan"
@@ -27,14 +28,16 @@ class BackendType(str, Enum):
 
 class QueryComplexity(str, Enum):
     """Niveles de complejidad de consulta."""
-    SIMPLE = "simple"          # k pequeño, dataset pequeño
-    MODERATE = "moderate"      # k medio, dataset medio
-    COMPLEX = "complex"        # k grande, dataset grande, o batch
+
+    SIMPLE = "simple"  # k pequeño, dataset pequeño
+    MODERATE = "moderate"  # k medio, dataset medio
+    COMPLEX = "complex"  # k grande, dataset grande, o batch
 
 
 @dataclass
 class BackendInfo:
     """Información sobre un backend registrado."""
+
     name: BackendType
     available: bool = False
     search_fn: Optional[Callable] = None
@@ -49,6 +52,7 @@ class BackendInfo:
 @dataclass
 class SupervisorDecision:
     """Decisión del supervisor sobre qué backend usar."""
+
     backend: BackendType
     reason: str
     fallback_chain: List[BackendType] = field(default_factory=list)
@@ -57,8 +61,11 @@ class SupervisorDecision:
 @dataclass
 class SupervisorStats:
     """Estadísticas del supervisor."""
+
     total_decisions: int = 0
-    decisions_by_backend: Dict[str, int] = field(default_factory=lambda: {"cpu": 0, "cuda": 0, "vulkan": 0})
+    decisions_by_backend: Dict[str, int] = field(
+        default_factory=lambda: {"cpu": 0, "cuda": 0, "vulkan": 0}
+    )
     fallbacks_triggered: int = 0
     total_errors: int = 0
     avg_decision_time_ms: float = 0.0
@@ -104,9 +111,7 @@ class SearchSupervisor:
             bt: BackendInfo(name=bt) for bt in BackendType
         }
         self._stats = SupervisorStats()
-        self._latency_history: Dict[BackendType, List[float]] = {
-            bt: [] for bt in BackendType
-        }
+        self._latency_history: Dict[BackendType, List[float]] = {bt: [] for bt in BackendType}
 
     def register_backend(
         self,
@@ -190,7 +195,8 @@ class SearchSupervisor:
 
         # Construir lista de backends disponibles ordenados por preferencia
         available = [
-            bt for bt, info in self._backends.items()
+            bt
+            for bt, info in self._backends.items()
             if info.available and info.search_fn is not None
         ]
 
@@ -239,8 +245,10 @@ class SearchSupervisor:
         """
         # Filtrar por dimensión si hay límite
         valid = [
-            bt for bt in available
-            if self._backends[bt].max_dimension == 0 or query_dim <= self._backends[bt].max_dimension
+            bt
+            for bt in available
+            if self._backends[bt].max_dimension == 0
+            or query_dim <= self._backends[bt].max_dimension
         ]
 
         if complexity == QueryComplexity.SIMPLE:
@@ -293,7 +301,7 @@ class SearchSupervisor:
         Raises:
             RuntimeError: Si todos los backends fallan.
         """
-        query_dim = query.shape[-1] if hasattr(query, 'shape') else 0
+        query_dim = query.shape[-1] if hasattr(query, "shape") else 0
         decision = self.decide_backend(k=k, dataset_size=dataset_size, query_dim=query_dim)
 
         # Intentar backends en orden (primario + fallback chain)
@@ -326,6 +334,7 @@ class SearchSupervisor:
                 if self.enable_auto_fallback:
                     self._stats.fallbacks_triggered += 1
                     import logging
+
                     logging.getLogger("m2m.supervisor").warning(
                         f"Backend {backend_type.value} falló: {e}. Intentando fallback..."
                     )

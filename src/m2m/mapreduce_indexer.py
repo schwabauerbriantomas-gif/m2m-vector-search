@@ -27,6 +27,7 @@ import numpy as np
 @dataclass
 class ChunkResult:
     """Resultado del procesamiento de un chunk (fase Map)."""
+
     chunk_id: int
     coarse_labels: np.ndarray
     fine_labels: np.ndarray
@@ -39,6 +40,7 @@ class ChunkResult:
 @dataclass
 class ReduceResult:
     """Resultado de la fase Reduce."""
+
     total_build_time: float
     map_time: float
     reduce_time: float
@@ -85,7 +87,9 @@ def _process_chunk(
         random_state=random_state + chunk_id,
     )
     coarse_labels = coarse_model.fit_predict(embeddings)
-    coarse_centers = coarse_model.cluster_centers_ if hasattr(coarse_model, 'cluster_centers_') else np.array([])
+    coarse_centers = (
+        coarse_model.cluster_centers_ if hasattr(coarse_model, "cluster_centers_") else np.array([])
+    )
 
     # Fine clustering dentro de cada coarse cluster del chunk
     fine_labels = np.zeros(n_samples, dtype=np.int32)
@@ -106,7 +110,9 @@ def _process_chunk(
             random_state=random_state + chunk_id * 1000 + cid,
         )
         fine_labels[mask] = fine_model.fit_predict(cluster_emb)
-        fine_centers[cid] = fine_model.cluster_centers_ if hasattr(fine_model, 'cluster_centers_') else np.array([])
+        fine_centers[cid] = (
+            fine_model.cluster_centers_ if hasattr(fine_model, "cluster_centers_") else np.array([])
+        )
 
     return ChunkResult(
         chunk_id=chunk_id,
@@ -185,7 +191,7 @@ def _reduce_chunks(
             continue
 
         # Mapear labels locales del chunk a globales
-        local_to_global = global_labels[offset:offset + n_centers]
+        local_to_global = global_labels[offset : offset + n_centers]
         coarse_assignments[cr.indices] = local_to_global[cr.coarse_labels]
         offset += n_centers
 
@@ -272,7 +278,7 @@ def parallel_index(
     chunks: List[Tuple[int, np.ndarray, np.ndarray]] = []
     for i in range(0, n_splats, chunk_size):
         chunk_idx = i // chunk_size
-        chunk_emb = embeddings[i:i + chunk_size]
+        chunk_emb = embeddings[i : i + chunk_size]
         chunk_indices = np.arange(i, min(i + chunk_size, n_splats))
         chunks.append((chunk_idx, chunk_emb, chunk_indices))
 
@@ -280,9 +286,13 @@ def parallel_index(
     if len(chunks) <= 1:
         for chunk_idx, chunk_emb, chunk_indices in chunks:
             cr = _process_chunk(
-                chunk_idx, chunk_emb, chunk_indices,
-                engine.n_coarse, engine.n_fine,
-                engine.batch_size, engine.random_state,
+                chunk_idx,
+                chunk_emb,
+                chunk_indices,
+                engine.n_coarse,
+                engine.n_fine,
+                engine.batch_size,
+                engine.random_state,
             )
             chunk_results.append(cr)
     else:
@@ -291,9 +301,13 @@ def parallel_index(
             futures = {
                 executor.submit(
                     _process_chunk,
-                    chunk_idx, chunk_emb, chunk_indices,
-                    engine.n_coarse, engine.n_fine,
-                    engine.batch_size, engine.random_state,
+                    chunk_idx,
+                    chunk_emb,
+                    chunk_indices,
+                    engine.n_coarse,
+                    engine.n_fine,
+                    engine.batch_size,
+                    engine.random_state,
                 ): chunk_idx
                 for chunk_idx, chunk_emb, chunk_indices in chunks
             }
@@ -309,8 +323,12 @@ def parallel_index(
     n_coarse_global = min(engine.n_coarse, max(1, n_splats // 10))
 
     coarse_assignments, fine_models, fine_assignments, coarse_cluster_indices = _reduce_chunks(
-        chunk_results, n_coarse_global, embeddings,
-        engine.n_fine, engine.batch_size, engine.random_state,
+        chunk_results,
+        n_coarse_global,
+        embeddings,
+        engine.n_fine,
+        engine.batch_size,
+        engine.random_state,
     )
 
     # --- Actualizar engine state ---
@@ -344,9 +362,7 @@ def parallel_index(
     # Update stats
     engine._stats.n_splats = n_splats
     engine._stats.n_coarse_clusters = n_coarse_global
-    engine._stats.n_fine_clusters = sum(
-        m.n_clusters if m else 0 for m in fine_models.values()
-    )
+    engine._stats.n_fine_clusters = sum(m.n_clusters if m else 0 for m in fine_models.values())
     engine._stats.build_time = time.time() - start_total
 
     return engine._stats.build_time

@@ -1,16 +1,17 @@
 """Tests for energy functions in src/m2m/energy.py."""
 
-import sys
 import os
-import numpy as np
+import sys
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from m2m.energy import EnergyFunction
 
-
 # --- Helpers ---
+
 
 def _make_config():
     return MagicMock()
@@ -18,6 +19,7 @@ def _make_config():
 
 class FakeSplats:
     """Minimal mock of SplatStore with the attributes energy.py uses."""
+
     def __init__(self, mu, alpha, kappa, n_active):
         self.mu = np.array(mu, dtype=np.float32)
         self.alpha = np.array(alpha, dtype=np.float32)
@@ -26,6 +28,7 @@ class FakeSplats:
 
 
 # --- Tests: E_splats ---
+
 
 class TestESplats:
     def test_near_splat_lower_energy_than_far(self):
@@ -100,6 +103,7 @@ class TestESplats:
 
 # --- Tests: E_geom ---
 
+
 class TestEGeom:
     def test_unit_vector_zero_energy(self):
         """Unit-norm vectors should have zero geometric energy."""
@@ -134,6 +138,7 @@ class TestEGeom:
 
 # --- Tests: E_comp ---
 
+
 class TestEComp:
     def test_returns_zeros(self):
         """Placeholder should always return zeros."""
@@ -143,6 +148,7 @@ class TestEComp:
 
 
 # --- Tests: compute_energy (__call__) ---
+
 
 class TestComputeEnergy:
     def test_returns_real_values_not_zeros(self):
@@ -195,6 +201,7 @@ class TestComputeEnergy:
             ef.E_splats(x, splats)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import pytest
-    pytest.main([__file__, '-v'])
+
+    pytest.main([__file__, "-v"])

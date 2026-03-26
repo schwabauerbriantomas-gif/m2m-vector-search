@@ -39,10 +39,10 @@ class BM25Index:
         self._tokenizer = tokenizer_fn or self._default_tokenizer
 
         # Document storage
-        self._docs: Dict[str, str] = {}          # id -> raw text
+        self._docs: Dict[str, str] = {}  # id -> raw text
         self._doc_tokens: Dict[str, List[str]] = {}  # id -> token list
-        self._doc_lengths: Dict[str, int] = {}    # id -> token count
-        self._doc_freq: Counter = Counter()        # term -> number of docs containing term
+        self._doc_lengths: Dict[str, int] = {}  # id -> token count
+        self._doc_freq: Counter = Counter()  # term -> number of docs containing term
         self._term_freqs: Dict[str, Counter] = {}  # id -> term -> count in doc
         self._avg_dl: float = 0.0
         self._n_docs: int = 0
@@ -50,7 +50,7 @@ class BM25Index:
     @staticmethod
     def _default_tokenizer(text: str) -> List[str]:
         """Default tokenizer: lowercase, split on non-alphanumeric."""
-        return re.findall(r'[a-záéíóúñü0-9]+', text.lower())
+        return re.findall(r"[a-záéíóúñü0-9]+", text.lower())
 
     def add(self, doc_id: str, text: str):
         """
@@ -113,7 +113,9 @@ class BM25Index:
         else:
             self._avg_dl = 0.0
 
-    def search(self, query: str, k: int = 10, doc_filter: Optional[set] = None) -> List[Tuple[str, float]]:
+    def search(
+        self, query: str, k: int = 10, doc_filter: Optional[set] = None
+    ) -> List[Tuple[str, float]]:
         """
         Search for documents matching the query.
 

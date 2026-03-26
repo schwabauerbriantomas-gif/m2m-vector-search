@@ -20,6 +20,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 
 class BackendMsgType(str, Enum):
     """Tipos de mensajes entre backends."""
+
     SEARCH_REQUEST = "search_request"
     SEARCH_RESULT = "search_result"
     INDEX_REQUEST = "index_request"
@@ -38,13 +39,14 @@ class BackendMessage:
 
     Incluye metadata para routing, prioridad, y tracking.
     """
+
     sender: str
     receiver: str
     msg_type: BackendMsgType
     content: Dict[str, Any]
     message_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     timestamp: float = field(default_factory=time.time)
-    priority: int = 0          # -1=low, 0=normal, 1=high, 2=critical
+    priority: int = 0  # -1=low, 0=normal, 1=high, 2=critical
     ttl_seconds: float = 60.0
     metadata: Dict[str, Any] = field(default_factory=dict)
     parent_id: Optional[str] = None
@@ -100,6 +102,7 @@ class BackendMessage:
 @dataclass
 class BackendHealth:
     """Estado de salud de un backend."""
+
     name: str
     is_healthy: bool = True
     last_heartbeat: float = field(default_factory=time.time)
@@ -114,6 +117,7 @@ class BackendHealth:
 @dataclass
 class BackendMetrics:
     """Métricas de rendimiento de un backend."""
+
     name: str
     queries_per_second: float = 0.0
     avg_latency_ms: float = 0.0
@@ -327,7 +331,8 @@ class BackendComm:
             Lista de mensajes.
         """
         filtered = [
-            m for m in self._messages
+            m
+            for m in self._messages
             if (m.receiver == receiver or m.receiver == "all")
             and (msg_type is None or m.msg_type == msg_type)
             and m.priority >= min_priority

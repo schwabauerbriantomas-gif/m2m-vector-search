@@ -9,15 +9,15 @@ Características:
 - Dynamic batching
 """
 
+import logging
 import os
 import time
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
 import numpy as np
-import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 
 @dataclass

@@ -31,9 +31,7 @@ def test_lsh_recall_uniform_data():
         ground_truth[i] = np.argsort(distances)[:k]
 
     # Test LSH
-    config = LSHConfig(
-        dim=dim, n_tables=20, n_bits=18, n_probes=60, n_candidates=600, seed=42
-    )
+    config = LSHConfig(dim=dim, n_tables=20, n_bits=18, n_probes=60, n_candidates=600, seed=42)
 
     index = CrossPolytopeLSH(config)
     index.index(vectors)

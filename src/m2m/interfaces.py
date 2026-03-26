@@ -15,7 +15,8 @@ import numpy as np
 @dataclass
 class IndexSearchResult:
     """Unified search result from any VectorIndex backend."""
-    indices: np.ndarray   # [K] indices into the stored vectors
+
+    indices: np.ndarray  # [K] indices into the stored vectors
     distances: np.ndarray  # [K] distances (lower = closer)
     ids: Optional[List[str]] = None  # optional doc IDs
 
@@ -88,7 +89,7 @@ class BruteForceIndex(VectorIndex):
         else:
             # Euclidean distance
             diffs = self._vectors - query[np.newaxis, :]
-            dists = np.sum(diffs ** 2, axis=1)  # [N]
+            dists = np.sum(diffs**2, axis=1)  # [N]
             top_k = np.argpartition(dists, k)[:k]
             top_k = top_k[np.argsort(dists[top_k])]
             return IndexSearchResult(
@@ -120,6 +121,7 @@ class BruteForceIndex(VectorIndex):
 @dataclass
 class IndexSelectionResult:
     """Result of the auto-detection index selection."""
+
     recommended: str  # 'bruteforce', 'hrm2', 'hnsw'
     silhouette: float
     distance_cv: float  # coefficient of variation of distances
@@ -144,14 +146,21 @@ def select_index_strategy(
 
     if force:
         return IndexSelectionResult(
-            recommended=force, silhouette=-1, distance_cv=-1,
-            n_vectors=n, dim=dim, reason="forced by user",
+            recommended=force,
+            silhouette=-1,
+            distance_cv=-1,
+            n_vectors=n,
+            dim=dim,
+            reason="forced by user",
         )
 
     if n < 15_000:
         return IndexSelectionResult(
-            recommended="bruteforce", silhouette=-1, distance_cv=-1,
-            n_vectors=n, dim=dim,
+            recommended="bruteforce",
+            silhouette=-1,
+            distance_cv=-1,
+            n_vectors=n,
+            dim=dim,
             reason=f"{n} < 15K -> linear scan is sufficient",
         )
 
@@ -161,22 +170,31 @@ def select_index_strategy(
 
     if n >= 100_000:
         return IndexSelectionResult(
-            recommended="hnsw", silhouette=silhouette, distance_cv=distance_cv,
-            n_vectors=n, dim=dim,
+            recommended="hnsw",
+            silhouette=silhouette,
+            distance_cv=distance_cv,
+            n_vectors=n,
+            dim=dim,
             reason=f"{n} >= 100K -> HNSW for scalability",
         )
 
     # Medium dataset: check clustering quality
     if silhouette > 0.15 and distance_cv > 0.2:
         return IndexSelectionResult(
-            recommended="hrm2", silhouette=silhouette, distance_cv=distance_cv,
-            n_vectors=n, dim=dim,
+            recommended="hrm2",
+            silhouette=silhouette,
+            distance_cv=distance_cv,
+            n_vectors=n,
+            dim=dim,
             reason=f"Good cluster structure (sil={silhouette:.3f}, cv={distance_cv:.3f}) -> HRM2",
         )
     else:
         return IndexSelectionResult(
-            recommended="hnsw", silhouette=silhouette, distance_cv=distance_cv,
-            n_vectors=n, dim=dim,
+            recommended="hnsw",
+            silhouette=silhouette,
+            distance_cv=distance_cv,
+            n_vectors=n,
+            dim=dim,
             reason=f"Poor cluster structure (sil={silhouette:.3f}, cv={distance_cv:.3f}) -> HNSW",
         )
 
@@ -184,8 +202,8 @@ def select_index_strategy(
 def _compute_silhouette_safe(vectors: np.ndarray, sample_size: int = 1000) -> float:
     """Compute silhouette score safely, returning -1 on failure."""
     try:
-        from sklearn.metrics import silhouette_score
         from sklearn.cluster import KMeans
+        from sklearn.metrics import silhouette_score
 
         n = len(vectors)
         if n < 3:
@@ -208,7 +226,7 @@ def _compute_distance_cv(vectors: np.ndarray, sample_size: int = 500) -> float:
     sample = vectors[idx]
 
     # Compute distances to a few reference points
-    refs = sample[:min(5, sample_n)]
+    refs = sample[: min(5, sample_n)]
     all_dists = []
     for ref in refs:
         dists = np.linalg.norm(sample - ref[np.newaxis, :], axis=1)

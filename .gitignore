@@ -162,3 +162,19 @@ linear_scan_baseline.json
 
 # Vulkan shaders (compiled)
 src/m2m/shaders/*.spv
+
+# Model weights (too large for GitHub)
+models/
+*.pt
+*.pth
+*.onnx
+*.bin
+
+# Generated docs (built by CI)
+docs/api/
+
+# Cache
+.m2m_cache/
+
+# Temp files
+benchmark_temp*

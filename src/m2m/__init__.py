@@ -19,15 +19,22 @@ __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 
 # M2M Core Modules
 try:
+    from .backend_comm import (
+        BackendComm,
+        BackendHealth,
+        BackendMessage,
+        BackendMetrics,
+        BackendMsgType,
+    )
     from .config import M2MConfig
     from .ebm import EBMEnergy, EBMExploration, SOCEngine
     from .ebm.energy_api import EnergyResult as EnergyResult  # re-export
@@ -49,17 +56,15 @@ try:
     from .graph_splat import GraphEdge as GraphEdge
     from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import NodeType as NodeType
+    from .hrm2_engine import HRM2Engine
+    from .mapreduce_indexer import parallel_index
+    from .quality_reflector import QualityLevel, QualityReflector, QualityReport
+    from .query_router import QueryProfile, QueryRouter, SearchStrategy
+    from .search_supervisor import BackendType, QueryComplexity, SearchSupervisor
+    from .semantic_memory import MemoryResult, SemanticMemoryDB
     from .splats import SplatStore
     from .storage import M2MPersistence
     from .storage import WriteAheadLog as WriteAheadLog
-    from .semantic_memory import SemanticMemoryDB
-    from .semantic_memory import MemoryResult
-    from .search_supervisor import SearchSupervisor, BackendType, QueryComplexity
-    from .query_router import QueryRouter, SearchStrategy, QueryProfile
-    from .quality_reflector import QualityReflector, QualityLevel, QualityReport
-    from .backend_comm import BackendComm, BackendMessage, BackendMsgType, BackendHealth, BackendMetrics
-    from .mapreduce_indexer import parallel_index
-    from .hrm2_engine import HRM2Engine
 except ImportError:
     from .config import M2MConfig
 
@@ -125,7 +130,9 @@ class M2MMemory:
         # Energy Function
         self.energy_fn = EnergyFunction(config)
 
-        logger.info("M2M initialized on %s (compute_device=%s)", config.device, config.compute_device)
+        logger.info(
+            "M2M initialized on %s (compute_device=%s)", config.device, config.compute_device
+        )
         logger.info("Latent dim: %s", config.latent_dim)
         logger.info("Max splats: %s", config.max_splats)
         logger.info("3-tier memory: %s", config.enable_3_tier_memory)
@@ -456,7 +463,9 @@ class SimpleVectorDB:
         self.lsh = None
         self._use_lsh = False
         self._lsh_id_map: List[str] = []  # maps LSH positional index -> doc_id
-        self._splat_id_order: List[str] = []  # maps splat position -> doc_id for consolidate cleanup
+        self._splat_id_order: List[str] = (
+            []
+        )  # maps splat position -> doc_id for consolidate cleanup
 
         # Almacenamiento interno en memoria (para compatibilidad)
         self._vectors: Dict[str, np.ndarray] = {}
@@ -507,9 +516,13 @@ class SimpleVectorDB:
                     self._documents[doc_id] = meta.get("document", "")
             if self._vectors:
                 import logging
-                logging.getLogger("m2m").info(f"Restored {len(self._vectors)} documents from storage")
+
+                logging.getLogger("m2m").info(
+                    f"Restored {len(self._vectors)} documents from storage"
+                )
         except Exception as e:
             import logging
+
             logging.getLogger("m2m").warning(f"Failed to restore from storage: {e}")
 
     def _compute_silhouette(self, vectors: np.ndarray, sample_size: int = 1000) -> float:
@@ -1122,11 +1135,17 @@ class AdvancedVectorDB(SimpleVectorDB):
         # Clean up orphaned doc_ids from _vectors, _metadata, _documents
         if n_removed > 0 and self._splat_id_order:
             # Build set of doc_ids to remove based on splat positions
-            orphans = {self._splat_id_order[idx] for idx in splats_to_remove
-                       if idx < len(self._splat_id_order)}
+            orphans = {
+                self._splat_id_order[idx]
+                for idx in splats_to_remove
+                if idx < len(self._splat_id_order)
+            }
             # Rebuild _splat_id_order keeping only surviving splats
-            kept = [self._splat_id_order[i] for i in range(len(self._splat_id_order))
-                    if i not in splats_to_remove]
+            kept = [
+                self._splat_id_order[i]
+                for i in range(len(self._splat_id_order))
+                if i not in splats_to_remove
+            ]
             self._splat_id_order = kept
             # Remove orphaned entries
             for doc_id in orphans:
@@ -1443,6 +1462,7 @@ def main():
         print("=" * 60)
 
         import numpy as np
+
         from .dataset_transformer import M2MDatasetTransformer
 
         vectors = np.load(input_path)

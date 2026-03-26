@@ -138,13 +138,17 @@ class M2MDatasetTransformer:
         """Generate a deterministic cache key from vectors and config."""
         h = hashlib.sha256()
         h.update(self.vectors.tobytes())
-        h.update(json.dumps({
-            "n_clusters": self.config.n_clusters,
-            "hierarchy_levels": self.config.hierarchy_levels,
-            "min_cluster_size": self.config.min_cluster_size,
-            "seed": self.config.seed,
-            "max_iter": self.config.max_iter,
-        }).encode())
+        h.update(
+            json.dumps(
+                {
+                    "n_clusters": self.config.n_clusters,
+                    "hierarchy_levels": self.config.hierarchy_levels,
+                    "min_cluster_size": self.config.min_cluster_size,
+                    "seed": self.config.seed,
+                    "max_iter": self.config.max_iter,
+                }
+            ).encode()
+        )
         return h.hexdigest()[:16]
 
     def _cache_path(self) -> Optional[str]:
@@ -194,6 +198,7 @@ class M2MDatasetTransformer:
             }
 
         import time
+
         t0 = time.perf_counter()
 
         if self.config.hierarchy_levels <= 1:
@@ -230,10 +235,10 @@ class M2MDatasetTransformer:
     def _cluster_flat_kmeans(self) -> List[GaussianSplat]:
         """
         Flat KMeans clustering — O(N·K·iter) complexity.
-        
+
         Much faster than AgglomerativeClustering (O(N²)) while producing
         comparable quality centroids for vector search.
-        
+
         Reference: Johnson et al. (2019) "Billion-scale commodity clustering"
         """
         N, D = self.vectors.shape
@@ -242,13 +247,15 @@ class M2MDatasetTransformer:
         if n_clusters <= 1:
             # Edge case: very few vectors
             mu = np.mean(self.vectors, axis=0)
-            return [GaussianSplat(
-                mu=mu.astype(np.float32),
-                alpha=1.0,
-                kappa=10.0,
-                n_vectors=N,
-                indices=np.arange(N),
-            )]
+            return [
+                GaussianSplat(
+                    mu=mu.astype(np.float32),
+                    alpha=1.0,
+                    kappa=10.0,
+                    n_vectors=N,
+                    indices=np.arange(N),
+                )
+            ]
 
         kmeans = MiniBatchKMeans(
             n_clusters=n_clusters,
@@ -279,23 +286,25 @@ class M2MDatasetTransformer:
             kappa = float(np.clip(1.0 / variance, 0.1, 100.0))
             alpha = n / N
 
-            splats.append(GaussianSplat(
-                mu=mu,
-                alpha=float(alpha),
-                kappa=kappa,
-                n_vectors=n,
-                indices=cluster_indices,
-            ))
+            splats.append(
+                GaussianSplat(
+                    mu=mu,
+                    alpha=float(alpha),
+                    kappa=kappa,
+                    n_vectors=n,
+                    indices=cluster_indices,
+                )
+            )
 
         return splats
 
     def _cluster_hierarchical(self) -> List[GaussianSplat]:
         """
         Two-level hierarchical KMeans: coarse clustering then fine within each.
-        
+
         Inspired by FAISS IVF (Inverted File Index) from
         Ge et al. (2017) "Billion-scale similarity search with GPUs".
-        
+
         Level 1: KMeans with sqrt(n_clusters) coarse clusters
         Level 2: Within each coarse, KMeans with sqrt(n_clusters) fine clusters
         """
@@ -331,13 +340,15 @@ class M2MDatasetTransformer:
                 distances = np.linalg.norm(cluster_vecs - mu, axis=1)
                 variance = np.mean(distances) + 1e-8
                 kappa = float(np.clip(1.0 / variance, 0.1, 100.0))
-                splats.append(GaussianSplat(
-                    mu=mu.astype(np.float32),
-                    alpha=n_in_cluster / N,
-                    kappa=kappa,
-                    n_vectors=n_in_cluster,
-                    indices=cluster_idx,
-                ))
+                splats.append(
+                    GaussianSplat(
+                        mu=mu.astype(np.float32),
+                        alpha=n_in_cluster / N,
+                        kappa=kappa,
+                        n_vectors=n_in_cluster,
+                        indices=cluster_idx,
+                    )
+                )
                 continue
 
             # Level 2: Fine KMeans within coarse cluster
@@ -364,13 +375,15 @@ class M2MDatasetTransformer:
                 variance = np.mean(distances) + 1e-8
                 kappa = float(np.clip(1.0 / variance, 0.1, 100.0))
 
-                splats.append(GaussianSplat(
-                    mu=mu,
-                    alpha=n / N,
-                    kappa=kappa,
-                    n_vectors=n,
-                    indices=fine_idx,
-                ))
+                splats.append(
+                    GaussianSplat(
+                        mu=mu,
+                        alpha=n / N,
+                        kappa=kappa,
+                        n_vectors=n,
+                        indices=fine_idx,
+                    )
+                )
 
         return splats
 
@@ -380,7 +393,9 @@ class M2MDatasetTransformer:
             return self.splats
 
         # Find splats that are too small
-        small_indices = [i for i, s in enumerate(self.splats) if s.n_vectors < self.config.min_cluster_size]
+        small_indices = [
+            i for i, s in enumerate(self.splats) if s.n_vectors < self.config.min_cluster_size
+        ]
         if not small_indices:
             return self.splats
 
@@ -395,13 +410,19 @@ class M2MDatasetTransformer:
             dists = np.linalg.norm(centroids - centroids[si], axis=1)
             dists[si] = np.inf  # Exclude self
             for j in np.argsort(dists):
-                if j not in to_remove and j != si and self.splats[j].n_vectors >= self.config.min_cluster_size:
+                if (
+                    j not in to_remove
+                    and j != si
+                    and self.splats[j].n_vectors >= self.config.min_cluster_size
+                ):
                     # Merge si into j
                     target = self.splats[j]
                     source = self.splats[si]
                     total_n = target.n_vectors + source.n_vectors
                     # Weighted centroid
-                    target.mu = ((target.mu * target.n_vectors + source.mu * source.n_vectors) / total_n).astype(np.float32)
+                    target.mu = (
+                        (target.mu * target.n_vectors + source.mu * source.n_vectors) / total_n
+                    ).astype(np.float32)
                     target.alpha = target.alpha + source.alpha
                     target.indices = np.concatenate([target.indices, source.indices])
                     target.n_vectors = total_n
@@ -456,8 +477,8 @@ class M2MDatasetTransformer:
             end = min(i + chunk_size, n_sim)
             q_chunk = queries[i:end]  # [chunk, D]
             # Compute distances to all centroids: ||q - c||² = ||q||² - 2q·c + ||c||²
-            q_sq = np.sum(q_chunk ** 2, axis=1, keepdims=True)  # [chunk, 1]
-            c_sq = np.sum(centroids ** 2, axis=1, keepdims=True).T  # [1, n_splats]
+            q_sq = np.sum(q_chunk**2, axis=1, keepdims=True)  # [chunk, 1]
+            c_sq = np.sum(centroids**2, axis=1, keepdims=True).T  # [1, n_splats]
             dot = q_chunk @ centroids.T  # [chunk, n_splats]
             dists_sq = q_sq - 2 * dot + c_sq  # [chunk, n_splats]
             nearest = np.argmin(dists_sq, axis=1)
@@ -470,14 +491,16 @@ class M2MDatasetTransformer:
         kappas_norm = kappas / kappas.max() if kappas.max() > 0 else kappas
 
         result = 0.4 * access_norm + 0.3 * sizes_norm + 0.3 * kappas_norm
-        return (result / result.sum() if result.sum() > 0 else np.ones(n_splats) / n_splats)
+        return result / result.sum() if result.sum() > 0 else np.ones(n_splats) / n_splats
 
     def _partition_for_memory_tiers(self) -> dict:
         """Partitions splats into hot/warm/cold."""
         if len(self.splats) == 0:
-            return {"hot": {"indices": np.array([], dtype=int), "tier": "vram"},
-                    "warm": {"indices": np.array([], dtype=int), "tier": "ram"},
-                    "cold": {"indices": np.array([], dtype=int), "tier": "ssd"}}
+            return {
+                "hot": {"indices": np.array([], dtype=int), "tier": "vram"},
+                "warm": {"indices": np.array([], dtype=int), "tier": "ram"},
+                "cold": {"indices": np.array([], dtype=int), "tier": "ssd"},
+            }
 
         sorted_idx = np.argsort(self.access_patterns)[::-1]
         n = len(self.splats)
@@ -499,7 +522,9 @@ class M2MDatasetTransformer:
             "compression_ratio": len(self.vectors) / max(len(self.splats), 1),
             "original_size_mb": original_size / 1024**2,
             "compressed_size_mb": compressed_size / 1024**2,
-            "memory_savings_pct": (1 - compressed_size / original_size) * 100 if original_size > 0 else 0,
+            "memory_savings_pct": (
+                (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
+            ),
             "transform_time_s": self._transform_time,
         }
 

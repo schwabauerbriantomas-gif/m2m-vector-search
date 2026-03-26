@@ -65,9 +65,7 @@ def test_extractor_with_dataset_transformer():
 
 def test_structural_patterns():
     """Test de patrones estructurales (emails, URLs, etc.)."""
-    extractor = M2MEntityExtractor(
-        use_ngram_analysis=False, use_semantic_clustering=False
-    )
+    extractor = M2MEntityExtractor(use_ngram_analysis=False, use_semantic_clustering=False)
     text = "Contact me at test@example.com or visit https://example.com. Call 555-123-4567. Date: 2024-01-01, Price: $1,234.56"
 
     entities = extractor.extract(text)
@@ -82,9 +80,7 @@ def test_structural_patterns():
 
 def test_ngram_analysis():
     """Test de análisis de n-grams."""
-    extractor = M2MEntityExtractor(
-        use_structural_patterns=False, use_semantic_clustering=False
-    )
+    extractor = M2MEntityExtractor(use_structural_patterns=False, use_semantic_clustering=False)
     text = "Steve Jobs founded Apple Computer in Cupertino."
 
     entities = extractor.extract(text)
@@ -98,9 +94,7 @@ def test_ngram_analysis():
 
 def test_semantic_validation():
     """Test de validación semántica en S^639."""
-    extractor = M2MEntityExtractor(
-        use_structural_patterns=False, use_ngram_analysis=False
-    )
+    extractor = M2MEntityExtractor(use_structural_patterns=False, use_ngram_analysis=False)
     # We will manually inject candidates just to test the validation method
     candidates = [
         EntityCandidate(
@@ -124,9 +118,7 @@ def test_semantic_validation():
 
     splat_data = {"mu": np.random.randn(5, 640).astype(np.float32)}
     # Normalize splat centers
-    splat_data["mu"] = splat_data["mu"] / np.linalg.norm(
-        splat_data["mu"], axis=1, keepdims=True
-    )
+    splat_data["mu"] = splat_data["mu"] / np.linalg.norm(splat_data["mu"], axis=1, keepdims=True)
 
     extractor._validate_semantic(candidates, splat_data, None)
 

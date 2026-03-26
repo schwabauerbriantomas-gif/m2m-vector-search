@@ -17,12 +17,13 @@ Reference pattern implemented:
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from typing import Optional, Tuple
 
 import numpy as np
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +51,7 @@ def _has_vulkan() -> bool:
         return True
     except ImportError:
         return False
+
 
 # Max vectors per GPU dispatch chunk.
 # Result buffer size = MAX_BATCH × CHUNK_SIZE × 4 bytes.
@@ -580,6 +582,7 @@ class GPUVectorIndex:
         )
         return vk.vkAllocateCommandBuffers(self._device, info)[0]
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CUDAVectorIndex — PyTorch CUDA backend (NVIDIA GPUs)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -676,12 +679,14 @@ class CUDAVectorIndex:
 
     def rebuild(self, new_index_vectors: np.ndarray):
         import torch
+
         new_idx = np.ascontiguousarray(new_index_vectors, dtype=np.float32)
         assert new_idx.shape == (self._n, self._dim)
         self._index_tensor = torch.from_numpy(new_idx).to(self._device)
 
     def compute_distances(self, query_np, expert_embeddings_np):
         import torch
+
         query_np = np.ascontiguousarray(query_np.flatten()[: self._dim], dtype=np.float32)
         expert_embeddings_np = np.ascontiguousarray(expert_embeddings_np, dtype=np.float32)
         q = torch.from_numpy(query_np).unsqueeze(0).to(self._device)
@@ -695,8 +700,9 @@ class CUDAVectorIndex:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def create_gpu_index(index_vectors: np.ndarray, max_batch_size: int = 100,
-                     prefer_cuda: bool = True):
+def create_gpu_index(
+    index_vectors: np.ndarray, max_batch_size: int = 100, prefer_cuda: bool = True
+):
     """
     Factory para crear el mejor indice GPU disponible.
     Prioridad: CUDA > Vulkan.
@@ -706,5 +712,6 @@ def create_gpu_index(index_vectors: np.ndarray, max_batch_size: int = 100,
         return CUDAVectorIndex(index_vectors, max_batch_size)
     if _has_vulkan():
         import vulkan as vk
+
         return GPUVectorIndex(index_vectors, max_batch_size)
     return None

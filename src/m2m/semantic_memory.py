@@ -50,18 +50,111 @@ import numpy as np
 from .bm25_index import BM25Index
 from .config import M2MConfig
 
-
 # --- Category keywords for auto-categorization ---
 _CATEGORY_KEYWORDS = {
-    "decision": ["decided", "decisión", "chose", "elegido", "agreed", "acordado", "plan", "going to", "will use", "vamos a"],
-    "preference": ["prefers", "prefiere", "likes", "gusta", "loves", "favorite", "favorito", "default", "always use"],
-    "project": ["project", "proyecto", "implement", "implementar", "build", "construir", "feature", "featurea", "sprint", "milestone"],
-    "error": ["error", "bug", "fallo", "failed", "falló", "crash", "exception", "broken", "roto", "fix", "arreglar"],
-    "learning": ["learned", "aprendí", "lesson", "lección", "discovered", "descubrí", "realized", "me di cuenta", "insight"],
-    "question": ["question", "pregunta", "how to", "cómo", "why", "por qué", "what is", "qué es", "wondering"],
-    "conversation": ["said", "dijo", "told me", "me dijo", "discussed", "discutimos", "chat", "call", "llamada", "meeting"],
-    "task": ["todo", "tarea", "task", "pending", "pendiente", "reminder", "recordar", "need to", "necesito"],
-    "config": ["config", "configuración", "setup", "installed", "instalado", "settings", "ajustes", "environment"],
+    "decision": [
+        "decided",
+        "decisión",
+        "chose",
+        "elegido",
+        "agreed",
+        "acordado",
+        "plan",
+        "going to",
+        "will use",
+        "vamos a",
+    ],
+    "preference": [
+        "prefers",
+        "prefiere",
+        "likes",
+        "gusta",
+        "loves",
+        "favorite",
+        "favorito",
+        "default",
+        "always use",
+    ],
+    "project": [
+        "project",
+        "proyecto",
+        "implement",
+        "implementar",
+        "build",
+        "construir",
+        "feature",
+        "featurea",
+        "sprint",
+        "milestone",
+    ],
+    "error": [
+        "error",
+        "bug",
+        "fallo",
+        "failed",
+        "falló",
+        "crash",
+        "exception",
+        "broken",
+        "roto",
+        "fix",
+        "arreglar",
+    ],
+    "learning": [
+        "learned",
+        "aprendí",
+        "lesson",
+        "lección",
+        "discovered",
+        "descubrí",
+        "realized",
+        "me di cuenta",
+        "insight",
+    ],
+    "question": [
+        "question",
+        "pregunta",
+        "how to",
+        "cómo",
+        "why",
+        "por qué",
+        "what is",
+        "qué es",
+        "wondering",
+    ],
+    "conversation": [
+        "said",
+        "dijo",
+        "told me",
+        "me dijo",
+        "discussed",
+        "discutimos",
+        "chat",
+        "call",
+        "llamada",
+        "meeting",
+    ],
+    "task": [
+        "todo",
+        "tarea",
+        "task",
+        "pending",
+        "pendiente",
+        "reminder",
+        "recordar",
+        "need to",
+        "necesito",
+    ],
+    "config": [
+        "config",
+        "configuración",
+        "setup",
+        "installed",
+        "instalado",
+        "settings",
+        "ajustes",
+        "environment",
+    ],
 }
 
 
@@ -111,7 +204,11 @@ class MemoryResult:
         self.bm25_score = bm25_score
 
     def __repr__(self):
-        doc_preview = (self.document[:60] + "...") if self.document and len(self.document) > 60 else self.document
+        doc_preview = (
+            (self.document[:60] + "...")
+            if self.document and len(self.document) > 60
+            else self.document
+        )
         return f"MemoryResult(id={self.id!r}, score={self.score:.3f}, doc={doc_preview!r})"
 
 
@@ -163,7 +260,9 @@ class SemanticMemoryDB:
         mode: str = "standard",
     ):
         if fusion_method not in ("rrf", "weighted", "vector_only", "bm25_only"):
-            raise ValueError(f"fusion_method must be one of: rrf, weighted, vector_only, bm25_only. Got: {fusion_method}")
+            raise ValueError(
+                f"fusion_method must be one of: rrf, weighted, vector_only, bm25_only. Got: {fusion_method}"
+            )
 
         self.encoder = encoder
         self.latent_dim = latent_dim
@@ -287,6 +386,7 @@ class SemanticMemoryDB:
 
         if doc_id is None:
             import uuid
+
             doc_id = str(uuid.uuid4())
 
         meta = dict(metadata) if metadata else {}
@@ -341,6 +441,7 @@ class SemanticMemoryDB:
 
         if doc_id is None:
             import uuid
+
             doc_id = str(uuid.uuid4())
 
         meta = dict(metadata) if metadata else {}
@@ -386,6 +487,7 @@ class SemanticMemoryDB:
         n = len(texts)
         if ids is None:
             import uuid
+
             ids = [str(uuid.uuid4()) for _ in range(n)]
         if metadatas is None:
             metadatas = [{}] * n
@@ -477,7 +579,7 @@ class SemanticMemoryDB:
                 vector_results = []
 
             for r in vector_results:
-                score = getattr(r, 'score', 0.0) or 0.0
+                score = getattr(r, "score", 0.0) or 0.0
                 vector_score_map[r.id] = float(score)
 
         # --- BM25 search ---
@@ -534,7 +636,7 @@ class SemanticMemoryDB:
         if self.temporal_decay:
             for doc_id in fused_scores:
                 boost = self._compute_temporal_boost(doc_id)
-                fused_scores[doc_id] *= (0.5 + 0.5 * boost)  # Range [0.5, 1.0]
+                fused_scores[doc_id] *= 0.5 + 0.5 * boost  # Range [0.5, 1.0]
 
         # --- Build results ---
         ranked = sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)[:k]
@@ -543,8 +645,8 @@ class SemanticMemoryDB:
         vec_lookup = {}
         for r in vector_results:
             vec_lookup[r.id] = {
-                "document": getattr(r, 'document', None),
-                "metadata": getattr(r, 'metadata', {}) or {},
+                "document": getattr(r, "document", None),
+                "metadata": getattr(r, "metadata", {}) or {},
             }
 
         results = []
@@ -563,14 +665,16 @@ class SemanticMemoryDB:
             if not doc_text and doc_id in self._bm25._docs:
                 doc_text = self._bm25._docs[doc_id]
 
-            results.append(MemoryResult(
-                id=doc_id,
-                document=doc_text,
-                metadata=meta,
-                score=fused_score,
-                vector_score=v_score,
-                bm25_score=b_score,
-            ))
+            results.append(
+                MemoryResult(
+                    id=doc_id,
+                    document=doc_text,
+                    metadata=meta,
+                    score=fused_score,
+                    vector_score=v_score,
+                    bm25_score=b_score,
+                )
+            )
 
         # Track stats
         self._query_count += 1
@@ -598,7 +702,7 @@ class SemanticMemoryDB:
             Number of documents deleted
         """
         result = self._db.delete(id=id, ids=ids, filter=filter, hard=True)
-        n_deleted = result.deleted if hasattr(result, 'deleted') else 0
+        n_deleted = result.deleted if hasattr(result, "deleted") else 0
 
         # Remove from BM25 and timestamps
         to_remove = set()
@@ -655,7 +759,11 @@ class SemanticMemoryDB:
                 "p50_latency_ms": round(float(np.percentile(lat, 50)), 2),
                 "p95_latency_ms": round(float(np.percentile(lat, 95)), 2),
                 "p99_latency_ms": round(float(np.percentile(lat, 99)), 2),
-                "last_100_avg_ms": round(float(np.mean(lat[-100:])), 2) if len(lat) >= 100 else round(float(np.mean(lat)), 2),
+                "last_100_avg_ms": (
+                    round(float(np.mean(lat[-100:])), 2)
+                    if len(lat) >= 100
+                    else round(float(np.mean(lat)), 2)
+                ),
             }
 
         return {

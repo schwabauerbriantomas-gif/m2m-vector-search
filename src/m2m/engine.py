@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, Tuple
 
 import numpy as np
-import logging
+
 logger = logging.getLogger(__name__)
 
 from .config import M2MConfig
-
 
 
 class M2MEngine:

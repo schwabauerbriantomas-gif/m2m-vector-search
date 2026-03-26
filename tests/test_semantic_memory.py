@@ -6,11 +6,12 @@ import time
 import numpy as np
 import pytest
 
-from m2m import SemanticMemoryDB, M2MConfig
+from m2m import M2MConfig, SemanticMemoryDB
 
 
 class FakeEncoder:
     """Deterministic fake encoder that maps text to random-but-consistent vectors."""
+
     def __init__(self, dim=384):
         self.dim = dim
         self._cache = {}
@@ -65,7 +66,9 @@ class TestSemanticMemoryDB:
         """store_with_vector() works without encoder."""
         vec = np.random.randn(384).astype(np.float32)
         vec /= np.linalg.norm(vec)
-        doc_id = memory_db.store_with_vector("manual vector memory", vec, metadata={"source": "test"})
+        doc_id = memory_db.store_with_vector(
+            "manual vector memory", vec, metadata={"source": "test"}
+        )
         assert doc_id is not None
         result = memory_db.get(doc_id)
         assert result is not None
@@ -168,6 +171,7 @@ class TestBM25Index:
 
     def test_basic_add_and_search(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         bm25.add("doc_1", "the quick brown fox jumps over the lazy dog")
         bm25.add("doc_2", "a fast fox runs quickly in the forest")
@@ -176,6 +180,7 @@ class TestBM25Index:
 
     def test_remove_document(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         bm25.add("doc_1", "test document")
         assert bm25.remove("doc_1") is True
@@ -184,11 +189,13 @@ class TestBM25Index:
 
     def test_search_empty_index(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         assert bm25.search("test", k=5) == []
 
     def test_search_with_filter(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         bm25.add("d1", "alpha beta gamma")
         bm25.add("d2", "delta epsilon zeta")
@@ -199,6 +206,7 @@ class TestBM25Index:
 
     def test_clear(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         bm25.add("d1", "test")
         bm25.add("d2", "test2")
@@ -207,6 +215,7 @@ class TestBM25Index:
 
     def test_unicode_tokenization(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         bm25.add("d1", "The researcher is working on vector search")
         results = bm25.search("researcher", k=1)
@@ -215,6 +224,7 @@ class TestBM25Index:
 
     def test_re_add_updates(self):
         from m2m.bm25_index import BM25Index
+
         bm25 = BM25Index()
         bm25.add("d1", "old content")
         bm25.add("d1", "new content updated")

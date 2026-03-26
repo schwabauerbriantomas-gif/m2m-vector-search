@@ -251,6 +251,7 @@ _RATE_LIMIT_MAX_VECTORS_PER_INSERT = 100_000
 def _check_rate_limit(client_ip: str) -> None:
     """Basic rate limiting per IP. Raises HTTPException if exceeded."""
     import time as _time
+
     now = _time.time()
     if client_ip not in _rate_limit_store:
         _rate_limit_store[client_ip] = []
@@ -269,6 +270,7 @@ _API_KEY = None  # Set via M2M_API_KEY env var
 def _validate_api_key(request: Request) -> None:
     """Validates API key if configured via M2M_API_KEY environment variable."""
     import os
+
     global _API_KEY
     if _API_KEY is None:
         _API_KEY = os.environ.get("M2M_API_KEY")
@@ -298,6 +300,7 @@ def _validate_collection_name(name: str) -> str:
 def _validate_backup_path(path: str) -> str:
     """Prevents path traversal in backup operations."""
     from pathlib import Path
+
     resolved = Path(path).resolve()
     # Allow relative paths but block traversal above CWD-like patterns
     if ".." in str(path):
@@ -310,6 +313,7 @@ def _validate_backup_path(path: str) -> str:
 async def global_error_handler(request: Request, exc: Exception):
     """Prevents internal error details from leaking to clients."""
     import traceback
+
     traceback.print_exc()  # Log internally
     return HTTPException(status_code=500, detail="Internal server error")
 
@@ -745,7 +749,9 @@ async def legacy_ingest(request: Request):
     if not isinstance(vectors, list) or len(vectors) == 0:
         raise HTTPException(status_code=400, detail="vectors must be a non-empty list")
     if len(vectors) > _RATE_LIMIT_MAX_VECTORS_PER_INSERT:
-        raise HTTPException(status_code=400, detail=f"Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request")
+        raise HTTPException(
+            status_code=400, detail=f"Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request"
+        )
     doc_ids = body.get("doc_ids", None)
     vecs = np.array(vectors, dtype=np.float32)
     if np.any(np.isnan(vecs)):

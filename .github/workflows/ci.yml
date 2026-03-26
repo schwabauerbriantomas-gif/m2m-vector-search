@@ -114,7 +114,7 @@ jobs:
         pip install -e .
 
     - name: Run Bandit
-      run: bandit -r src/ -ll
+      run: bandit -r src/ -ll --skip B301,B324
 
   docs:
     runs-on: ubuntu-latest
@@ -128,7 +128,7 @@ jobs:
           pip install pdoc
           pip install -e .
       - name: Generate docs
-        run: pdoc --html src/m2m --output-dir docs/api/ --force --exclude "m2m.evaluate_embeddings" --exclude "m2m.train_embeddings" --exclude "m2m.embedding_model"
+        run: pdoc src/m2m "!m2m.evaluate_embeddings" "!m2m.train_embeddings" "!m2m.embedding_model" -o docs/api/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/api/

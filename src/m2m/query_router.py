@@ -24,16 +24,18 @@ import numpy as np
 
 class SearchStrategy(str, Enum):
     """Estrategias de búsqueda disponibles."""
-    EXACT = "exact"                  # k-NN brute force
-    APPROXIMATE_HRM2 = "hrm2"       # HRM2 hierarchical clustering
-    RANGE = "range"                  # Brute force con filtro de distancia
-    BATCH_PARALLEL = "batch"         # Batch paralelo
-    LSH = "lsh"                      # Locality-Sensitive Hashing
+
+    EXACT = "exact"  # k-NN brute force
+    APPROXIMATE_HRM2 = "hrm2"  # HRM2 hierarchical clustering
+    RANGE = "range"  # Brute force con filtro de distancia
+    BATCH_PARALLEL = "batch"  # Batch paralelo
+    LSH = "lsh"  # Locality-Sensitive Hashing
 
 
 @dataclass
 class QueryProfile:
     """Perfil de una query para clasificación."""
+
     k: int = 10
     batch_size: int = 1
     query_dim: int = 0
@@ -46,6 +48,7 @@ class QueryProfile:
 @dataclass
 class RouteDecision:
     """Decisión de enrutamiento."""
+
     strategy: SearchStrategy
     confidence: float
     reason: str
@@ -55,6 +58,7 @@ class RouteDecision:
 @dataclass
 class RouterStats:
     """Estadísticas del router."""
+
     total_routes: int = 0
     routes_by_strategy: Dict[str, int] = field(default_factory=dict)
     avg_latency_by_strategy: Dict[str, float] = field(default_factory=dict)
@@ -76,10 +80,10 @@ class QueryRouter:
     """
 
     # Umbrales de decisión
-    _HRM2_MIN_DATASET = 1000       # Mínimo dataset para HRM2
-    _HRM2_MIN_K = 5                # Mínimo k para HRM2
-    _BATCH_MIN_SIZE = 4            # Mínimo batch para paralelo
-    _EXACT_MAX_DATASET = 5000      # Máximo dataset para exact razonable
+    _HRM2_MIN_DATASET = 1000  # Mínimo dataset para HRM2
+    _HRM2_MIN_K = 5  # Mínimo k para HRM2
+    _BATCH_MIN_SIZE = 4  # Mínimo batch para paralelo
+    _EXACT_MAX_DATASET = 5000  # Máximo dataset para exact razonable
 
     def __init__(
         self,
@@ -99,9 +103,7 @@ class QueryRouter:
 
         self._strategies: Dict[SearchStrategy, Callable] = {}
         self._stats = RouterStats()
-        self._latency_history: Dict[SearchStrategy, List[float]] = {
-            s: [] for s in SearchStrategy
-        }
+        self._latency_history: Dict[SearchStrategy, List[float]] = {s: [] for s in SearchStrategy}
         self._route_history: List[Tuple[QueryProfile, RouteDecision]] = []
 
     def register_strategy(
@@ -303,7 +305,7 @@ class QueryRouter:
         history = self._latency_history[strategy]
         history.append(latency_ms)
         if len(history) > self.learning_window:
-            self._latency_history[strategy] = history[-self.learning_window:]
+            self._latency_history[strategy] = history[-self.learning_window :]
 
         # Actualizar promedio en stats
         self._stats.total_latency_samples[strategy.value] = len(history)
