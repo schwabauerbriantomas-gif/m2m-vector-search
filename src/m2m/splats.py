@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .gaussian_scoring import gaussian_score, two_phase_search
 from .hrm2_engine import HRM2Engine
+from .online_updates import FeedbackEvent, OnlineUpdater
 from .splat_types import GaussianSplat
 
 if TYPE_CHECKING:
@@ -16,7 +18,21 @@ logger = logging.getLogger(__name__)
 
 
 class SplatStore:
-    """Wrapper around the CPU-optimized HRM2Engine to interface with NumPy."""
+    """
+    Gaussian Splat vector store with probabilistic scoring and online learning.
+
+    Each stored vector is a Gaussian in embedding space:
+        Gᵢ(x) = αᵢ · exp(-κᵢ · ‖x - μᵢ‖²)
+
+    Search uses two-phase retrieval:
+        1. L2 candidate retrieval (fast pruning)
+        2. Gaussian re-ranking (probabilistic scoring)
+
+    Parameters adapt via user feedback:
+        - α (amplitude): importance of this memory, decays over time
+        - κ (concentration): specificity, increases with relevant hits
+        - μ (center): drifts toward queries that find it relevant
+    """
 
     def __init__(self, config: M2MConfig) -> None:
         self.config = config
@@ -54,6 +70,14 @@ class SplatStore:
         self._cuda_searcher = None
         self._cuda_dirty = True
 
+        # Online updater for feedback-driven learning
+        self._updater = OnlineUpdater()
+
+    @property
+    def updater(self) -> OnlineUpdater:
+        """Access the online parameter updater for feedback."""
+        return self._updater
+
     def add_splat(self, x: np.ndarray) -> bool:
         """Add a batch of splats or a single splat."""
         if x.ndim == 1:
@@ -62,8 +86,6 @@ class SplatStore:
         n_new = x.shape[0]
         if self.n_active + n_new > self.max_splats:
             return False
-
-        # Data is already numpy
 
         new_splats = []
         for i in range(n_new):
@@ -78,11 +100,7 @@ class SplatStore:
 
             self.n_active += 1
 
-            # Create GaussianSplat dummy (we don't have full 3D parsing yet, we use the vector as a proxy or just store defaults)
-            # In a real system, x_np[i] would be decoded or we'd store it in the splat object
             splat = GaussianSplat(id=idx)
-            # We will hack the embedding index later, for now we just add it to HRM2Engine
-            # HRM2Engine expects we generate embeddings, but here our 'x' is ALREADY the embedding!
             new_splats.append(splat)
 
         # Add dummy splats to engine so it knows the size
@@ -94,17 +112,23 @@ class SplatStore:
         """Build the semantic router index from active vectors."""
         if self.n_active == 0:
             return
-        # Pass raw active vectors directly into HRM2 so we bypass the slow encoder
         embeddings = self.mu[: self.n_active]
         self.engine.index(precomputed_embeddings=embeddings)
-        # Mark GPU index dirty so it is rebuilt on next batch_find_neighbors call
         self._gpu_index_dirty = True
         self._cuda_dirty = True
 
     def find_neighbors(
         self, query: np.ndarray, k: int = 64, lod: int = 2
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Find k-nearest neighbors using fast vectorized search with optional HRM2 routing."""
+        """
+        Find k-nearest neighbors using two-phase Gaussian search.
+
+        Phase 1: L2 candidate retrieval via HRM2 or brute-force
+        Phase 2: Gaussian re-ranking with α·exp(-κ·‖x-μ‖²)
+
+        Returns (mu, alpha, kappa) for the top-k results, ranked by
+        Gaussian score (highest first = best match).
+        """
         query_np = query
         if query_np.ndim == 1:
             query_np = query_np.reshape(1, -1)
@@ -113,14 +137,14 @@ class SplatStore:
         dim = query_np.shape[1]
         n = self.n_active
 
-        # -- CHAOS FIX: Validate inputs ---------------------------------
-        if k < 1:  # C-01 fix: k=0 causes crash
+        # -- Input validation ---------------------------------
+        if k < 1:
             k = 1
-        if query_np.size == 0:  # C-02 fix: empty query
+        if query_np.size == 0:
             raise ValueError("Query vector must not be empty")
-        if not np.all(np.isfinite(query_np)):  # C-03 fix: NaN/Inf detection
+        if not np.all(np.isfinite(query_np)):
             raise ValueError("Query vector contains NaN or Inf values")
-        if dim != self.config.latent_dim:  # H-02 fix: dimension validation
+        if dim != self.config.latent_dim:
             raise ValueError(
                 f"Query dimension mismatch: expected {self.config.latent_dim}, got {dim}"
             )
@@ -133,35 +157,31 @@ class SplatStore:
             kappa_out = np.ones((batch_size, k), dtype=np.float32) * 10.0
             return mu_out, alpha_out, kappa_out
 
-        # Precompute index embeddings slice for fast access
-        index_data = self.mu[:n]  # [n, dim], already float32
+        # Active data slices
+        index_data = self.mu[:n]
         index_alpha = self.alpha[:n]
         index_kappa = self.kappa[:n]
-
-        # Use HRM2 clustering pruning when dataset is large enough
-        # For small N, vectorized brute-force is faster due to lower Python overhead
-        use_hrm2 = n > 15000 and self.engine.coarse_model is not None
 
         mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
         alpha_out = np.zeros((batch_size, k), dtype=np.float32)
         kappa_out = np.zeros((batch_size, k), dtype=np.float32)
 
-        if use_hrm2 and lod == 2:
-            # HRM2 accelerated path for large datasets
-            queries_np = query_np.astype(np.float32)
-            # Precompute coarse distances for all queries at once
-            coarse_dists = self.engine.coarse_model.transform(queries_np)  # [B, n_coarse]
-            n_probe = self.engine.n_probe
+        # Use HRM2 clustering pruning when dataset is large enough
+        use_hrm2 = n > 15000 and self.engine.coarse_model is not None
 
-            for i in range(batch_size):
-                q = queries_np[i]
-                # Find nearest coarse clusters
-                if coarse_dists.shape[1] > n_probe:
-                    closest_coarse = np.argpartition(coarse_dists[i], n_probe - 1)[:n_probe]
+        for i in range(batch_size):
+            q = query_np[i].astype(np.float32)
+
+            if use_hrm2 and lod == 2:
+                # HRM2 accelerated path for large datasets
+                n_probe = self.engine.n_probe
+                coarse_dists = self.engine.coarse_model.transform(q.reshape(1, -1))[0]
+
+                if coarse_dists.shape[0] > n_probe:
+                    closest_coarse = np.argpartition(coarse_dists, n_probe - 1)[:n_probe]
                 else:
-                    closest_coarse = np.argsort(coarse_dists[i])
+                    closest_coarse = np.argsort(coarse_dists)
 
-                # Gather candidate indices from probed clusters
                 candidate_lists = []
                 for c in closest_coarse:
                     cidx = self.engine.coarse_cluster_indices.get(c)
@@ -172,41 +192,28 @@ class SplatStore:
                     continue
 
                 candidates = np.concatenate(candidate_lists)
-                # Vectorized squared L2 distance via einsum (no sqrt needed for ranking)
-                diff = index_data[candidates] - q
-                dists_sq = np.einsum("ij,ij->i", diff, diff)
+            else:
+                # All points are candidates for small datasets
+                candidates = np.arange(n)
 
-                if len(dists_sq) > k:
-                    topk_local = np.argpartition(dists_sq, k - 1)[:k]
-                    sort_order = np.argsort(dists_sq[topk_local])
-                    topk_local = topk_local[sort_order]
-                else:
-                    topk_local = np.argsort(dists_sq)
+            # Two-phase Gaussian search on candidates
+            cand_mu = index_data[candidates]
+            cand_alpha = index_alpha[candidates]
+            cand_kappa = index_kappa[candidates]
 
-                for j, local_j in enumerate(topk_local[:k]):
-                    idx = candidates[local_j]
-                    mu_out[i, j] = index_data[idx]
-                    alpha_out[i, j] = index_alpha[idx]
-                    kappa_out[i, j] = index_kappa[idx]
-        else:
-            # Fast vectorized brute-force path (optimal for N ≤ 15K)
-            queries_np = query_np.astype(np.float32)
-            for i in range(batch_size):
-                q = queries_np[i]
-                diff = index_data - q  # [n, dim]
-                dists_sq = np.einsum("ij,ij->i", diff, diff)  # [n]
+            _, scores, _, _ = two_phase_search(
+                q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5
+            )
 
-                if n > k:
-                    topk = np.argpartition(dists_sq, k - 1)[:k]
-                    sort_order = np.argsort(dists_sq[topk])
-                    topk = topk[sort_order]
-                else:
-                    topk = np.argsort(dists_sq)
+            # Top-k by Gaussian score (already sorted by two_phase_search)
+            # Re-compute to get the right candidate indices
+            top_local = np.argsort(-scores)[:k]
 
-                for j, idx in enumerate(topk[:k]):
-                    mu_out[i, j] = index_data[idx]
-                    alpha_out[i, j] = index_alpha[idx]
-                    kappa_out[i, j] = index_kappa[idx]
+            for j, local_j in enumerate(top_local):
+                idx = candidates[local_j]
+                mu_out[i, j] = index_data[idx]
+                alpha_out[i, j] = index_alpha[idx]
+                kappa_out[i, j] = index_kappa[idx]
 
         return mu_out, alpha_out, kappa_out
 
@@ -218,24 +225,10 @@ class SplatStore:
         max_batch_size: int = 100,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Batch k-NN search — uses GPUVectorIndex (persistent index, single dispatch)
-        when Vulkan is enabled, falls back to sequential find_neighbors() on CPU.
+        Batch k-NN search with Gaussian re-ranking.
 
-        [OK] CORRECT pattern (reference implementation):
-          - Index uploaded to GPU ONCE (or when dirty after rebuild)
-          - Only queries (small) are transferred per call
-          - All B queries dispatched in one vkCmdDispatch(ceil(N/256), B, 1)
-
-        Args:
-            queries: [B, D] tensor
-            k:       number of neighbours
-            lod:     level of detail (CPU path only)
-            max_batch_size: max queries per GPU dispatch
-
-        Returns:
-            mu_out    [B, k, D]
-            alpha_out [B, k]
-            kappa_out [B, k]
+        Uses GPUVectorIndex (Vulkan) or CUDASearcher when available,
+        falls back to CPU with Gaussian re-ranking.
         """
         if queries.ndim == 1:
             queries = queries[np.newaxis, :]
@@ -256,7 +249,6 @@ class SplatStore:
                     self._cuda_dirty = False
 
                 queries_np = queries.astype(np.float32)
-                # Handle single query
                 if queries_np.ndim == 1:
                     queries_np = queries_np[np.newaxis, :]
 
@@ -267,19 +259,8 @@ class SplatStore:
                 else:
                     gpu_ids, gpu_dists = self._cuda_searcher.search_batch(queries_np, k=k)
 
-                mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
-                alpha_out = np.zeros((batch_size, k), dtype=np.float32)
-                kappa_out = np.zeros((batch_size, k), dtype=np.float32)
-
-                for i in range(batch_size):
-                    for j, idx in enumerate(gpu_ids[i]):
-                        idx = int(idx)
-                        if idx < self.n_active:
-                            mu_out[i, j] = self.mu[idx]
-                            alpha_out[i, j] = self.alpha[idx]
-                            kappa_out[i, j] = self.kappa[idx]
-
-                return mu_out, alpha_out, kappa_out
+                # Gaussian re-ranking of GPU candidates
+                return self._gaussian_rerank_gpu_results(gpu_ids, gpu_dists, queries_np, k, dim)
 
             except Exception as e:
                 logger.warning("CUDA batch search failed (%s), falling back.", e)
@@ -288,7 +269,6 @@ class SplatStore:
         vulkan_enabled = getattr(self.config, "enable_vulkan", False)
         if vulkan_enabled and self.n_active > 0:
             try:
-                # Lazy init / rebuild when index vectors changed
                 if self._gpu_index is None or self._gpu_index_dirty:
                     from gpu_vector_index import GPUVectorIndex
 
@@ -299,23 +279,12 @@ class SplatStore:
                 queries_np = queries.astype(np.float32)
                 gpu_ids, gpu_dists = self._gpu_index.batch_search(queries_np, k=k)
 
-                mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
-                alpha_out = np.zeros((batch_size, k), dtype=np.float32)
-                kappa_out = np.zeros((batch_size, k), dtype=np.float32)
-
-                for i in range(batch_size):
-                    for j, idx in enumerate(gpu_ids[i]):
-                        if idx < self.n_active:
-                            mu_out[i, j] = self.mu[idx]
-                            alpha_out[i, j] = self.alpha[idx]
-                            kappa_out[i, j] = self.kappa[idx]
-
-                return mu_out, alpha_out, kappa_out
+                return self._gaussian_rerank_gpu_results(gpu_ids, gpu_dists, queries_np, k, dim)
 
             except Exception as e:
                 logger.warning("GPU batch search failed (%s), falling back to CPU.", e)
 
-        # -- CPU fallback: vectorized brute-force -------------------
+        # -- CPU fallback: two-phase Gaussian search -------------------
         n = self.n_active
         index_data = self.mu[:n].astype(np.float32)
         index_alpha = self.alpha[:n]
@@ -328,20 +297,99 @@ class SplatStore:
 
         for i in range(batch_size):
             q = queries_np[i]
-            diff = index_data - q
-            dists_sq = np.einsum("ij,ij->i", diff, diff)
-            if n > k:
-                topk = np.argpartition(dists_sq, k - 1)[:k]
-                sort_order = np.argsort(dists_sq[topk])
-                topk = topk[sort_order]
-            else:
-                topk = np.argsort(dists_sq)
-            for j, idx in enumerate(topk[:k]):
-                mu_out[i, j] = index_data[idx]
-                alpha_out[i, j] = index_alpha[idx]
-                kappa_out[i, j] = index_kappa[idx]
+            _, scores, _, _ = two_phase_search(
+                q, index_data, index_alpha, index_kappa, k=k, overfetch=2.0
+            )
+            top_local = np.argsort(-scores)[:k]
+
+            for j, local_j in enumerate(top_local):
+                mu_out[i, j] = index_data[local_j]
+                alpha_out[i, j] = index_alpha[local_j]
+                kappa_out[i, j] = index_kappa[local_j]
 
         return mu_out, alpha_out, kappa_out
+
+    def _gaussian_rerank_gpu_results(
+        self,
+        gpu_ids: np.ndarray,
+        gpu_dists: np.ndarray,
+        queries_np: np.ndarray,
+        k: int,
+        dim: int,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Re-rank GPU results using Gaussian scoring."""
+        batch_size = queries_np.shape[0]
+        n = self.n_active
+
+        mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
+        alpha_out = np.zeros((batch_size, k), dtype=np.float32)
+        kappa_out = np.zeros((batch_size, k), dtype=np.float32)
+
+        for i in range(batch_size):
+            # Get candidate indices from GPU results
+            valid_mask = gpu_ids[i] < n
+            candidates = gpu_ids[i][valid_mask].astype(int)
+
+            if len(candidates) == 0:
+                continue
+
+            # Gaussian re-ranking
+            cand_mu = self.mu[candidates]
+            cand_alpha = self.alpha[candidates]
+            cand_kappa = self.kappa[candidates]
+
+            scores = gaussian_score(queries_np[i], cand_mu, cand_alpha, cand_kappa)
+            top_local = np.argsort(-scores)[:k]
+
+            for j, local_j in enumerate(top_local[:k]):
+                idx = candidates[local_j]
+                mu_out[i, j] = self.mu[idx]
+                alpha_out[i, j] = self.alpha[idx]
+                kappa_out[i, j] = self.kappa[idx]
+
+        return mu_out, alpha_out, kappa_out
+
+    def feedback(
+        self,
+        query: np.ndarray,
+        relevant_ids: Optional[List[int]] = None,
+        irrelevant_ids: Optional[List[int]] = None,
+    ) -> Dict[str, int]:
+        """
+        Submit feedback for a query to adapt splat parameters.
+
+        This is the key learning mechanism: after a search, the user
+        confirms which results were relevant and which weren't.
+        The splat parameters (α, κ, μ) are updated accordingly.
+
+        Args:
+            query: [D] the query vector
+            relevant_ids: indices of relevant results
+            irrelevant_ids: indices of irrelevant results
+
+        Returns:
+            Summary of updates applied.
+        """
+        relevant_ids = relevant_ids or []
+        irrelevant_ids = irrelevant_ids or []
+
+        query = np.asarray(query, dtype=np.float32).flatten()
+
+        self._updater.apply_batch_feedback(
+            query=query,
+            relevant_indices=relevant_ids,
+            irrelevant_indices=irrelevant_ids,
+            mu=self.mu,
+            alpha=self.alpha,
+            kappa=self.kappa,
+        )
+
+        # Update frequency counters for relevant hits
+        for idx in relevant_ids:
+            if 0 <= idx < self.n_active:
+                self.frequency[idx] += 1.0
+
+        return self._updater.get_feedback_summary()
 
     def entropy(self, x: Optional[np.ndarray] = None) -> float:
         """
@@ -357,40 +405,37 @@ class SplatStore:
             return 0.0
 
         kappa = self.kappa[: self.n_active]
-        # Remove non-positive kappa (invalid concentration)
         kappa = kappa[kappa > 0]
 
         if len(kappa) == 0:
             return 0.0
 
-        # Normalize to probability distribution
         total = kappa.sum()
         if total <= 0:
             return 0.0
 
         p = kappa / total
-        # Shannon entropy (nats)
         h = -np.sum(p * np.log(p))
 
-        # Normalize by max entropy (uniform distribution)
         max_h = np.log(len(p))
         if max_h <= 0:
             return 0.0
 
         return float(np.clip(h / max_h, 0.0, 1.0))
 
-    def compact(self) -> None:
+    def compact(self) -> int:
         """
-        Remove invalid/dead splats and recompact arrays in-place.
+        Remove dead splats and recompact arrays in-place.
 
-        Removes splats where:
-        - alpha ≈ 0 (< 1e-6)
-        - mu contains NaN or Inf
+        Dead splats are those with:
+        - alpha below minimum threshold (< 0.01)
+        - mu containing NaN or Inf
 
-        After removal, shifts remaining splats to contiguous indices.
+        Returns:
+            Number of splats removed.
         """
         if self.n_active == 0:
-            return
+            return 0
 
         n = self.n_active
         mu = self.mu[:n]
@@ -399,13 +444,15 @@ class SplatStore:
         frequency = self.frequency[:n]
 
         # Build mask: keep splats that are valid
-        valid_alpha = alpha >= 1e-6
+        valid_alpha = alpha >= 0.01
         valid_mu = np.all(np.isfinite(mu), axis=1)
         mask = valid_alpha & valid_mu
 
         n_kept = int(mask.sum())
-        if n_kept == n:
-            return  # Nothing to compact
+        removed = n - n_kept
+
+        if removed == 0:
+            return 0
 
         # Reassign compacted data
         self.mu[:n_kept] = mu[mask]
@@ -420,13 +467,22 @@ class SplatStore:
         self.frequency[n_kept:n] = 0.0
 
         self.n_active = n_kept
+        return removed
 
     def get_statistics(self) -> Dict[str, object]:
-        return {
-            "n_active": self.n_active,
+        n = self.n_active
+        stats = {
+            "n_active": n,
             "max_splats": self.max_splats,
+            "alpha_mean": float(self.alpha[:n].mean()) if n > 0 else 0.0,
+            "alpha_std": float(self.alpha[:n].std()) if n > 0 else 0.0,
+            "kappa_mean": float(self.kappa[:n].mean()) if n > 0 else 0.0,
+            "kappa_std": float(self.kappa[:n].std()) if n > 0 else 0.0,
+            "entropy": self.entropy(),
             "hrm2_stats": self.engine.get_stats(),
+            "feedback_stats": self._updater.get_feedback_summary(),
         }
+        return stats
 
     def _build_hrm2_from_splats(self, splats: List[GaussianSplat]) -> None:
         """Construye índice HRM2 desde splats pre-computados."""

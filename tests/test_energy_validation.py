@@ -14,7 +14,10 @@ from m2m.energy import EnergyFunction
 
 
 def _make_config():
-    return MagicMock()
+    cfg = MagicMock()
+    cfg.energy_splat_weight = 1.0
+    cfg.energy_geom_weight = 0.1
+    return cfg
 
 
 class FakeSplats:

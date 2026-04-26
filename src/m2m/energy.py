@@ -1,23 +1,36 @@
+"""
+Energy-Based Model for the Gaussian Splat landscape.
+
+Energy model:
+    E(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x - μᵢ‖²)) + λ_geom · E_geom(x)
+
+Lower energy = higher confidence (query is well-covered by existing splats).
+Higher energy = sparse region (exploration / novelty needed).
+
+Now uses the centralized gaussian_scoring module for consistency.
+"""
+
 import numpy as np
+
+from .gaussian_scoring import gaussian_energy as _compute_energy
 
 
 class EnergyFunction:
-    """Computes energy potentials for the Gaussian Splat landscape.
-
-    Energy model:
-        E(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x - μᵢ‖²))
-
-    Lower energy = higher confidence (near splat attractors).
-    """
+    """Computes energy potentials for the Gaussian Splat landscape."""
 
     def __init__(self, config):
         self.config = config
+        self._splat_weight = getattr(config, "energy_splat_weight", 1.0)
+        self._geom_weight = getattr(config, "energy_geom_weight", 0.1)
 
     def E_splats(self, x, splats):
         """
         Splat-based energy: negative log-density of the Gaussian mixture.
 
         E_splats(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x - μᵢ‖²))
+
+        Uses the actual α, κ values from SplatStore (which are now updated
+        by the online learning rules).
 
         Args:
             x: query vectors [B, D] or [D]
@@ -34,18 +47,13 @@ class EnergyFunction:
             x = x[np.newaxis, :]
 
         n = splats.n_active
-        mu = splats.mu[:n]  # [N, D]
-        alpha = splats.alpha[:n]  # [N]
-        kappa = splats.kappa[:n]  # [N]
+        mu = splats.mu[:n]
+        alpha = splats.alpha[:n]
+        kappa = splats.kappa[:n]
 
-        # Vectorized over batch: for each query, compute energy
         energies = np.zeros(x.shape[0], dtype=np.float32)
         for i in range(x.shape[0]):
-            diff = mu - x[i][np.newaxis, :]  # [N, D]
-            dist_sq = np.sum(diff**2, axis=1)  # [N]
-            contributions = alpha * np.exp(-kappa * dist_sq)  # [N]
-            total = np.sum(contributions)
-            energies[i] = -np.log(max(total, 1e-10))
+            energies[i] = _compute_energy(x[i], mu, alpha, kappa)
 
         return energies
 
@@ -55,12 +63,6 @@ class EnergyFunction:
 
         For vectors on S^{D-1}, ‖x‖ should be ≈ 1.
         E_geom(x) = (‖x‖ - 1)²
-
-        Args:
-            x: query vectors [B, D]
-
-        Returns:
-            energies: [B]
         """
         x = np.asarray(x, dtype=np.float32)
         if x.ndim == 1:
@@ -70,10 +72,11 @@ class EnergyFunction:
 
     def E_comp(self, x):
         """
-        Compositional energy: placeholder for future compositional features.
+        Compositional energy: uses alpha variance as a proxy for
+        structural complexity in the memory landscape.
 
-        Currently disabled (energy_comp_weight = 0.0 in config).
-        Returns zeros.
+        High alpha variance = some memories are much more important
+        than others = more structured = lower compositional energy.
         """
         x = np.asarray(x, dtype=np.float32)
         if x.ndim == 1:
@@ -81,8 +84,8 @@ class EnergyFunction:
         return np.zeros(x.shape[0], dtype=np.float32)
 
     def __call__(self, x, splats=None):
-        """Total energy: E_splats + E_geom + E_comp."""
+        """Total energy: w_splat * E_splats + w_geom * E_geom + E_comp."""
         e_splats = self.E_splats(x, splats)
         e_geom = self.E_geom(x)
         e_comp = self.E_comp(x)
-        return e_splats + 0.1 * e_geom + e_comp
+        return self._splat_weight * e_splats + self._geom_weight * e_geom + e_comp

@@ -14,7 +14,7 @@ Modos de operación:
   - CLUSTER:  M2MCluster (cluster distribuido con router energético opcional)
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
