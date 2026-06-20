@@ -112,7 +112,7 @@ class HierarchicalGPUSearch:
         """Try to create GPUVectorIndex; fall back to numpy wrapper."""
         if use_gpu:
             try:
-                from gpu_vector_index import GPUVectorIndex
+                from .gpu_vector_index import GPUVectorIndex
 
                 return GPUVectorIndex(vectors, max_batch_size=self.max_batch_size)
             except Exception as e:

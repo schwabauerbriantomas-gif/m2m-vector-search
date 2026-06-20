@@ -275,7 +275,7 @@ class SplatStore:
         if vulkan_enabled and self.n_active > 0:
             try:
                 if self._gpu_index is None or self._gpu_index_dirty:
-                    from gpu_vector_index import GPUVectorIndex
+                    from .gpu_vector_index import GPUVectorIndex
 
                     index_vecs = self.mu[: self.n_active]
                     self._gpu_index = GPUVectorIndex(index_vecs, max_batch_size=max_batch_size)

@@ -165,7 +165,6 @@ class GPUAutoTuner:
         try:
             from .gpu_vector_index import GPUVectorIndex
 
-            # Crear índice GPU
             gpu_index = GPUVectorIndex(
                 index_vectors, max_batch_size=self.profile.optimal_batch_size
             )
