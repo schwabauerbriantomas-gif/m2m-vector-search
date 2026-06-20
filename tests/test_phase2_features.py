@@ -19,14 +19,24 @@ from m2m.semantic_memory import MemoryResult, SemanticMemoryDB, auto_categorize
 # Mock encoder (deterministic, fast)
 # ---------------------------------------------------------------------------
 def _mock_encoder(text):
-    """Deterministic encoder: hashes text into a vector."""
+    """Deterministic encoder: word-level hashing into a vector.
+
+    Produces semantically meaningful vectors: texts sharing words
+    are closer in vector space, which is what real embedding models do.
+    """
     if isinstance(text, list):
         return np.array([_mock_encoder(t).squeeze() for t in text], dtype=np.float32)
     text = text if isinstance(text, str) else str(text)
-    # Deterministic hash-based encoding
-    seed = abs(hash(text)) % (2**31)
-    rng = np.random.RandomState(seed)
-    vec = rng.randn(384).astype(np.float32)
+    # Word-level encoding: average hashed vectors for each word
+    words = text.lower().split()
+    if not words:
+        words = [text]
+    vec = np.zeros(384, dtype=np.float32)
+    for word in words:
+        seed = abs(hash(word)) % (2**31)
+        rng = np.random.RandomState(seed)
+        vec += rng.randn(384).astype(np.float32)
+    vec /= len(words)
     vec /= np.linalg.norm(vec) + 1e-8
     return vec
 

@@ -368,7 +368,7 @@ class TestSplatStoreGaussian:
         store, _ = self._make_store()
         query = np.random.randn(8).astype(np.float32)
 
-        mu, alpha, kappa = store.find_neighbors(query, k=5)
+        mu, alpha, kappa, _ = store.find_neighbors(query, k=5)
 
         assert mu.shape == (1, 5, 8)
         assert alpha.shape == (1, 5)
@@ -443,7 +443,7 @@ class TestSplatStoreGaussian:
             store.feedback(query=query, relevant_ids=[0])
 
         # Now search: splat 0 should be in top results
-        mu, alpha, kappa = store.find_neighbors(query, k=5)
+        mu, alpha, kappa, _ = store.find_neighbors(query, k=5)
 
         # The first result should have the highest alpha
         # (which should be the boosted splat)

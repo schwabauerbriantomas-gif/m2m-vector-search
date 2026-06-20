@@ -160,15 +160,15 @@ class M2MMemory:
 
     def retrieve(
         self, query: np.ndarray, k: int = None, lod: int = 2
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Retrieve k-nearest neighbors from splat store."""
         if k is None:
             k = self.config.knn_k
         query_norm = normalize_sphere(query)
-        neighbors_mu, neighbors_alpha, neighbors_kappa = self.splats.find_neighbors(
+        neighbors_mu, neighbors_alpha, neighbors_kappa, neighbors_idx = self.splats.find_neighbors(
             query_norm, k, lod=lod
         )
-        return neighbors_mu, neighbors_alpha, neighbors_kappa
+        return neighbors_mu, neighbors_alpha, neighbors_kappa, neighbors_idx
 
     def sample(self, x: np.ndarray, n_steps: int = None) -> np.ndarray:
         """Generate samples using Langevin dynamics."""
@@ -216,7 +216,7 @@ class M2MMemory:
         if mode == "energy":
             return self.compute_energy(x)
         elif mode == "retrieve":
-            neighbors_mu, neighbors_alpha, neighbors_kappa = self.retrieve(x)
+            neighbors_mu, _, _, _ = self.retrieve(x)
             return neighbors_mu
         else:
             raise ValueError(f"Unknown mode: {mode}")
@@ -950,15 +950,31 @@ class SimpleVectorDB:
         if not include_energy and not include_metadata and filter is None:
             return raw  # Compatibilidad legacy
 
-        # Construir lista de DocResults
-        mu, alpha, kappa = raw
-        active_ids = [d for d in self._vectors if d not in self._deleted]
+        # Construir lista de DocResults usando splat indices
+        # raw = (mu, alpha, kappa, splat_indices)
+        # splat_indices maps each result to a position in _splat_id_order
+        mu, alpha, kappa, splat_indices = raw
 
         results = []
+        # Handle batch dim: mu is (1, k, dim) for single query
+        if mu.ndim == 3:
+            mu = mu[0]       # (k, dim)
+            alpha = alpha[0]  # (k,)
+            kappa = kappa[0]  # (k,)
+            splat_indices = splat_indices[0]  # (k,)
+
         for i in range(min(k, len(mu))):
-            if i >= len(active_ids):
-                break
-            doc_id = active_ids[i]
+            splat_idx = int(splat_indices[i]) if i < len(splat_indices) else -1
+
+            # Map splat index → document ID via _splat_id_order
+            if 0 <= splat_idx < len(self._splat_id_order):
+                doc_id = self._splat_id_order[splat_idx]
+            else:
+                continue
+
+            # Skip deleted documents
+            if doc_id in self._deleted or doc_id not in self._vectors:
+                continue
 
             # Filtro de metadata
             if filter:

@@ -429,7 +429,7 @@ class TestQualityBenchmark:
         gt_top10 = set(np.argsort(-sims)[:10].tolist())
 
         # HRM2 search
-        mu, alpha, kappa = engine.search(query, k=10)
+        mu, alpha, kappa, _ = engine.search(query, k=10)
         # HRM2 returns closest splats; we compare indices
         hrm2_indices = list(range(min(10, len(mu))))
 

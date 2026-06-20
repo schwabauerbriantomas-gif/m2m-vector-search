@@ -76,7 +76,7 @@ def main():
     # Retrieve nearest neighbors
     print("Retrieving nearest neighbors (K=64)...")
     query = embeddings_sphere[:5]  # Use first 5 as queries
-    neighbors_mu, neighbors_alpha, neighbors_kappa = splat_store.find_neighbors(
+    neighbors_mu, neighbors_alpha, neighbors_kappa, _ = splat_store.find_neighbors(
         query, k=64
     )
     print("[SUCCESS] Retrieved neighbors")

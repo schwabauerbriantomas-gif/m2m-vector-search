@@ -119,15 +119,16 @@ class SplatStore:
 
     def find_neighbors(
         self, query: np.ndarray, k: int = 64, lod: int = 2
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Find k-nearest neighbors using two-phase Gaussian search.
 
         Phase 1: L2 candidate retrieval via HRM2 or brute-force
         Phase 2: Gaussian re-ranking with α·exp(-κ·‖x-μ‖²)
 
-        Returns (mu, alpha, kappa) for the top-k results, ranked by
-        Gaussian score (highest first = best match).
+        Returns (mu, alpha, kappa, splat_indices) for the top-k results,
+        ranked by Gaussian score (highest first = best match).
+        splat_indices are positions into self.mu[:n_active].
         """
         query_np = query
         if query_np.ndim == 1:
@@ -156,7 +157,8 @@ class SplatStore:
             mu_out = np.zeros((batch_size, 0, dim), dtype=np.float32)
             alpha_out = np.zeros((batch_size, 0), dtype=np.float32)
             kappa_out = np.zeros((batch_size, 0), dtype=np.float32)
-            return mu_out, alpha_out, kappa_out
+            idx_out = np.zeros((batch_size, 0), dtype=np.int64)
+            return mu_out, alpha_out, kappa_out, idx_out
 
         # Auto-build index if splats exist but haven't been indexed yet
         if not self.engine._is_indexed:
@@ -170,6 +172,7 @@ class SplatStore:
         mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
         alpha_out = np.zeros((batch_size, k), dtype=np.float32)
         kappa_out = np.zeros((batch_size, k), dtype=np.float32)
+        idx_out = np.full((batch_size, k), -1, dtype=np.int64)
 
         # Use HRM2 clustering pruning when dataset is large enough
         use_hrm2 = n > 15000 and self.engine.coarse_model is not None
@@ -206,21 +209,23 @@ class SplatStore:
             cand_alpha = index_alpha[candidates]
             cand_kappa = index_kappa[candidates]
 
-            _, scores, _, _ = two_phase_search(
+            # two_phase_search returns (indices, scores, distances, rank_changes)
+            # where indices are offsets INTO cand_mu (the candidate subset)
+            result_indices, result_scores, _, _ = two_phase_search(
                 q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5
             )
 
-            # Top-k by Gaussian score (already sorted by two_phase_search)
-            # Re-compute to get the right candidate indices
-            top_local = np.argsort(-scores)[:k]
+            # Map candidate-local indices back to global splat indices
+            for j in range(min(k, len(result_indices))):
+                local_idx = result_indices[j]
+                if 0 <= local_idx < len(candidates):
+                    idx = candidates[local_idx]
+                    mu_out[i, j] = index_data[idx]
+                    alpha_out[i, j] = index_alpha[idx]
+                    kappa_out[i, j] = index_kappa[idx]
+                    idx_out[i, j] = idx
 
-            for j, local_j in enumerate(top_local):
-                idx = candidates[local_j]
-                mu_out[i, j] = index_data[idx]
-                alpha_out[i, j] = index_alpha[idx]
-                kappa_out[i, j] = index_kappa[idx]
-
-        return mu_out, alpha_out, kappa_out
+        return mu_out, alpha_out, kappa_out, idx_out
 
     def batch_find_neighbors(
         self,
