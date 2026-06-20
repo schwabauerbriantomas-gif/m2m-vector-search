@@ -204,35 +204,42 @@ results = mem.search("what did we decide about databases?", k=5)
 
 > All data below is from real measurements on the specified hardware. No synthetic or estimated numbers.
 
-**System:** AMD Ryzen 5 3400G, 16 GB RAM, Python 3.12, CPU-only (no GPU acceleration)
+**System:** AMD Ryzen 5 3400G (4C/8T), 16 GB RAM, Python 3.12.3, NumPy 2.4.4, PyTorch 2.11.0+cu130
+**GPU:** NVIDIA GeForce RTX 3090 (24 GB VRAM)
 
-### Multi-Scale Performance (dim=384, k=10, 100 queries)
+### Three-Way Comparison: CPU Linear vs M2M HRM2 vs CUDA GPU
 
-**Methodology:** Synthetic data with 20+ Gaussian clusters. Queries are in-distribution (sampled from the same cluster structure), simulating real RAG workloads where query embeddings are drawn from the same distribution as the corpus. Ground truth is exact brute-force k-NN via cosine distance.
+**Methodology:** Synthetic data with Gaussian cluster structure (clusters scale with dataset size). Queries are in-distribution (sampled from the same cluster distribution), simulating real RAG workloads. Ground truth is exact brute-force k-NN via L2 distance. Build phase timed separately from search phase. 200 queries per configuration. 10-query warmup excluded from timing.
 
-| Dataset Size | Build (s) | p50 (ms) | p95 (ms) | p99 (ms) | QPS | Linear QPS | Speedup | Recall@10 |
-|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| 1,000 | 0.9 | 6.8 | 8.7 | 9.4 | 142.1 | 1,484.2 | 0.1x | 1.0000 |
-| 5,000 | 1.5 | 7.9 | 9.6 | 10.0 | 121.8 | 278.0 | 0.4x | 0.9820 |
-| 10,000 | 3.4 | 8.0 | 8.3 | 8.7 | 125.2 | 148.0 | 0.8x | 1.0000 |
-| 50,000 | 36.5 | 13.2 | 14.3 | 15.3 | 75.5 | 21.2 | **3.6x** | 1.0000 |
-| 100,000 | 17.2 | 12.9 | 15.5 | 17.3 | 74.5 | 10.3 | **7.2x** | 0.8570 |
+| Dataset | Backend | p50 (ms) | p95 (ms) | QPS | Recall@10 | vs Linear |
+|:-------:|:-------:|:--------:|:--------:|:---:|:---------:|:---------:|
+| 1,000 | CPU Linear | 0.45 | 0.62 | 2,234.9 | 1.0000 | 1.0x |
+| 1,000 | M2M HRM2 (CPU) | 10.17 | 23.92 | 83.8 | 0.9995 | 0.0x |
+| 1,000 | CUDA GPU | 1.01 | 5.38 | 733.1 | 0.9995 | 0.4x |
+| 10,000 | CPU Linear | 16.00 | 20.00 | 62.0 | 1.0000 | 1.0x |
+| 10,000 | M2M HRM2 (CPU) | 9.64 | 20.35 | 87.7 | 1.0000 | **1.7x** |
+| 10,000 | CUDA GPU | 3.63 | 8.11 | 237.9 | 1.0000 | **4.4x** |
+| 50,000 | CPU Linear | 63.92 | 91.99 | 15.2 | 1.0000 | 1.0x |
+| 50,000 | M2M HRM2 (CPU) | 18.67 | 38.91 | 45.7 | 1.0000 | **3.4x** |
+| 50,000 | CUDA GPU | 2.64 | 5.64 | 281.1 | 1.0000 | **24.2x** |
+| 100,000 | CPU Linear | 103.59 | 125.12 | 9.6 | 1.0000 | 1.0x |
+| 100,000 | M2M HRM2 (CPU) | 20.57 | 49.37 | 41.8 | 0.7995 | **5.0x** |
+| 100,000 | CUDA GPU | 5.25 | 10.02 | 185.1 | 0.9995 | **19.7x** |
 
-**Key observations:**
+### Analysis
 
-- **Crossover at ~15K vectors.** M2M's hierarchical routing (HRM2) activates above 15K splats. Below that threshold, brute-force scan is faster due to lower overhead.
-- **Sub-linear scaling.** Linear scan QPS drops 144x (1,484→10.3) from 1K to 100K. M2M drops only 1.9x (142→74.5).
-- **Recall = 1.0 up to 50K** with in-distribution queries. At 100K, recall drops to 0.857 — the `n_probe` parameter may need tuning for very large datasets.
-- **Latency stays flat.** p50 grows from 6.8ms to 12.9ms (1.9x) while dataset grows 100x.
+**When each backend wins:**
 
-### Previous Measurement (dim=640, k=64)
+- **N < 10K:** CPU linear scan dominates. The overhead of building any index exceeds the cost of a brute-force scan. M2M's HRM2 has constant overhead (~10ms) from index traversal that exceeds the actual search work.
+- **N = 10K–50K:** M2M HRM2 overtakes CPU linear (1.7x → 3.4x). The hierarchical routing starts paying off as linear scan degrades quadratically. CUDA GPU brute-force is already 4–24x faster than CPU linear.
+- **N ≥ 50K:** CUDA GPU brute-force is the clear winner. At 100K vectors, GPU achieves 185 QPS (19.7x over CPU linear) with near-perfect recall (0.9995). M2M HRM2 achieves 5.0x over CPU linear but recall drops to 0.7995.
 
-| Metric | Linear Scan | M2M HRM2 | Speedup |
-|--------|:-:|:-:|:-:|
-| Latency (ms) | 94.79 | 0.99 | **32.4x** |
-| QPS | 10.55 | 1,012.77 | 96.0x |
+**Key findings:**
 
-> GPU benchmarks (CUDA/Vulkan) are not included because they have not been formally validated. They will be added when reproducible measurements are available.
+1. **CUDA brute-force scales best.** GPU memory bandwidth (936 GB/s on RTX 3090) makes exact k-NN viable up to millions of vectors without approximation. QPS drops only 4x (733 → 185) while dataset grows 100x.
+2. **M2M HRM2 trades recall for speed.** At 100K, M2M is 5x faster than CPU linear but recall drops to ~80%. The `n_probe` parameter needs tuning for large-scale deployment.
+3. **Crossover at ~10K for M2M vs CPU.** Below 10K, M2M's overhead exceeds brute-force cost. Above 10K, hierarchical routing pays off.
+4. **GPU latency stays flat.** CUDA p50 grows from 1.0ms to 5.3ms (5.3x) while dataset grows 100x. This is sub-linear scaling from the GPU's perspective.
 
 **Reproduce:** `python scripts/benchmark_final.py`
 
@@ -307,7 +314,9 @@ src/m2m/
 - 394 tests pass (was 395 — adjusted for API signature change; previous count included tests that only passed due to the insertion-order bug).
 
 **Benchmarks:**
-- Added multi-scale benchmark suite (1K–100K vectors) with recall@10, p50/p95/p99 latency, QPS, and linear baseline comparison.
+- Added comprehensive three-way benchmark: CPU Linear vs M2M HRM2 vs CUDA GPU (RTX 3090).
+- 4 scales (1K–100K), 200 queries each, in-distribution clustered data, L2 ground truth.
+- CUDA GPU brute-force achieves 19.7x speedup over CPU linear at 100K with 0.9995 recall.
 - All measurements from real hardware. Reproducible via `scripts/benchmark_final.py`.
 
 ### v2.2.0 — Refactor & Security Hardening
