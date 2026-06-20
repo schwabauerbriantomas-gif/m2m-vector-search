@@ -267,16 +267,26 @@ class QueryPrefetcher:
         # Patrones detectados
         self._patterns: Dict[str, QueryPattern] = {}
 
+        # Bigram transitions: {from_hash: {to_hash: count}}
+        self._transitions: Dict[str, Dict[str, int]] = {}
+
         # Cola de prefetch
         self._prefetch_queue: List[str] = []
 
     def record_query(self, query_hash: str):
         """
-        Registra una query en el historial.
+        Registra una query en el historial y actualiza el modelo de transiciones.
 
         Args:
             query_hash: Hash de la query ejecutada
         """
+        # Update bigram transition model
+        if self._query_history:
+            prev = self._query_history[-1]
+            if prev not in self._transitions:
+                self._transitions[prev] = {}
+            self._transitions[prev][query_hash] = self._transitions[prev].get(query_hash, 0) + 1
+
         self._query_history.append(query_hash)
 
         # Mantener tamaño de ventana
@@ -312,7 +322,10 @@ class QueryPrefetcher:
 
     def predict_next(self, current_hash: str) -> Optional[str]:
         """
-        Predice la siguiente query basándose en patrones.
+        Predice la siguiente query usando el modelo de transiciones bigrama.
+
+        Devuelve el hash más frecuente que sigue a current_hash en el
+        historial observado, o None si no hay datos suficientes.
 
         Args:
             current_hash: Hash de la query actual
@@ -320,26 +333,31 @@ class QueryPrefetcher:
         Returns:
             Hash de la query predicha o None
         """
+        # Primary: bigram transition model
+        transitions = self._transitions.get(current_hash)
+        if transitions:
+            return max(transitions, key=transitions.get)
+
+        # Fallback: pattern-based (legacy)
         if not self._patterns:
             return None
 
-        # Buscar patrones que terminen con la query actual
         best_pattern = None
         best_score = 0
 
         for pattern_key, pattern in self._patterns.items():
-            if pattern.query_ids[-1] == current_hash:
-                # Score basado en frecuencia y recencia
-                recency = time.time() - pattern.last_seen
-                score = pattern.frequency / (1 + recency)
+            if current_hash in pattern.query_ids:
+                idx = pattern.query_ids.index(current_hash)
+                if idx + 1 < len(pattern.query_ids):
+                    recency = time.time() - pattern.last_seen
+                    score = pattern.frequency / (1 + recency)
+                    if score > best_score:
+                        best_score = score
+                        best_pattern = pattern
 
-                if score > best_score:
-                    best_score = score
-                    best_pattern = pattern
-
-        # Si encontramos patrón, predecir siguiente
-        if best_pattern and len(best_pattern.query_ids) >= 2:
-            return best_pattern.query_ids[0]  # Query que sigue en el patrón
+        if best_pattern and best_score > 0:
+            idx = best_pattern.query_ids.index(current_hash)
+            return best_pattern.query_ids[idx + 1]
 
         return None
 

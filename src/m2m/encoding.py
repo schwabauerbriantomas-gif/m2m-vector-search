@@ -149,10 +149,11 @@ def _color_histogram_encoding_numba(colors: np.ndarray, n_bins: int = 8) -> np.n
         n_bins: Number of bins per channel (8 -> 512 dims)
 
     Returns:
-        (N, 512) array of color encodings
+        (N, n_bins^3) array of color encodings
     """
     N = colors.shape[0]
-    encodings = np.zeros((N, 512), dtype=np.float32)
+    total_bins = n_bins * n_bins * n_bins
+    encodings = np.zeros((N, total_bins), dtype=np.float32)
 
     for i in prange(N):
         r, g, b = colors[i]
@@ -175,7 +176,7 @@ def _color_histogram_encoding_numba(colors: np.ndarray, n_bins: int = 8) -> np.n
                     dist_sq = dr * dr + dg * dg + db * db
                     weight = np.exp(-dist_sq / 4.0)
 
-                    if idx < 512:
+                    if idx < total_bins:
                         encodings[i, idx] = weight
                     idx += 1
 

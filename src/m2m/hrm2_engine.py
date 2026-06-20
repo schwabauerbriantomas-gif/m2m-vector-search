@@ -189,9 +189,10 @@ class HRM2Engine:
         """SPEC 3: Return adaptive probe count based on distance ratio."""
         if not self.adaptive_probing or len(coarse_distances) < 2:
             return self.n_probe
-        sorted_dists = np.sort(coarse_distances)
-        if sorted_dists[0] > 0:
-            ratio = sorted_dists[1] / sorted_dists[0]
+        # Use argpartition for O(N) instead of sort O(N log N)
+        two_smallest = np.partition(coarse_distances, 1)[:2]
+        if two_smallest[0] > 0:
+            ratio = two_smallest[1] / two_smallest[0]
             if ratio > self.adaptive_threshold:
                 return self.adaptive_min_probe
         return self.n_probe

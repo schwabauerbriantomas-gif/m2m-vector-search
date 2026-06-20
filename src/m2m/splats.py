@@ -151,11 +151,16 @@ class SplatStore:
 
         k = min(k, max(1, n))
 
-        if not self.engine._is_indexed or n == 0:
-            mu_out = np.random.randn(batch_size, k, dim).astype(np.float32)
-            alpha_out = np.ones((batch_size, k), dtype=np.float32)
-            kappa_out = np.ones((batch_size, k), dtype=np.float32) * 10.0
+        if n == 0:
+            # No splats: return empty arrays, don't raise
+            mu_out = np.zeros((batch_size, 0, dim), dtype=np.float32)
+            alpha_out = np.zeros((batch_size, 0), dtype=np.float32)
+            kappa_out = np.zeros((batch_size, 0), dtype=np.float32)
             return mu_out, alpha_out, kappa_out
+
+        # Auto-build index if splats exist but haven't been indexed yet
+        if not self.engine._is_indexed:
+            self.build_index()
 
         # Active data slices
         index_data = self.mu[:n]

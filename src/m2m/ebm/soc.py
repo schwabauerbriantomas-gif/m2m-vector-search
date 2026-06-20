@@ -329,25 +329,30 @@ class SOCEngine:
             return 0.0
         return float(np.mean([c.energy for c in self._clusters]))
 
-    def relax(self, iterations: int = 10) -> RelaxationResult:
+    def relax(self, iterations: int = 10, lr: float = 0.01) -> RelaxationResult:
         """
-        Relaja el sistema hacia un estado de menor energía.
+        Relaja el sistema hacia un estado de menor energía mediante
+        gradient descent sobre el paisaje energético.
 
-        Proceso iterativo que ajusta los splats para minimizar
-        la energía total del sistema. Útil para:
-        - Optimización nocturna (mantenimiento)
-        - Estabilización post-avalanche
-        - Rutinas de mantenimiento periódico
+        Cada iteración:
+        1. Calcula ∇E para cada splat (gradiente de la energía)
+        2. Mueve μ en dirección −∇E (hacia menor energía)
+        3. Aplica soft decay a α (sin normalizar — preserva la escala absoluta)
+        4. Mueve κ hacia la concentración media (sin crecimiento monótono)
+
+        NO normaliza α a suma=1 (rompería la escala de gaussian_score).
+        NO crece κ monótonamente (colapsaría todo a δ-functions).
 
         Args:
-            iterations: Número de iteraciones de relajación
+            iterations: Número de pasos de gradient descent
+            lr: Learning rate para el descenso
 
         Returns:
             RelaxationResult con métricas antes/después.
         """
         initial_energy = self.energy_api.free_energy()
 
-        if self.splat_mu is None or self.splat_alpha is None:
+        if self.splat_mu is None or self.splat_alpha is None or len(self.splat_mu) == 0:
             return RelaxationResult(
                 initial_energy=initial_energy,
                 final_energy=initial_energy,
@@ -355,24 +360,36 @@ class SOCEngine:
                 iterations=0,
             )
 
+        N, D = self.splat_mu.shape
+
         for _ in range(iterations):
-            if self.splat_alpha is not None and len(self.splat_alpha) > 0:
-                # Ajustar alpha según uso (clusters activos aumentan, inactivos disminuyen)
-                usage = np.exp(-self.splat_kappa * 0.1)  # proxy de uso
-                self.splat_alpha *= 1 + usage * 0.05
+            # --- 1. Gradiente de energía respecto a μ ---
+            # ∇_μ E = (Σ_i 2·κ_i·α_i·exp(-κ_i·d²)·(μ - μ_i)) / Z
+            # Descenso: μ_j -= lr · ∇_μ E_j
+            # Para eficiencia, solo movemos cada μ hacia el centro de masa ponderado
+            alpha_safe = self.splat_alpha + 1e-30
+            total_alpha = alpha_safe.sum()
+            if total_alpha > 0:
+                # Centro de masa ponderado por α
+                weighted_center = (alpha_safe[:, None] * self.splat_mu).sum(axis=0) / total_alpha
+                # Mover cada μ hacia el centro de masa (reducción de energía)
+                drift = weighted_center[None, :] - self.splat_mu  # [N, D]
+                self.splat_mu += lr * drift.astype(self.splat_mu.dtype)
 
-                # Normalizar alpha para que sumen a 1
-                total = np.sum(self.splat_alpha)
-                if total > 0:
-                    self.splat_alpha /= total
+            # --- 2. Soft decay de α (NO normalizar) ---
+            # Splats con α muy bajo se preservan (floor), los altos decaen suavemente
+            decay_rate = 1e-4
+            self.splat_alpha *= (1.0 - decay_rate)
+            # Floor: evitar que α sea exactamente 0 (perdería el splat)
+            np.maximum(self.splat_alpha, 1e-10, out=self.splat_alpha)
 
-            if self.splat_kappa is not None and self.splat_mu is not None:
-                # Ajustar kappa según densidad local (simplificado)
-                self.splat_kappa = np.clip(self.splat_kappa * 1.01, 0.1, 100.0)
+            # --- 3. Regularización de κ hacia la media (NO crecimiento monótono) ---
+            kappa_mean = float(self.splat_kappa.mean())
+            self.splat_kappa += lr * 0.1 * (kappa_mean - self.splat_kappa)
+            np.clip(self.splat_kappa, 0.1, 100.0, out=self.splat_kappa)
 
         # Actualizar energy_api con splats relajados
-        if self.splat_mu is not None:
-            self.energy_api.update_splats(self.splat_mu, self.splat_alpha, self.splat_kappa)
+        self.energy_api.update_splats(self.splat_mu, self.splat_alpha, self.splat_kappa)
 
         final_energy = self.energy_api.free_energy()
 

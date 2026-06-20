@@ -214,13 +214,17 @@ class EBMExploration:
             # Muestrear globalmente con preferencia a regiones no conocidas
             candidates = self._sample_global(n=k * 10, dim=dim)
 
-        # Energías de cada candidato
-        energies = np.array([self.energy_api.energy(c) for c in candidates], dtype=np.float32)
+        # Energías de cada candidato (vectorizado)
+        cand_array = np.stack(candidates)
+        energies = self.energy_api.energy_batch(cand_array)
 
         # Muestreo de Boltzmann: ∝ exp(E / T) (mayor energía = mayor prob)
-        weights = np.exp(energies / temperature)
+        # Numerically stable: subtract max to prevent overflow (log-sum-exp trick)
+        scaled = energies / max(temperature, 1e-10)
+        scaled -= scaled.max()  # numerical stability
+        weights = np.exp(scaled)
         weights_sum = weights.sum()
-        if weights_sum == 0:
+        if weights_sum < 1e-30:
             return candidates[:k]
 
         probs = weights / weights_sum

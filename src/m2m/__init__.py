@@ -473,6 +473,10 @@ class SimpleVectorDB:
         self._documents: Dict[str, str] = {}
         self._deleted: set = set()
 
+        # Thread safety: protect all mutations to shared dicts
+        import threading as _threading
+        self._rw_lock = _threading.RLock()
+
         # Persistencia
         self.storage = None
         if storage_path and mode != "edge":
@@ -649,17 +653,19 @@ class SimpleVectorDB:
         self._use_lsh = False
         n_added = self.engine.add_splats(vectors)
 
-        # Track which doc_ids correspond to splat positions (first n_added accepted)
-        self._splat_id_order.extend(ids[:n_added])
-        self._lsh_id_map = []  # LSH no longer active after normal add
+        # Thread-safe mutation block
+        with self._rw_lock:
+            # Track which doc_ids correspond to splat positions (first n_added accepted)
+            self._splat_id_order.extend(ids[:n_added])
+            self._lsh_id_map = []  # LSH no longer active after normal add
 
-        # Guardar en memoria
-        for i, doc_id in enumerate(ids):
-            self._vectors[doc_id] = vectors[i]
-            self._metadata[doc_id] = metadata[i] if metadata else {}
-            self._documents[doc_id] = documents[i] if documents else None
+            # Guardar en memoria
+            for i, doc_id in enumerate(ids):
+                self._vectors[doc_id] = vectors[i]
+                self._metadata[doc_id] = metadata[i] if metadata else {}
+                self._documents[doc_id] = documents[i] if documents else None
 
-        # Persistencia
+        # Persistencia (outside lock — I/O)
         if self.storage:
             self.storage.save_vectors(vectors, ids)
             for i, doc_id in enumerate(ids):
@@ -672,7 +678,8 @@ class SimpleVectorDB:
                 )
 
         # Actualizar EBM
-        self._update_ebm_splats()
+        with self._rw_lock:
+            self._update_ebm_splats()
 
         return n_added
 
@@ -724,24 +731,28 @@ class SimpleVectorDB:
 
         energy_delta = 0.0
 
-        if vector is not None:
-            old_vec = self._vectors.get(id)
-            self._vectors[id] = np.asarray(vector, dtype=np.float32)
+        with self._rw_lock:
+            if vector is not None:
+                old_vec = self._vectors.get(id)
+                self._vectors[id] = np.asarray(vector, dtype=np.float32)
 
-            # Calcular delta de energía si EBM habilitado
-            if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
-                old_e = self._ebm_energy.energy(old_vec)
-                new_e = self._ebm_energy.energy(vector)
-                energy_delta = new_e - old_e
+                # Calcular delta de energía si EBM habilitado
+                if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
+                    old_e = self._ebm_energy.energy(old_vec)
+                    new_e = self._ebm_energy.energy(vector)
+                    energy_delta = new_e - old_e
 
-        if metadata is not None:
-            self._metadata[id] = metadata
-            if self.storage:
+            if metadata is not None:
+                self._metadata[id] = metadata
+
+            if document is not None:
+                self._documents[id] = document
+
+        # Storage I/O outside lock
+        if self.storage:
+            if metadata is not None:
                 self.storage.update_metadata(id, metadata=metadata)
-
-        if document is not None:
-            self._documents[id] = document
-            if self.storage:
+            if document is not None:
                 self.storage.update_metadata(id, document=document)
 
         return UpdateResult(success=True, energy_delta=energy_delta)
@@ -785,28 +796,36 @@ class SimpleVectorDB:
 
         energy_freed = 0.0
         deleted_count = 0
+        storage_ops = []  # defer storage I/O outside lock
 
-        for doc_id in to_delete:
-            if doc_id in self._vectors:
-                # Calcular energía liberada si EBM habilitado
-                if self.ebm_enabled and self._ebm_energy is not None:
-                    vec = self._vectors.get(doc_id)
-                    if vec is not None:
-                        energy_freed += float(self._ebm_energy.energy(vec))
+        with self._rw_lock:
+            for doc_id in to_delete:
+                if doc_id in self._vectors:
+                    # Calcular energía liberada si EBM habilitado
+                    if self.ebm_enabled and self._ebm_energy is not None:
+                        vec = self._vectors.get(doc_id)
+                        if vec is not None:
+                            energy_freed += float(self._ebm_energy.energy(vec))
 
-                if hard:
-                    self._vectors.pop(doc_id, None)
-                    self._metadata.pop(doc_id, None)
-                    self._documents.pop(doc_id, None)
-                    self._deleted.discard(doc_id)
-                    if self.storage:
-                        self.storage.hard_delete(doc_id)
+                    if hard:
+                        self._vectors.pop(doc_id, None)
+                        self._metadata.pop(doc_id, None)
+                        self._documents.pop(doc_id, None)
+                        self._deleted.discard(doc_id)
+                        storage_ops.append(("hard", doc_id))
+                    else:
+                        self._deleted.add(doc_id)
+                        storage_ops.append(("soft", doc_id))
+
+                    deleted_count += 1
+
+        # Storage I/O outside lock
+        if self.storage:
+            for op, doc_id in storage_ops:
+                if op == "hard":
+                    self.storage.hard_delete(doc_id)
                 else:
-                    self._deleted.add(doc_id)
-                    if self.storage:
-                        self.storage.soft_delete(doc_id)
-
-                deleted_count += 1
+                    self.storage.soft_delete(doc_id)
 
         return DeleteResult(deleted=deleted_count, energy_freed=energy_freed)
 
@@ -874,6 +893,13 @@ class SimpleVectorDB:
             raise ValueError("query contains NaN or Inf values")
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
+
+        # Empty collection: return empty results, don't raise
+        active = [d for d in self._vectors if d not in self._deleted]
+        if len(active) == 0:
+            if not include_energy and not include_metadata and filter is None:
+                return (np.array([], dtype=np.float32), np.array([], dtype=np.float32), np.array([], dtype=np.float32))
+            return []
 
         if self._use_lsh and self.lsh is not None:
             indices, distances = self.lsh.query(query, k=k)

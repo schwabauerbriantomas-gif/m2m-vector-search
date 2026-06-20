@@ -22,6 +22,7 @@ Endpoints:
   POST /v1/admin/backup
 """
 
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -29,6 +30,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from .. import AdvancedVectorDB, SimpleVectorDB
@@ -233,10 +235,13 @@ app = FastAPI(
 )
 
 # -- SECURITY: CORS configuration (M-01 fix) ----------------------------
+# allow_origins=["*"] + allow_credentials=True is invalid per CORS spec.
+# Default: permissive for development. Override via env for production.
+_cors_origins = os.environ.get("M2M_CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],  # False when wildcard
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -315,7 +320,10 @@ async def global_error_handler(request: Request, exc: Exception):
     import traceback
 
     traceback.print_exc()  # Log internally
-    return HTTPException(status_code=500, detail="Internal server error")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 _manager = CollectionManager()

@@ -140,25 +140,28 @@ class M2MEntityExtractor:
         if self.use_semantic_clustering and embedding_model is not None and len(result_list) > 0:
             texts_to_embed = [c.text for c in result_list]
 
-            # Duck-typing for whatever embedding model is passed (assumes it has .encode returning np array)
+            # Duck-typing for whatever embedding model is passed
+            embs = None
             try:
                 if hasattr(embedding_model, "encode"):
                     embs = embedding_model.encode(texts_to_embed)
                 elif hasattr(embedding_model, "__call__"):
                     embs = embedding_model(texts_to_embed)
-                else:
-                    embs = np.random.randn(len(texts_to_embed), 640).astype(np.float32)
             except Exception:
-                embs = np.random.randn(len(texts_to_embed), 640).astype(np.float32)
+                embs = None
 
-            # Normalize to sphere S^639
-            norms = np.linalg.norm(embs, axis=1, keepdims=True)
-            embs = embs / np.where(norms == 0, 1e-10, norms)
+            # Only proceed with semantic validation if embeddings are real
+            if embs is not None and len(embs) == len(result_list):
+                embs = np.asarray(embs, dtype=np.float32)
 
-            for i, c in enumerate(result_list):
-                c.embedding = embs[i]
+                # Normalize to sphere
+                norms = np.linalg.norm(embs, axis=1, keepdims=True)
+                embs = embs / np.where(norms == 0, 1e-10, norms)
 
-            self._validate_semantic(result_list, splat_data, existing_clusters)
+                for i, c in enumerate(result_list):
+                    c.embedding = embs[i]
+
+                self._validate_semantic(result_list, splat_data, existing_clusters)
 
         return result_list
 
@@ -284,10 +287,6 @@ class M2MEntityExtractor:
                             idx += 1
                 except Exception:
                     pass
-
-    def learn_entity(self, name: str, entity_type: str, embedding: np.ndarray):
-        """Añade una entidad conocida a los diccionarios para futuras extracciones."""
-        pass  # Placeholder for active learning loop
 
 
 class M2MGraphEntityExtractor:

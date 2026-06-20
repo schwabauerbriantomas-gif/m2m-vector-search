@@ -28,6 +28,33 @@ import numpy as np
 from .wal import WriteAheadLog
 
 
+class _RestrictedUnpickler(pickle.Unpickler):
+    """
+    Defense-in-depth: even with HMAC verification, restrict unpickling
+    to safe types only. Blocks os.system, subprocess, eval, etc.
+    """
+
+    _SAFE_MODULES = {
+        "numpy": {"ndarray", "dtype", "float32", "float64", "int32", "int64", "uint32", "uint64"},
+        "numpy.core.multiarray": {"_reconstruct", "scalar"},
+        "numpy._core.multiarray": {"_reconstruct", "scalar"},
+        "numpy.core.numeric": {"_frombuffer"},
+        "numpy._core.numeric": {"_frombuffer"},
+        "builtins": {"dict", "list", "tuple", "float", "int", "str", "bytes", "bool", "set", "frozenset", "NoneType", "complex"},
+        "collections": {"OrderedDict", "defaultdict"},
+        # m2m's own dataclasses are safe to reconstruct
+        "m2m.dataset_transformer": {"GaussianSplat", "HRM2Node", "TransformConfig"},
+    }
+
+    def find_class(self, module: str, name: str):
+        allowed = self._SAFE_MODULES.get(module, set())
+        if name in allowed:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Blocked unsafe class during unpickling: {module}.{name}"
+        )
+
+
 class M2MPersistence:
     """
     Gestión de persistencia para M2M Vector DB.
@@ -345,7 +372,8 @@ class M2MPersistence:
             expected_sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
             if not hmac.compare_digest(sig, expected_sig):
                 raise ValueError(f"HMAC verification failed for index {name}. Possible tampering.")
-            return pickle.loads(data)
+            import io
+            return _RestrictedUnpickler(io.BytesIO(data)).load()
         return None
 
     # -------------------------------------------------------------------------

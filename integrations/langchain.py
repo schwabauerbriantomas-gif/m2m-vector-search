@@ -120,7 +120,8 @@ class M2MVectorStore(VectorStore):
 
     def delete(self, ids: List[str]) -> None:
         """
-        Remove documents by ID from the store.
+        Remove documents by ID from the store and mark splats as deleted
+        so they are skipped during similarity search.
         """
         if not ids:
             return
@@ -137,7 +138,8 @@ class M2MVectorStore(VectorStore):
         ids: Optional[List[str]] = None,
     ) -> None:
         """
-        Update existing documents. Matches by id and replaces text/metadata.
+        Update existing documents. If text changed, re-embeds and updates
+        the splat center in the M2M engine.
         """
         if ids is None:
             ids = [doc.metadata.get("id") for doc in documents]
@@ -145,13 +147,30 @@ class M2MVectorStore(VectorStore):
         id_to_idx = {
             info["id"]: idx for idx, info in self._store.items()
         }
-        id_to_doc = {doc_id: doc for doc_id, doc in zip(ids, documents)}
 
-        for doc_id, doc in id_to_doc.items():
+        for doc_id, doc in zip(ids, documents):
+            if doc_id is None:
+                continue
             if doc_id in id_to_idx:
                 store_idx = id_to_idx[doc_id]
-                self._store[store_idx]["text"] = doc.page_content
+                old_text = self._store[store_idx]["text"]
+
+                # Update metadata
                 self._store[store_idx]["metadata"] = doc.metadata
+
+                # If text changed, re-embed and update splat
+                if doc.page_content != old_text:
+                    self._store[store_idx]["text"] = doc.page_content
+                    new_emb = self._embeddings.embed_query(doc.page_content)
+                    new_emb = np.array(new_emb, dtype=np.float32)
+                    from m2m import normalize_sphere
+                    new_emb = normalize_sphere(new_emb)
+
+                    # Update the splat center in-place if engine supports it
+                    if hasattr(self._m2m, 'm2m') and hasattr(self._m2m.m2m, 'splats'):
+                        splats = self._m2m.m2m.splats
+                        if store_idx < splats.n_active:
+                            splats.mu[store_idx] = new_emb
 
     def filter_by_metadata(
         self,

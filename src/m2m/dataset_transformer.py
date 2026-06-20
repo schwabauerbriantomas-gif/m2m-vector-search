@@ -26,6 +26,36 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 import numpy as np
+
+
+class _RestrictedUnpickler(pickle.Unpickler):
+    """
+    Unpickler that only allows safe built-in and numpy types.
+    Prevents arbitrary code execution from untrusted pickle files.
+    """
+
+    # Module-level dataclasses that are safe to reconstruct
+    _MODULE_NAME = __name__ if '__name__' in dir() else 'm2m.dataset_transformer'
+
+    _SAFE_MODULES = {
+        "numpy": {"ndarray", "dtype", "float32", "float64", "int32", "int64", "uint32", "uint64"},
+        "numpy.core.multiarray": {"_reconstruct", "scalar"},
+        "numpy._core.multiarray": {"_reconstruct", "scalar"},
+        "numpy.core.numeric": {"_frombuffer"},
+        "numpy._core.numeric": {"_frombuffer"},
+        "builtins": {"dict", "list", "tuple", "float", "int", "str", "bytes", "bool", "set", "frozenset", "NoneType", "complex"},
+        "collections": {"OrderedDict", "defaultdict"},
+        # Allow our own dataclasses (GaussianSplat, HRM2Node, TransformConfig)
+        _MODULE_NAME: {"GaussianSplat", "HRM2Node", "TransformConfig"},
+    }
+
+    def find_class(self, module: str, name: str):
+        allowed = self._SAFE_MODULES.get(module, set())
+        if name in allowed:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Blocked unsafe class during unpickling: {module}.{name}"
+        )
 from sklearn.cluster import MiniBatchKMeans
 
 
@@ -159,12 +189,12 @@ class M2MDatasetTransformer:
         return os.path.join(self.config.cache_dir, f"transform_{key}.pkl")
 
     def _load_cache(self) -> Optional[dict]:
-        """Try to load cached transform result."""
+        """Try to load cached transform result using restricted unpickler."""
         path = self._cache_path()
         if path and os.path.exists(path):
             try:
                 with open(path, "rb") as f:
-                    return pickle.load(f)
+                    return _RestrictedUnpickler(f).load()
             except Exception:
                 pass
         return None

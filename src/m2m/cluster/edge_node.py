@@ -70,9 +70,23 @@ class EdgeNode:
         if not self.coordinator_url:
             return
 
-        # In a real implementation this would make a network call to the coordinator
-        # e.g., requests.post(f"{self.coordinator_url}/heartbeat", json=self.get_metrics())
-        pass
+        try:
+            import requests
+
+            metrics = self.get_metrics()
+            requests.post(
+                f"{self.coordinator_url}/heartbeat",
+                json={
+                    "edge_id": self.edge_id,
+                    "vector_count": metrics.vector_count,
+                    "cpu_load": metrics.cpu_load,
+                    "memory_mb": metrics.memory_mb,
+                },
+                timeout=5,
+            )
+        except Exception:
+            # Coordinator unreachable — non-fatal, will retry on next sync
+            pass
 
     def ingest(self, vectors: np.ndarray, doc_ids: List[str] = None):
         """Ingest documents locally and queue notification to coordinator."""

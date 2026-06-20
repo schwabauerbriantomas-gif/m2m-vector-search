@@ -59,15 +59,21 @@ def gaussian_score_batch(
     mu: np.ndarray,
     alpha: np.ndarray,
     kappa: np.ndarray,
+    chunk_size: int = 4096,
 ) -> np.ndarray:
     """
     Compute Gaussian mixture scores for a batch of queries.
+
+    Memory-efficient chunked implementation: processes queries in chunks of
+    ``chunk_size`` to avoid materialising the full [B, N] distance matrix
+    when B or N is large.
 
     Args:
         queries: [B, D]
         mu: [N, D]
         alpha: [N]
         kappa: [N]
+        chunk_size: number of queries per chunk (memory vs speed tradeoff)
 
     Returns:
         scores: [B, N]
@@ -75,19 +81,26 @@ def gaussian_score_batch(
     B = queries.shape[0]
     N = mu.shape[0]
 
-    # Compute all pairwise squared distances: [B, N]
-    # Using the expansion: ||q - m||² = ||q||² + ||m||² - 2·q·m
-    q_sq = np.sum(queries**2, axis=1, keepdims=True)  # [B, 1]
-    m_sq = np.sum(mu**2, axis=1, keepdims=True).T  # [1, N]
-    cross = queries @ mu.T  # [B, N]
-    dist_sq = q_sq + m_sq - 2.0 * cross  # [B, N]
-    dist_sq = np.maximum(dist_sq, 0.0)  # Numerical stability
+    # Precompute splat norms (reused across all chunks)
+    m_sq = np.sum(mu**2, axis=1)  # [N]
 
-    # Gaussian scores: α · exp(-κ · d²) for each (query, splat) pair
-    exponent = -kappa[np.newaxis, :] * dist_sq  # [B, N]
-    exponent = np.clip(exponent, -100.0, 0.0)
+    scores = np.empty((B, N), dtype=np.float32)
 
-    return alpha[np.newaxis, :] * np.exp(exponent)
+    for start in range(0, B, chunk_size):
+        end = min(start + chunk_size, B)
+        q_chunk = queries[start:end]  # [C, D]
+
+        q_sq = np.sum(q_chunk**2, axis=1, keepdims=True)  # [C, 1]
+        cross = q_chunk @ mu.T  # [C, N]
+        dist_sq = q_sq + m_sq[np.newaxis, :] - 2.0 * cross  # [C, N]
+        np.maximum(dist_sq, 0.0, out=dist_sq)
+
+        exponent = -kappa[np.newaxis, :] * dist_sq  # [C, N]
+        np.clip(exponent, -100.0, 0.0, out=exponent)
+
+        scores[start:end] = alpha[np.newaxis, :] * np.exp(exponent)
+
+    return scores
 
 
 def two_phase_search(
