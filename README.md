@@ -42,13 +42,9 @@ A NotebookLM-style visual dashboard with animated charts, QPS-vs-Recall scatter 
 
 ![Datasets](docs/pres-datasets.png)
 
-**QPS vs Recall — SIFT-128 & GLOVE-100**
+**QPS vs Recall — All 3 datasets**
 
-![Charts 1](docs/pres-charts-1.png)
-
-**QPS vs Recall — NYTimes-256 & Latency**
-
-![Charts 2](docs/pres-charts-2.png)
+![Charts](docs/pres-charts.png)
 
 **Latency Comparison (log scale)**
 
