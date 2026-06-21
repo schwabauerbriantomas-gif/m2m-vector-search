@@ -31,7 +31,42 @@
 
 A NotebookLM-style visual dashboard with animated charts, QPS-vs-Recall scatter plots, latency comparisons, and the complete results table — all data-driven, zero fabricated numbers.
 
-![Benchmark Presentation](presentation-full.png)
+<details>
+<summary><strong>📷 Click to view presentation screenshots</strong></summary>
+
+**Hero & Summary Stats**
+
+![Hero](docs/pres-hero.png)
+
+**ANN-Benchmarks Datasets**
+
+![Datasets](docs/pres-datasets.png)
+
+**QPS vs Recall — SIFT-128 & GLOVE-100**
+
+![Charts 1](docs/pres-charts-1.png)
+
+**QPS vs Recall — NYTimes-256 & Latency**
+
+![Charts 2](docs/pres-charts-2.png)
+
+**Latency Comparison (log scale)**
+
+![Latency](docs/pres-latency.png)
+
+**Complete Results Table**
+
+![Table](docs/pres-table.png)
+
+**Features & M2M vs FAISS**
+
+![Features](docs/pres-features.png)
+
+**When to Use What**
+
+![Comparison](docs/pres-comparison.png)
+
+</details>
 
 ---
 
