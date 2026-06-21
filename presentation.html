@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M2M Vector Search — Benchmark Presentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-card-2: #181822;
+    --accent: #6366f1;
+    --accent-2: #818cf8;
+    --accent-glow: rgba(99,102,241,0.15);
+    --green: #10b981;
+    --green-glow: rgba(16,185,129,0.15);
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --cyan: #06b6d4;
+    --pink: #ec4899;
+    --text: #e4e4e7;
+    --text-dim: #9ca3af;
+    --text-faint: #6b7280;
+    --border: rgba(255,255,255,0.06);
+    --border-strong: rgba(255,255,255,0.12);
+    --radius: 16px;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Space Grotesk', system-ui, sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* Ambient glow */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -20%; right: -10%;
+    width: 60vw; height: 60vw;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -20%; left: -10%;
+    width: 50vw; height: 50vw;
+    background: radial-gradient(circle, var(--green-glow) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+  /* ===== NAV ===== */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    backdrop-filter: blur(20px) saturate(1.5);
+    background: rgba(10,10,15,0.7);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 0;
+  }
+  nav .container { display: flex; align-items: center; justify-content: space-between; }
+  nav .logo { font-weight: 700; font-size: 1.1rem; letter-spacing: -0.02em; }
+  nav .logo span { color: var(--accent-2); }
+  nav ul { display: flex; gap: 28px; list-style: none; }
+  nav a { color: var(--text-dim); text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: color .2s; }
+  nav a:hover { color: var(--accent-2); }
+  @media (max-width: 700px) { nav ul { display: none; } }
+
+  /* ===== HERO ===== */
+  .hero { padding: 100px 0 80px; text-align: center; }
+  .hero .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 16px;
+    background: var(--bg-card-2); border: 1px solid var(--border-strong);
+    border-radius: 100px; font-size: 0.8rem; color: var(--text-dim);
+    margin-bottom: 28px;
+  }
+  .hero .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+  .hero h1 {
+    font-size: clamp(2.5rem, 7vw, 4.5rem);
+    font-weight: 700; letter-spacing: -0.04em; line-height: 1.05;
+    margin-bottom: 20px;
+  }
+  .hero h1 .gradient {
+    background: linear-gradient(135deg, var(--accent-2), var(--cyan), var(--green));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero p { font-size: clamp(1rem, 2.5vw, 1.25rem); color: var(--text-dim); max-width: 680px; margin: 0 auto 40px; }
+  .hero .formula {
+    font-family: var(--mono); font-size: 1rem; color: var(--accent-2);
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    padding: 14px 28px; border-radius: 12px; display: inline-block;
+    margin-bottom: 40px;
+  }
+
+  /* Hero stats */
+  .hero-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; max-width: 800px; margin: 0 auto; }
+  @media (max-width: 700px) { .hero-stats { grid-template-columns: repeat(2,1fr); } }
+  .stat-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px 16px; text-align: center;
+    transition: transform .3s, border-color .3s;
+  }
+  .stat-card:hover { transform: translateY(-4px); border-color: var(--border-strong); }
+  .stat-card .value { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.cyan { color: var(--cyan); }
+  .stat-card .value.accent { color: var(--accent-2); }
+  .stat-card .value.amber { color: var(--amber); }
+  .stat-card .label { font-size: 0.75rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+
+  /* ===== SECTIONS ===== */
+  section { padding: 80px 0; }
+  .section-header { text-align: center; margin-bottom: 56px; }
+  .section-header .eyebrow { font-size: 0.8rem; color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.15em; font-weight: 600; margin-bottom: 12px; }
+  .section-header h2 { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 700; letter-spacing: -0.03em; }
+  .section-header p { color: var(--text-dim); margin-top: 12px; max-width: 600px; margin-left: auto; margin-right: auto; }
+
+  /* ===== DATASET CARDS ===== */
+  .dataset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 900px) { .dataset-grid { grid-template-columns: 1fr; } }
+  .dataset-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 28px; position: relative; overflow: hidden;
+    transition: transform .3s, border-color .3s;
+  }
+  .dataset-card:hover { transform: translateY(-4px); border-color: var(--border-strong); }
+  .dataset-card .accent-line { position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .dataset-card.sift .accent-line { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .dataset-card.glove .accent-line { background: linear-gradient(90deg, var(--green), var(--cyan)); }
+  .dataset-card.nytimes .accent-line { background: linear-gradient(90deg, var(--amber), var(--pink)); }
+  .dataset-card h3 { font-size: 1.25rem; font-weight: 600; margin-bottom: 4px; }
+  .dataset-card .subtitle { font-size: 0.85rem; color: var(--text-faint); margin-bottom: 20px; }
+  .dataset-card .meta-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; margin-bottom: 20px; }
+  .dataset-card .meta-item { background: var(--bg-card-2); border-radius: 10px; padding: 10px 14px; }
+  .dataset-card .meta-item .k { font-size: 0.7rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+  .dataset-card .meta-item .v { font-family: var(--mono); font-size: 0.9rem; font-weight: 500; }
+  .dataset-card .silhouette { font-family: var(--mono); font-size: 0.8rem; color: var(--text-dim); }
+
+  /* ===== CHARTS ===== */
+  .chart-container {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 32px; margin-bottom: 32px;
+  }
+  .chart-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 4px; }
+  .chart-subtitle { font-size: 0.85rem; color: var(--text-faint); margin-bottom: 24px; }
+  canvas { max-height: 400px; }
+
+  /* ===== TABLE ===== */
+  .table-wrap { overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  thead th {
+    text-align: left; padding: 14px 18px;
+    background: var(--bg-card-2); color: var(--text-faint);
+    font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  tbody td { padding: 12px 18px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: var(--bg-card-2); }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 100px; font-size: 0.7rem; font-weight: 600; }
+  .tag-cuda { background: rgba(16,185,129,0.12); color: var(--green); }
+  .tag-ivf { background: rgba(99,102,241,0.12); color: var(--accent-2); }
+  .tag-linear { background: rgba(156,163,175,0.12); color: var(--text-dim); }
+  .recall-bar { display: inline-flex; align-items: center; gap: 8px; }
+  .recall-bar .bar { width: 60px; height: 6px; border-radius: 3px; background: var(--bg-card-2); overflow: hidden; }
+  .recall-bar .fill { height: 100%; border-radius: 3px; }
+  .fill-high { background: var(--green); }
+  .fill-mid { background: var(--amber); }
+  .fill-low { background: var(--red); }
+
+  /* ===== FEATURE GRID ===== */
+  .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  @media (max-width: 900px) { .feature-grid { grid-template-columns: 1fr; } }
+  .feature-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 28px; transition: transform .3s, border-color .3s;
+  }
+  .feature-card:hover { transform: translateY(-4px); border-color: var(--border-strong); }
+  .feature-card .icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 16px; }
+  .feature-card h4 { font-size: 1.05rem; font-weight: 600; margin-bottom: 8px; }
+  .feature-card p { font-size: 0.875rem; color: var(--text-dim); }
+  .feature-card code { font-family: var(--mono); font-size: 0.8rem; color: var(--accent-2); background: var(--bg-card-2); padding: 2px 6px; border-radius: 4px; }
+
+  /* ===== COMPARISON ===== */
+  .vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .vs-grid { grid-template-columns: 1fr; } }
+  .vs-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; }
+  .vs-card h4 { font-size: 1.1rem; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .vs-card ul { list-style: none; }
+  .vs-card li { padding: 8px 0; font-size: 0.875rem; color: var(--text-dim); display: flex; gap: 10px; align-items: start; }
+  .vs-card li .check { color: var(--green); flex-shrink: 0; }
+  .vs-card li .x { color: var(--red); flex-shrink: 0; }
+
+  /* ===== ANIMATIONS ===== */
+  .reveal { opacity: 0; transform: translateY(30px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+
+  /* ===== FOOTER ===== */
+  footer { padding: 60px 0 40px; border-top: 1px solid var(--border); text-align: center; }
+  footer p { font-size: 0.85rem; color: var(--text-faint); }
+  footer .repo-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 24px; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 100px; color: var(--text); text-decoration: none; font-size: 0.85rem; transition: border-color .2s; }
+  footer .repo-link:hover { border-color: var(--accent-2); color: var(--accent-2); }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="container">
+    <div class="logo">M2M<span>.</span></div>
+    <ul>
+      <li><a href="#datasets">Datasets</a></li>
+      <li><a href="#results">Results</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#comparison">M2M vs FAISS</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="container">
+    <div class="badge"><span class="dot"></span> v2.3.0 — Standard ANN-Benchmarks</div>
+    <h1>M2M Vector Search<br><span class="gradient">Benchmark Report</span></h1>
+    <p>Machine-to-Memory — a vector search engine with probabilistic Gaussian Splats, online learning, and energy-based uncertainty. Benchmarked against the three canonical ANN-Benchmarks datasets.</p>
+    <div class="formula">score(x, i) = αᵢ · exp(-κᵢ · ‖x − μᵢ‖²)</div>
+    <div class="hero-stats">
+      <div class="stat-card reveal">
+        <div class="value cyan" data-target="1338">0</div>
+        <div class="label">Peak GPU QPS</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="value green" data-target="100">0</div>
+        <div class="label">Max R@10 (%)</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="value accent" data-target="1184">0</div>
+        <div class="label">Vectors Indexed</div>
+      </div>
+      <div class="stat-card reveal">
+        <div class="value amber" data-target="390">0</div>
+        <div class="label">Tests Passed</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DATASETS -->
+<section id="datasets">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Methodology</div>
+      <h2>Standard ANN-Benchmarks Datasets</h2>
+      <p>The same three datasets used by ann-benchmarks.com — the industry reference for comparing FAISS, HNSW, Milvus, and others. Real-world data, precomputed ground truth, zero synthetic estimates.</p>
+    </div>
+    <div class="dataset-grid">
+      <div class="dataset-card sift reveal">
+        <div class="accent-line"></div>
+        <h3>SIFT-128</h3>
+        <div class="subtitle">Image feature descriptors · Euclidean</div>
+        <div class="meta-grid">
+          <div class="meta-item"><div class="k">Train</div><div class="v">1,000,000</div></div>
+          <div class="meta-item"><div class="k">Dimension</div><div class="v">128</div></div>
+          <div class="meta-item"><div class="k">Queries</div><div class="v">1,000</div></div>
+          <div class="meta-item"><div class="k">k</div><div class="v">10</div></div>
+        </div>
+        <div class="silhouette">Silhouette: 0.0205 · Clusters: 100</div>
+      </div>
+      <div class="dataset-card glove reveal">
+        <div class="accent-line"></div>
+        <h3>GLOVE-100</h3>
+        <div class="subtitle">Word embeddings · Angular (cosine)</div>
+        <div class="meta-grid">
+          <div class="meta-item"><div class="k">Train</div><div class="v">1,183,514</div></div>
+          <div class="meta-item"><div class="k">Dimension</div><div class="v">100</div></div>
+          <div class="meta-item"><div class="k">Queries</div><div class="v">500</div></div>
+          <div class="meta-item"><div class="k">k</div><div class="v">10</div></div>
+        </div>
+        <div class="silhouette">Silhouette: 0.0049 · Clusters: 108</div>
+      </div>
+      <div class="dataset-card nytimes reveal">
+        <div class="accent-line"></div>
+        <h3>NYTimes-256</h3>
+        <div class="subtitle">News article embeddings · Angular</div>
+        <div class="meta-grid">
+          <div class="meta-item"><div class="k">Train</div><div class="v">289,761</div></div>
+          <div class="meta-item"><div class="k">Dimension</div><div class="v">256</div></div>
+          <div class="meta-item"><div class="k">Queries</div><div class="v">1,000</div></div>
+          <div class="meta-item"><div class="k">k</div><div class="v">10</div></div>
+        </div>
+        <div class="silhouette">Silhouette: 0.0016 · Clusters: 53</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS CHARTS -->
+<section id="results" style="padding-top:0;">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Performance</div>
+      <h2>QPS vs Recall Trade-off</h2>
+      <p>The fundamental ANN trade-off: how much speed do you gain for how much recall loss? Each point is a different n_probe setting.</p>
+    </div>
+
+    <div class="chart-container reveal">
+      <div class="chart-title">SIFT-128 — 1M vectors, Euclidean</div>
+      <div class="chart-subtitle">M2M IVF (n_probe sweep) vs Linear brute-force vs CUDA GPU</div>
+      <canvas id="chart-sift"></canvas>
+    </div>
+
+    <div class="chart-container reveal">
+      <div class="chart-title">GLOVE-100 — 1.18M vectors, Angular</div>
+      <div class="chart-subtitle">Word embeddings on the unit hypersphere</div>
+      <canvas id="chart-glove"></canvas>
+    </div>
+
+    <div class="chart-container reveal">
+      <div class="chart-title">NYTimes-256 — 290K vectors, Angular</div>
+      <div class="chart-subtitle">News embeddings — nearly uniform distribution (silhouette=0.002)</div>
+      <canvas id="chart-nytimes"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- LATENCY CHART -->
+<section style="padding-top:0;">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Latency</div>
+      <h2>p50 Latency Comparison</h2>
+      <p>Median query latency in milliseconds. Lower is better.</p>
+    </div>
+    <div class="chart-container reveal">
+      <canvas id="chart-latency"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- FULL TABLE -->
+<section style="padding-top:0;">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Raw Data</div>
+      <h2>Complete Results Table</h2>
+    </div>
+    <div class="table-wrap reveal">
+      <table>
+        <thead>
+          <tr>
+            <th>Dataset</th>
+            <th>Backend</th>
+            <th>n_probe</th>
+            <th>p50 (ms)</th>
+            <th>p99 (ms)</th>
+            <th>QPS</th>
+            <th>R@10</th>
+          </tr>
+        </thead>
+        <tbody id="results-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Beyond ANN</div>
+      <h2>What Makes M2M Different</h2>
+      <p>M2M doesn't compete with FAISS on raw speed. It competes on capabilities FAISS cannot offer.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card reveal">
+        <div class="icon" style="background:rgba(99,102,241,0.12)">🧠</div>
+        <h4>Adaptive Gaussian Splats</h4>
+        <p>Each vector carries learnable <code>κ</code> (concentration) and <code>α</code> (importance) that evolve with query feedback — no reindexing needed.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="icon" style="background:rgba(16,185,129,0.12)">⚡</div>
+        <h4>Energy-Based Uncertainty</h4>
+        <p>Every result carries a confidence score derived from the local energy landscape topology. Know when to trust a result.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="icon" style="background:rgba(245,158,11,0.12)">🔄</div>
+        <h4>Online Hebbian Learning</h4>
+        <p>Splat parameters adapt in real-time from user feedback. <code>α += lr·α</code> on relevant, decay on irrelevant. Zero retraining.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="icon" style="background:rgba(6,182,212,0.12)">🧩</div>
+        <h4>SOC Consolidation</h4>
+        <p>Self-Organized Criticality automatically prunes low-contribution splats. The system reaches avalanches and relaxes — like neuronal memory.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="icon" style="background:rgba(236,72,153,0.12)">🔍</div>
+        <h4>Hybrid Semantic Search</h4>
+        <p>BM25 + vector with Reciprocal Rank Fusion, temporal decay, and auto-categorization. The best of keyword and semantic in one query.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="icon" style="background:rgba(129,140,248,0.12)">🚀</div>
+        <h4>Multi-Backend GPU</h4>
+        <p>CPU, NVIDIA CUDA, and AMD Vulkan through a single API. Transparent backend selection. RTX 3090 hits 1,338 QPS brute-force.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARISON -->
+<section id="comparison">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Honest Assessment</div>
+      <h2>M2M vs The World</h2>
+    </div>
+    <div class="vs-grid">
+      <div class="vs-card reveal">
+        <h4>🟢 Use M2M when...</h4>
+        <ul>
+          <li><span class="check">✓</span> Building AI agents with persistent, adaptive memory</li>
+          <li><span class="check">✓</span> Need confidence/uncertainty scores on search results</li>
+          <li><span class="check">✓</span> Want online learning without reindexing</li>
+          <li><span class="check">✓</span> Have a GPU and &lt;10M vectors (CUDA brute-force)</li>
+          <li><span class="check">✓</span> Need hybrid BM25 + vector fusion in one engine</li>
+          <li><span class="check">✓</span> Want automatic memory consolidation (SOC pruning)</li>
+        </ul>
+      </div>
+      <div class="vs-card reveal">
+        <h4>🔴 Use FAISS / HNSW when...</h4>
+        <ul>
+          <li><span class="x">✗</span> Need billion-scale ANN with maximum QPS</li>
+          <li><span class="x">✗</span> Pure vector search, no adaptive learning needed</li>
+          <li><span class="x">✗</span> Production systems with SIMD-optimized C++ backends</li>
+          <li><span class="x">✗</span> Need HNSW graph-based approximate search</li>
+          <li><span class="x">✗</span> Want Milvus/Qdrant managed vector database features</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <p>M2M Vector Search v2.3.0 · AMD Ryzen 5 3400G · RTX 3090 · Python 3.12.3 · NumPy 2.4.4</p>
+    <p>All measurements are real. No synthetic or estimated data.</p>
+    <a href="https://github.com/schwabauerbriantomas-gif/m2m-vector-search" class="repo-link">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      View Repository
+    </a>
+  </div>
+</footer>
+
+<!-- CHART.JS -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// ===== BENCHMARK DATA (from real measurements) =====
+const DATA = {
+  sift: {
+    label: "SIFT-128",
+    color: "#818cf8",
+    results: [
+      { backend: "linear",  n_probe: 0, qps: 3.7,   recall: 0.9992, p50: 251.86, p99: 500.97 },
+      { backend: "m2m_ivf", n_probe: 5, qps: 13.1,  recall: 0.9327, p50: 75.34,  p99: 102.89 },
+      { backend: "m2m_ivf", n_probe: 10,qps: 9.7,   recall: 0.9828, p50: 102.15, p99: 122.85 },
+      { backend: "m2m_ivf", n_probe: 20,qps: 6.8,   recall: 0.9916, p50: 146.06, p99: 190.39 },
+      { backend: "m2m_ivf", n_probe: 30,qps: 5.4,   recall: 0.9923, p50: 180.15, p99: 280.68 },
+      { backend: "cuda_gpu",n_probe: 0, qps: 258.9, recall: 0.9991, p50: 3.85,   p99: 4.14 },
+    ]
+  },
+  glove: {
+    label: "GLOVE-100",
+    color: "#10b981",
+    results: [
+      { backend: "linear",  n_probe: 0, qps: 31.5,   recall: 1.0000, p50: 30.99,  p99: 47.70 },
+      { backend: "m2m_ivf", n_probe: 5, qps: 11.3,   recall: 0.8172, p50: 87.90,  p99: 110.88 },
+      { backend: "m2m_ivf", n_probe: 10,qps: 8.6,    recall: 0.8976, p50: 115.78, p99: 136.62 },
+      { backend: "m2m_ivf", n_probe: 20,qps: 6.4,    recall: 0.9508, p50: 153.64, p99: 210.46 },
+      { backend: "m2m_ivf", n_probe: 30,qps: 4.9,    recall: 0.9686, p50: 196.46, p99: 286.41 },
+      { backend: "cuda_gpu",n_probe: 0, qps: 1029.4, recall: 1.0000, p50: 0.96,   p99: 1.14 },
+    ]
+  },
+  nytimes: {
+    label: "NYTimes-256",
+    color: "#f59e0b",
+    results: [
+      { backend: "linear",  n_probe: 0, qps: 67.6,   recall: 0.9855, p50: 14.63,  p99: 22.56 },
+      { backend: "m2m_ivf", n_probe: 5, qps: 24.0,   recall: 0.6973, p50: 42.65,  p99: 48.48 },
+      { backend: "m2m_ivf", n_probe: 10,qps: 15.4,   recall: 0.8043, p50: 64.70,  p99: 88.62 },
+      { backend: "m2m_ivf", n_probe: 20,qps: 9.2,    recall: 0.9085, p50: 106.90, p99: 167.61 },
+      { backend: "m2m_ivf", n_probe: 30,qps: 6.7,    recall: 0.9502, p50: 146.48, p99: 253.80 },
+      { backend: "cuda_gpu",n_probe: 0, qps: 1337.8, recall: 0.9848, p50: 0.72,   p99: 0.82 },
+    ]
+  }
+};
+
+Chart.defaults.color = '#9ca3af';
+Chart.defaults.font.family = "'Space Grotesk', sans-serif";
+Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+
+// ===== QVS vs RECALL SCATTER =====
+function makeScatterChart(canvasId, datasetKey) {
+  const ds = DATA[datasetKey];
+  const ctx = document.getElementById(canvasId).getContext('2d');
+
+  const datasets = [];
+
+  // M2M IVF points as a connected line
+  const ivfPoints = ds.results.filter(r => r.backend === 'm2m_ivf').sort((a,b) => a.qps - b.qps);
+  datasets.push({
+    label: 'M2M IVF',
+    data: ivfPoints.map(r => ({ x: r.qps, y: r.recall })),
+    backgroundColor: ds.color,
+    borderColor: ds.color,
+    borderWidth: 2,
+    pointRadius: 7,
+    pointHoverRadius: 10,
+    showLine: true,
+    tension: 0.3,
+  });
+
+  // Linear point
+  const linear = ds.results.find(r => r.backend === 'linear');
+  if (linear) datasets.push({
+    label: `CPU Linear (${linear.qps.toFixed(1)} QPS)`,
+    data: [{ x: linear.qps, y: linear.recall }],
+    backgroundColor: '#9ca3af',
+    borderColor: '#9ca3af',
+    pointRadius: 8,
+    pointHoverRadius: 11,
+    pointStyle: 'triangle',
+    showLine: false,
+  });
+
+  // CUDA point
+  const cuda = ds.results.find(r => r.backend === 'cuda_gpu');
+  if (cuda) datasets.push({
+    label: `CUDA GPU (${cuda.qps.toFixed(0)} QPS)`,
+    data: [{ x: cuda.qps, y: cuda.recall }],
+    backgroundColor: '#10b981',
+    borderColor: '#10b981',
+    pointRadius: 9,
+    pointHoverRadius: 12,
+    pointStyle: 'rectRot',
+    showLine: false,
+  });
+
+  new Chart(ctx, {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 2.2,
+      plugins: {
+        legend: { position: 'top', labels: { usePointStyle: true, padding: 20, font: { size: 12 } } },
+        tooltip: {
+          backgroundColor: '#181822', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1,
+          padding: 12, titleFont: { size: 13 }, bodyFont: { size: 12 },
+          callbacks: {
+            label: (ctx) => {
+              const d = ctx.raw;
+              return ` QPS: ${d.x.toFixed(1)}  ·  R@10: ${(d.y*100).toFixed(2)}%`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'logarithmic',
+          title: { display: true, text: 'Queries Per Second (QPS) — log scale', font: { size: 13, weight: '500' } },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
+          title: { display: true, text: 'Recall @ 10', font: { size: 13, weight: '500' } },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          min: 0.65,
+          max: 1.005,
+        }
+      }
+    }
+  });
+}
+
+// ===== LATENCY BAR CHART =====
+function makeLatencyChart() {
+  const ctx = document.getElementById('chart-latency').getContext('2d');
+  const datasets = ['sift','glove','nytimes'];
+  const labels = datasets.map(d => DATA[d].label);
+
+  const linearData = datasets.map(d => DATA[d].results.find(r => r.backend==='linear').p50);
+  const ivfBestData = datasets.map(d => {
+    const ivf = DATA[d].results.filter(r => r.backend==='m2m_ivf');
+    return ivf[0].p50; // n_probe=5 is fastest
+  });
+  const cudaData = datasets.map(d => DATA[d].results.find(r => r.backend==='cuda_gpu').p50);
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'CPU Linear', data: linearData, backgroundColor: 'rgba(156,163,175,0.6)', borderRadius: 6 },
+        { label: 'M2M IVF (n=5)', data: ivfBestData, backgroundColor: 'rgba(129,140,248,0.7)', borderRadius: 6 },
+        { label: 'CUDA GPU', data: cudaData, backgroundColor: 'rgba(16,185,129,0.7)', borderRadius: 6 },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 2.5,
+      plugins: {
+        legend: { position: 'top', labels: { usePointStyle: true, padding: 20 } },
+        tooltip: {
+          backgroundColor: '#181822', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1,
+          callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.raw.toFixed(2)} ms` }
+        }
+      },
+      scales: {
+        y: {
+          type: 'logarithmic',
+          title: { display: true, text: 'p50 Latency (ms) — log scale' },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+// ===== TABLE =====
+function buildTable() {
+  const tbody = document.getElementById('results-table-body');
+  const allResults = [];
+  for (const [key, ds] of Object.entries(DATA)) {
+    for (const r of ds.results) {
+      allResults.push({ ...r, dataset: ds.label, metric: key === 'sift' ? 'L2' : 'cosine' });
+    }
+  }
+
+  for (const r of allResults) {
+    const tr = document.createElement('tr');
+    const recallPct = (r.recall * 100).toFixed(2);
+    const recallClass = r.recall >= 0.99 ? 'fill-high' : r.recall >= 0.9 ? 'fill-mid' : 'fill-low';
+    const tagClass = r.backend === 'cuda_gpu' ? 'tag-cuda' : r.backend === 'm2m_ivf' ? 'tag-ivf' : 'tag-linear';
+    const tagLabel = r.backend === 'cuda_gpu' ? 'CUDA' : r.backend === 'm2m_ivf' ? `IVF n=${r.n_probe}` : 'Linear';
+
+    tr.innerHTML = `
+      <td>${r.dataset}</td>
+      <td><span class="tag ${tagClass}">${tagLabel}</span></td>
+      <td>${r.n_probe || '—'}</td>
+      <td>${r.p50.toFixed(2)}</td>
+      <td>${r.p99.toFixed(2)}</td>
+      <td>${r.qps.toFixed(1)}</td>
+      <td>
+        <span class="recall-bar">
+          ${recallPct}%
+          <span class="bar"><span class="fill ${recallClass}" style="width:${recallPct}%"></span></span>
+        </span>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+// ===== COUNTER ANIMATION =====
+function animateCounters() {
+  document.querySelectorAll('[data-target]').forEach(el => {
+    const target = parseInt(el.dataset.target);
+    const duration = 1500;
+    const start = performance.now();
+    function tick(now) {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const val = Math.round(target * eased);
+      el.textContent = val >= 1000 ? val.toLocaleString() : val;
+      if (progress < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+// ===== INTERSECTION OBSERVER =====
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      if (entry.target.querySelector('[data-target]')) animateCounters();
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Fallback: reveal everything after 1.5s (covers headless/print mode)
+setTimeout(() => {
+  document.querySelectorAll('.reveal:not(.visible)').forEach(el => el.classList.add('visible'));
+}, 1500);
+
+// ===== INIT =====
+window.addEventListener('load', () => {
+  makeScatterChart('chart-sift', 'sift');
+  makeScatterChart('chart-glove', 'glove');
+  makeScatterChart('chart-nytimes', 'nytimes');
+  makeLatencyChart();
+  buildTable();
+  setTimeout(animateCounters, 300);
+});
+</script>
+</body>
+</html>
