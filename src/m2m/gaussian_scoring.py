@@ -17,7 +17,7 @@ This keeps performance competitive while using the Gaussian model for ranking.
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -27,6 +27,7 @@ def gaussian_score(
     mu: np.ndarray,
     alpha: np.ndarray,
     kappa: np.ndarray,
+    precomputed_dist_sq: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Compute Gaussian mixture scores for a single query against all splats.
@@ -40,16 +41,27 @@ def gaussian_score(
         mu: Splat centers [N, D]
         alpha: Splat amplitudes [N]
         kappa: Splat concentrations [N]
+        precomputed_dist_sq: Pre-computed squared L2 distances [N] to avoid
+            recomputing them. When provided, skips the distance calculation
+            entirely (useful when Phase 1 already computed them).
 
     Returns:
         scores: [N] — Gaussian mixture scores (higher = better match)
     """
-    diff = mu - query  # [N, D]
-    dist_sq = np.einsum("ij,ij->i", diff, diff)  # [N]
+    if precomputed_dist_sq is not None:
+        dist_sq = precomputed_dist_sq
+    else:
+        # Gram-matrix trick: ‖q-μ‖² = ‖q‖² + ‖μ‖² - 2·q·μ
+        # Avoids materializing the [N, D] diff array
+        q_sq = np.dot(query, query)  # scalar
+        m_sq = np.einsum("ij,ij->i", mu, mu)  # [N]
+        cross = mu @ query  # [N]
+        dist_sq = q_sq + m_sq - 2.0 * cross
+        np.maximum(dist_sq, 0.0, out=dist_sq)
 
     # Clamp kappa to prevent numerical overflow
     exponent = -kappa * dist_sq
-    exponent = np.clip(exponent, -100.0, 0.0)
+    np.clip(exponent, -100.0, 0.0, out=exponent)
 
     return alpha * np.exp(exponent)
 
@@ -110,6 +122,7 @@ def two_phase_search(
     kappa: np.ndarray,
     k: int = 64,
     overfetch: float = 2.0,
+    precomputed_m_sq: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Two-phase search: L2 candidate retrieval + Gaussian re-ranking.
@@ -124,6 +137,8 @@ def two_phase_search(
         kappa: [N] splat concentrations
         k: number of results
         overfetch: how many extra candidates to retrieve in phase 1
+        precomputed_m_sq: Pre-computed ||μ_i||² [N] to avoid recomputing
+            for every query in a batch. When provided, skips the einsum.
 
     Returns:
         indices: [k] — splat indices (sorted by Gaussian score, descending)
@@ -134,9 +149,15 @@ def two_phase_search(
     N = mu.shape[0]
     n_fetch = min(int(k * overfetch), N)
 
-    # Phase 1: Fast L2 retrieval
-    diff = mu - query
-    dist_sq = np.einsum("ij,ij->i", diff, diff)
+    # Phase 1: Fast L2 retrieval via Gram-matrix trick
+    q_sq = np.dot(query, query)
+    if precomputed_m_sq is not None:
+        m_sq = precomputed_m_sq
+    else:
+        m_sq = np.einsum("ij,ij->i", mu, mu)
+    cross = mu @ query
+    dist_sq = q_sq + m_sq - 2.0 * cross
+    np.maximum(dist_sq, 0.0, out=dist_sq)
 
     if N > n_fetch:
         candidates = np.argpartition(dist_sq, n_fetch - 1)[:n_fetch]
@@ -144,14 +165,15 @@ def two_phase_search(
         candidates = np.arange(N)
 
     # Phase 2: Gaussian scoring on candidates
-    cand_mu = mu[candidates]
+    # Reuse pre-computed distances instead of recomputing them
+    cand_dist_sq = dist_sq[candidates]
     cand_alpha = alpha[candidates]
     cand_kappa = kappa[candidates]
 
-    scores = gaussian_score(query, cand_mu, cand_alpha, cand_kappa)
+    scores = gaussian_score(query, mu[candidates], cand_alpha, cand_kappa,
+                           precomputed_dist_sq=cand_dist_sq)
 
     # L2 ranks among candidates (for rank change tracking)
-    cand_dist_sq = dist_sq[candidates]
     l2_ranks = np.argsort(np.argsort(cand_dist_sq))
 
     # Gaussian ranking (descending score = best first)

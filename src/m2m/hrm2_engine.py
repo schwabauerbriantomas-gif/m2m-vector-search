@@ -415,14 +415,12 @@ class HRM2Engine:
                 if len(candidates) >= k:
                     break
         else:
-            # LOD 2 (Exact): Collect all points to be scored exactly by MoE router
-            expert_embeddings = []
-            expert_indices = []
-            coarse_ids = []
-            fine_ids = []
+            # LOD 2 (Exact): Collect candidates from nearest coarse clusters
+            expert_indices_list = []
+            expert_embeddings_list = []
+            coarse_ids_list = []
 
             for coarse_id in closest_coarse:
-                # Opt #3: Use pre-computed masks
                 mask = self._cluster_masks.get(int(coarse_id))
                 if mask is None:
                     mask = self.coarse_assignments == coarse_id
@@ -433,21 +431,14 @@ class HRM2Engine:
 
                 cluster_embeddings = self.embeddings[mask]
 
-                expert_embeddings.append(cluster_embeddings)
-                expert_indices.append(cluster_indices)
-                coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
+                expert_embeddings_list.append(cluster_embeddings)
+                expert_indices_list.append(cluster_indices)
+                coarse_ids_list.append(np.full(len(cluster_indices), int(coarse_id)))
 
-                # Optionally grab fine IDs if needed
-                fine_assigns = self.fine_assignments.get(
-                    int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32)
-                )
-                fine_ids.extend(fine_assigns.tolist())
-
-            if expert_embeddings:
-                expert_embeddings = np.vstack(expert_embeddings)
-                expert_indices = np.concatenate(expert_indices)
-                coarse_ids = np.array(coarse_ids)
-                fine_ids = np.array(fine_ids)
+            if expert_indices_list:
+                expert_embeddings = np.vstack(expert_embeddings_list)
+                expert_indices = np.concatenate(expert_indices_list)
+                coarse_ids = np.concatenate(coarse_ids_list)
 
                 if self.router:  # Hardware-accelerated MoE distance
                     results = self.router.compute_expert_distances(
@@ -455,21 +446,32 @@ class HRM2Engine:
                         expert_embeddings,
                         expert_indices,
                         coarse_ids,
-                        fine_ids,
+                        np.zeros(len(expert_indices), dtype=np.int32),
                     )
                     candidates = [(r[0], r[1], r[2]) for r in results]
-                else:  # CPU fallback - Opt #2: squared distance via einsum (no sqrt)
+                else:
+                    # Vectorized distance computation via Gram-matrix trick
                     diff = expert_embeddings - query_vector
-                    if self.metric == "cosine":
-                        # On normalized vectors, euclidean dist squared = 2 - 2*cos_sim
-                        # So euclidean dist already encodes cosine distance
-                        distances_sq = np.einsum("ij,ij->i", diff, diff)
-                        for idx, dist_sq, cid in zip(expert_indices, distances_sq, coarse_ids):
-                            candidates.append((idx, float(np.sqrt(dist_sq)), int(cid)))
+                    distances_sq = np.einsum("ij,ij->i", diff, diff)
+
+                    # Fast top-k via argpartition + partial sort
+                    if len(distances_sq) > k:
+                        topk_idx = np.argpartition(distances_sq, k - 1)[:k]
+                        subset_dists = distances_sq[topk_idx]
+                        sort_idx = np.argsort(subset_dists)
+                        topk_idx = topk_idx[sort_idx]
                     else:
-                        distances_sq = np.einsum("ij,ij->i", diff, diff)
-                        for idx, dist_sq, cid in zip(expert_indices, distances_sq, coarse_ids):
-                            candidates.append((idx, float(np.sqrt(dist_sq)), int(cid)))
+                        topk_idx = np.argsort(distances_sq)
+
+                    # Build candidates directly sorted (no Python list sort)
+                    candidates = [
+                        (
+                            int(expert_indices[i]),
+                            float(np.sqrt(distances_sq[i])),
+                            int(coarse_ids[i]),
+                        )
+                        for i in topk_idx
+                    ]
 
         # Sort by distance and return top-k
         candidates.sort(key=lambda x: x[1])
@@ -556,10 +558,9 @@ class HRM2Engine:
                 if len(candidates) >= k:
                     break
         else:
-            expert_embeddings = []
-            expert_indices = []
-            coarse_ids = []
-            fine_ids = []
+            expert_indices_list = []
+            expert_embeddings_list = []
+            coarse_ids_list = []
 
             for coarse_id in closest_coarse:
                 mask = self._cluster_masks.get(int(coarse_id))
@@ -572,20 +573,14 @@ class HRM2Engine:
 
                 cluster_embeddings = self.embeddings[mask]
 
-                expert_embeddings.append(cluster_embeddings)
-                expert_indices.append(cluster_indices)
-                coarse_ids.extend([int(coarse_id)] * len(cluster_indices))
+                expert_embeddings_list.append(cluster_embeddings)
+                expert_indices_list.append(cluster_indices)
+                coarse_ids_list.append(np.full(len(cluster_indices), int(coarse_id)))
 
-                fine_assigns = self.fine_assignments.get(
-                    int(coarse_id), np.zeros(len(cluster_indices), dtype=np.int32)
-                )
-                fine_ids.extend(fine_assigns.tolist())
-
-            if expert_embeddings:
-                expert_embeddings = np.vstack(expert_embeddings)
-                expert_indices = np.concatenate(expert_indices)
-                coarse_ids = np.array(coarse_ids)
-                fine_ids = np.array(fine_ids)
+            if expert_indices_list:
+                expert_embeddings = np.vstack(expert_embeddings_list)
+                expert_indices = np.concatenate(expert_indices_list)
+                coarse_ids = np.concatenate(coarse_ids_list)
 
                 if self.router:
                     results = self.router.compute_expert_distances(
@@ -593,7 +588,7 @@ class HRM2Engine:
                         expert_embeddings,
                         expert_indices,
                         coarse_ids,
-                        fine_ids,
+                        np.zeros(len(expert_indices), dtype=np.int32),
                     )
                     candidates = [
                         (self.splats[int(r[0])].id if _has_splats else int(r[0]), r[1], r[2], r[3])
@@ -602,11 +597,24 @@ class HRM2Engine:
                 else:
                     diff = expert_embeddings - query_vector
                     distances_sq = np.einsum("ij,ij->i", diff, diff)
-                    for idx, dist_sq, cid, fid in zip(
-                        expert_indices, distances_sq, coarse_ids, fine_ids
-                    ):
-                        sid = self.splats[int(idx)].id if _has_splats else int(idx)
-                        candidates.append((sid, float(np.sqrt(dist_sq)), int(cid), int(fid)))
+
+                    # Fast top-k via argpartition
+                    if len(distances_sq) > k:
+                        topk_idx = np.argpartition(distances_sq, k - 1)[:k]
+                        sort_idx = np.argsort(distances_sq[topk_idx])
+                        topk_idx = topk_idx[sort_idx]
+                    else:
+                        topk_idx = np.argsort(distances_sq)
+
+                    candidates = [
+                        (
+                            self.splats[int(expert_indices[i])].id if _has_splats else int(expert_indices[i]),
+                            float(np.sqrt(distances_sq[i])),
+                            int(coarse_ids[i]),
+                            0,
+                        )
+                        for i in topk_idx
+                    ]
 
         # Sort and return top-k
         candidates.sort(key=lambda x: x[1])

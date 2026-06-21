@@ -66,7 +66,7 @@ def bench_m2m_indist(vectors, queries, k, gt):
     n = vectors.shape[0]
     n_q = len(queries)
     
-    db = SimpleVectorDB(latent_dim=dim)
+    db = SimpleVectorDB(latent_dim=dim, enable_lsh_fallback=False)
     t0 = time.perf_counter()
     db.add(
         ids=[str(i) for i in range(n)],

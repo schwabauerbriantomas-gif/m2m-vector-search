@@ -80,9 +80,12 @@ class TestSimpleVectorDB:
 
         results = simple_db.search(sample_query, k=10)
 
-        # Legacy mode returns tuple
+        # Legacy mode returns tuple (mu, alpha, kappa, [splat_indices])
         if isinstance(results, tuple):
-            vectors, alphas, kappas = results
+            if len(results) == 4:
+                vectors, alphas, kappas, _ = results
+            else:
+                vectors, alphas, kappas = results
             assert len(vectors) == 10
         else:
             assert len(results) <= 10

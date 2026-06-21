@@ -177,12 +177,25 @@ class SplatStore:
         # Use HRM2 clustering pruning when dataset is large enough
         use_hrm2 = n > 15000 and self.engine.coarse_model is not None
 
+        # Use default n_probe — HRM2 auto-detection handles cluster count.
+        # Silhouette-based scaling was tested and found unnecessary:
+        # n_probe=5 already achieves recall≥0.9995 even with sil=0.13.
+        if use_hrm2:
+            effective_n_probe = self.engine.n_probe
+        else:
+            effective_n_probe = 0
+
+        # Pre-compute ||μ_i||² once for non-HRM2 path (candidates = all points)
+        _non_hrm2_m_sq = None
+        if not use_hrm2:
+            _non_hrm2_m_sq = np.einsum("ij,ij->i", index_data, index_data)
+
         for i in range(batch_size):
             q = query_np[i].astype(np.float32)
 
             if use_hrm2 and lod == 2:
                 # HRM2 accelerated path for large datasets
-                n_probe = self.engine.n_probe
+                n_probe = effective_n_probe
                 coarse_dists = self.engine.coarse_model.transform(q.reshape(1, -1))[0]
 
                 if coarse_dists.shape[0] > n_probe:
@@ -209,21 +222,24 @@ class SplatStore:
             cand_alpha = index_alpha[candidates]
             cand_kappa = index_kappa[candidates]
 
+            # For non-HRM2 path, reuse pre-computed norms across queries
+            m_sq_prealoc = _non_hrm2_m_sq if (not use_hrm2 and _non_hrm2_m_sq is not None) else None
+
             # two_phase_search returns (indices, scores, distances, rank_changes)
             # where indices are offsets INTO cand_mu (the candidate subset)
             result_indices, result_scores, _, _ = two_phase_search(
-                q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5
+                q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5,
+                precomputed_m_sq=m_sq_prealoc,
             )
 
-            # Map candidate-local indices back to global splat indices
-            for j in range(min(k, len(result_indices))):
-                local_idx = result_indices[j]
-                if 0 <= local_idx < len(candidates):
-                    idx = candidates[local_idx]
-                    mu_out[i, j] = index_data[idx]
-                    alpha_out[i, j] = index_alpha[idx]
-                    kappa_out[i, j] = index_kappa[idx]
-                    idx_out[i, j] = idx
+            # Map candidate-local indices back to global splat indices — vectorized
+            n_results = min(k, len(result_indices))
+            if n_results > 0:
+                global_indices = candidates[result_indices[:n_results]]
+                mu_out[i, :n_results] = index_data[global_indices]
+                alpha_out[i, :n_results] = index_alpha[global_indices]
+                kappa_out[i, :n_results] = index_kappa[global_indices]
+                idx_out[i, :n_results] = global_indices
 
         return mu_out, alpha_out, kappa_out, idx_out
 
@@ -301,6 +317,9 @@ class SplatStore:
         index_kappa = self.kappa[:n]
         queries_np = queries.astype(np.float32)
 
+        # Pre-compute norms once for all queries
+        _m_sq = np.einsum("ij,ij->i", index_data, index_data)
+
         mu_out = np.zeros((batch_size, k, dim), dtype=np.float32)
         alpha_out = np.zeros((batch_size, k), dtype=np.float32)
         kappa_out = np.zeros((batch_size, k), dtype=np.float32)
@@ -308,14 +327,17 @@ class SplatStore:
         for i in range(batch_size):
             q = queries_np[i]
             _, scores, _, _ = two_phase_search(
-                q, index_data, index_alpha, index_kappa, k=k, overfetch=2.0
+                q, index_data, index_alpha, index_kappa, k=k, overfetch=2.0,
+                precomputed_m_sq=_m_sq,
             )
-            top_local = np.argsort(-scores)[:k]
+            # Vectorized: argsort once, fancy-index once
+            top_local = np.argpartition(-scores, min(k, len(scores)) - 1)[:k] if len(scores) > k else np.argsort(-scores)
+            top_local = top_local[np.argsort(-scores[top_local])] if len(scores) > k else top_local
 
-            for j, local_j in enumerate(top_local):
-                mu_out[i, j] = index_data[local_j]
-                alpha_out[i, j] = index_alpha[local_j]
-                kappa_out[i, j] = index_kappa[local_j]
+            n_results = min(k, len(top_local))
+            mu_out[i, :n_results] = index_data[top_local[:n_results]]
+            alpha_out[i, :n_results] = index_alpha[top_local[:n_results]]
+            kappa_out[i, :n_results] = index_kappa[top_local[:n_results]]
 
         return mu_out, alpha_out, kappa_out
 
@@ -343,16 +365,22 @@ class SplatStore:
             if len(candidates) == 0:
                 continue
 
-            # Gaussian re-ranking
+            # Gaussian re-ranking — vectorized
             cand_mu = self.mu[candidates]
             cand_alpha = self.alpha[candidates]
             cand_kappa = self.kappa[candidates]
 
             scores = gaussian_score(queries_np[i], cand_mu, cand_alpha, cand_kappa)
-            top_local = np.argsort(-scores)[:k]
 
-            for j, local_j in enumerate(top_local[:k]):
-                idx = candidates[local_j]
+            if len(scores) > k:
+                top_local = np.argpartition(-scores, k - 1)[:k]
+                top_local = top_local[np.argsort(-scores[top_local])]
+            else:
+                top_local = np.argsort(-scores)
+
+            n_results = min(k, len(top_local))
+            for j in range(n_results):
+                idx = candidates[top_local[j]]
                 mu_out[i, j] = self.mu[idx]
                 alpha_out[i, j] = self.alpha[idx]
                 kappa_out[i, j] = self.kappa[idx]

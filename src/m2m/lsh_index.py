@@ -40,10 +40,11 @@ class CrossPolytopeLSH:
         self.n_vectors = 0
 
     def _random_rotation(self, dim: int) -> np.ndarray:
-        A = np.random.randn(dim, dim)
+        """Generate a random orthogonal matrix via QR decomposition."""
+        A = np.random.randn(dim, dim).astype(np.float32)
         Q, R = np.linalg.qr(A)
         Q = Q @ np.diag(np.sign(np.diag(R)))
-        return Q.astype(np.float32)
+        return Q
 
     def _compute_hash_vector(self, vector: np.ndarray, table_idx: int) -> Tuple[int, ...]:
         hashes = []
