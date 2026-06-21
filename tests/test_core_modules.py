@@ -72,7 +72,7 @@ class TestSplats:
         splats = SplatStore(config)
         vec = np.random.randn(640).astype(np.float32)
         vec /= np.linalg.norm(vec) + 1e-8
-        assert splats.add_splat(vec) is True
+        assert splats.add_splat(vec) == 1
         assert splats.n_active == 1
 
     def test_max_splats_limit(self):

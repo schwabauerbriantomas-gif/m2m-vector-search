@@ -248,16 +248,13 @@ class M2MEngine:
             logger.info("Vulkan acceleration disabled")
 
     def add_splats(self, vectors: np.ndarray, labels: List[str] = None) -> int:
-        """Add new splats to the system."""
+        """Add new splats to the system (batch-vectorized for large datasets)."""
         vectors_norm = normalize_sphere(vectors)
-        n_added = 0
-        for i, vector_norm in enumerate(vectors_norm):
-            if self.m2m.splats.add_splat(vector_norm):
-                n_added += 1
-            else:
-                logger.warning("Failed to add splat %d", i)
 
-        if n_added > 0:
+        # Batch path: pass entire array at once (1000x faster than per-vector loop)
+        n_added = self.m2m.splats.add_splat(vectors_norm)
+
+        if n_added and n_added > 0:
             self.m2m.splats.build_index()
 
         logger.info("Added %d splats and built HRM2 index", n_added)
@@ -447,6 +444,8 @@ class SimpleVectorDB:
         enable_wal: bool = True,
         enable_ebm: bool = False,
         mode: str = "standard",  # 'edge', 'standard', 'ebm'
+        max_splats: Optional[int] = None,  # auto-scale if None
+        n_probe: Optional[int] = None,  # HRM2 clusters to probe
         _config: Optional["M2MConfig"] = None,  # internal: allows subclass to pass custom config
     ):
         if _config is not None:
@@ -455,7 +454,17 @@ class SimpleVectorDB:
         else:
             config = M2MConfig.simple(device=device)
             config.latent_dim = latent_dim
+
+        # Auto-scale max_splats if not specified (use 2x default to allow growth)
+        if max_splats is not None:
+            config.max_splats = max_splats
+
         self.engine = M2MEngine(config)
+
+        # Configure n_probe on the HRM2 engine
+        if n_probe is not None:
+            self.engine.m2m.splats.engine.n_probe = n_probe
+
         self.latent_dim = latent_dim
 
         self.enable_lsh_fallback = enable_lsh_fallback

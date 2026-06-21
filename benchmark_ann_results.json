@@ -1,0 +1,122 @@
+{
+  "hardware": {
+    "cpu": "x86_64",
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "python": "3.12.3",
+    "numpy": "2.4.4"
+  },
+  "params": {
+    "queries": 1000,
+    "k": 10,
+    "n_probes": [
+      5,
+      10,
+      20,
+      30
+    ]
+  },
+  "results": [
+    {
+      "dataset": "nytimes",
+      "metric": "angular",
+      "n_train": 290000,
+      "dim": 256,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "linear",
+      "n_probe": 0,
+      "n_clusters": 0,
+      "build_time_s": 0.0,
+      "p50_ms": 14.627867501985747,
+      "p95_ms": 15.860658897872781,
+      "p99_ms": 17.66685532682459,
+      "qps": 67.64465722501524,
+      "recall_at_10": 0.9855
+    },
+    {
+      "dataset": "nytimes",
+      "metric": "angular",
+      "n_train": 289761,
+      "dim": 256,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 5,
+      "n_clusters": 53,
+      "build_time_s": 7.003228722998756,
+      "p50_ms": 42.65064149512909,
+      "p95_ms": 50.16807230058475,
+      "p99_ms": 57.45301896298769,
+      "qps": 23.961907154527353,
+      "recall_at_10": 0.6973
+    },
+    {
+      "dataset": "nytimes",
+      "metric": "angular",
+      "n_train": 289761,
+      "dim": 256,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 10,
+      "n_clusters": 53,
+      "build_time_s": 6.644539517001249,
+      "p50_ms": 64.70449900371023,
+      "p95_ms": 73.10962125266087,
+      "p99_ms": 87.60109714727149,
+      "qps": 15.36666374249844,
+      "recall_at_10": 0.8043
+    },
+    {
+      "dataset": "nytimes",
+      "metric": "angular",
+      "n_train": 289761,
+      "dim": 256,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 20,
+      "n_clusters": 53,
+      "build_time_s": 5.871455662010703,
+      "p50_ms": 106.90029900433728,
+      "p95_ms": 116.96048155063178,
+      "p99_ms": 163.20556769846007,
+      "qps": 9.233658783046087,
+      "recall_at_10": 0.9085
+    },
+    {
+      "dataset": "nytimes",
+      "metric": "angular",
+      "n_train": 289761,
+      "dim": 256,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 30,
+      "n_clusters": 53,
+      "build_time_s": 5.895827783999266,
+      "p50_ms": 146.4754235057626,
+      "p95_ms": 157.83017445573932,
+      "p99_ms": 201.70391668754746,
+      "qps": 6.746741862212738,
+      "recall_at_10": 0.9502
+    },
+    {
+      "dataset": "nytimes",
+      "metric": "angular",
+      "n_train": 290000,
+      "dim": 256,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "cuda_gpu",
+      "n_probe": 0,
+      "n_clusters": 0,
+      "build_time_s": 0.0,
+      "p50_ms": 0.7204419962363318,
+      "p95_ms": 0.8899420994566754,
+      "p99_ms": 0.960591632174328,
+      "qps": 1337.8315238644082,
+      "recall_at_10": 0.9848
+    }
+  ]
+}

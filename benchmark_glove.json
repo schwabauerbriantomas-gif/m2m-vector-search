@@ -1,0 +1,122 @@
+{
+  "hardware": {
+    "cpu": "x86_64",
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "python": "3.12.3",
+    "numpy": "2.4.4"
+  },
+  "params": {
+    "queries": 500,
+    "k": 10,
+    "n_probes": [
+      5,
+      10,
+      20,
+      30
+    ]
+  },
+  "results": [
+    {
+      "dataset": "glove",
+      "metric": "angular",
+      "n_train": 1183514,
+      "dim": 100,
+      "n_queries": 500,
+      "k": 10,
+      "backend": "linear",
+      "n_probe": 0,
+      "n_clusters": 0,
+      "build_time_s": 0.0,
+      "p50_ms": 30.994449494755827,
+      "p95_ms": 37.92969315036316,
+      "p99_ms": 47.69716637747479,
+      "qps": 31.45158085962648,
+      "recall_at_10": 1.0
+    },
+    {
+      "dataset": "glove",
+      "metric": "angular",
+      "n_train": 1183514,
+      "dim": 100,
+      "n_queries": 500,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 5,
+      "n_clusters": 108,
+      "build_time_s": 14.477425030010636,
+      "p50_ms": 87.90434349793941,
+      "p95_ms": 95.34132300905183,
+      "p99_ms": 110.88273802102769,
+      "qps": 11.267486676829042,
+      "recall_at_10": 0.8172
+    },
+    {
+      "dataset": "glove",
+      "metric": "angular",
+      "n_train": 1183514,
+      "dim": 100,
+      "n_queries": 500,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 10,
+      "n_clusters": 108,
+      "build_time_s": 22.40230809399509,
+      "p50_ms": 115.78129000554327,
+      "p95_ms": 128.9246230480785,
+      "p99_ms": 136.61736284062496,
+      "qps": 8.569261744527216,
+      "recall_at_10": 0.8976
+    },
+    {
+      "dataset": "glove",
+      "metric": "angular",
+      "n_train": 1183514,
+      "dim": 100,
+      "n_queries": 500,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 20,
+      "n_clusters": 108,
+      "build_time_s": 12.115892975009046,
+      "p50_ms": 153.63631099899067,
+      "p95_ms": 180.17563174653333,
+      "p99_ms": 210.46068747033132,
+      "qps": 6.404188404882689,
+      "recall_at_10": 0.9508
+    },
+    {
+      "dataset": "glove",
+      "metric": "angular",
+      "n_train": 1183514,
+      "dim": 100,
+      "n_queries": 500,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 30,
+      "n_clusters": 108,
+      "build_time_s": 10.722587283002213,
+      "p50_ms": 196.45762349682627,
+      "p95_ms": 256.938413248281,
+      "p99_ms": 286.40634805764415,
+      "qps": 4.934620632018991,
+      "recall_at_10": 0.9686
+    },
+    {
+      "dataset": "glove",
+      "metric": "angular",
+      "n_train": 1183514,
+      "dim": 100,
+      "n_queries": 500,
+      "k": 10,
+      "backend": "cuda_gpu",
+      "n_probe": 0,
+      "n_clusters": 0,
+      "build_time_s": 0.0,
+      "p50_ms": 0.961078992986586,
+      "p95_ms": 1.047549955546856,
+      "p99_ms": 1.1406588691170325,
+      "qps": 1029.3759311972485,
+      "recall_at_10": 1.0
+    }
+  ]
+}

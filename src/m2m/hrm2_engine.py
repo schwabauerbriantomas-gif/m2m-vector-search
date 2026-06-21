@@ -259,9 +259,12 @@ class HRM2Engine:
         )
         self.coarse_assignments = self.coarse_model.fit_predict(self.embeddings)
 
-        # Level 2: Fine clustering within each coarse cluster
+        # Level 2: Fine clustering — LAZY (only built when query(lod=1) is called)
+        # SplatStore.find_neighbors() only uses coarse clustering, so skip this
+        # expensive step during index build. It saves O(n_coarse × n_fine) KMeans time.
         self.fine_models = {}
         self.fine_assignments = {}
+        self._fine_built = False
         self.coarse_cluster_indices = {}
         self.coarse_cluster_embeddings = {}
 
@@ -270,30 +273,10 @@ class HRM2Engine:
             cluster_indices = np.where(mask)[0]
 
             self.coarse_cluster_indices[coarse_id] = cluster_indices
-
-            if len(cluster_indices) < 2:
-                self.fine_models[coarse_id] = None
-                self.fine_assignments[coarse_id] = np.zeros(len(cluster_indices), dtype=np.int32)
-                self.coarse_cluster_embeddings[coarse_id] = np.zeros(
-                    (0, self.embedding_dim), dtype=np.float32
-                )
-                continue
-
             cluster_embeddings = np.ascontiguousarray(self.embeddings[mask].astype(np.float32))
             self.coarse_cluster_embeddings[coarse_id] = cluster_embeddings
 
-            # Dynamic n_fine based on cluster size
-            n_fine_effective = min(self.n_fine, len(cluster_indices) // 5)
-            n_fine_effective = max(1, n_fine_effective)
-
-            fine_model = KMeans(
-                n_clusters=n_fine_effective,
-                batch_size=min(self.batch_size, len(cluster_indices)),
-                random_state=self.random_state + coarse_id,
-            )
-
-            self.fine_models[coarse_id] = fine_model
-            self.fine_assignments[coarse_id] = fine_model.fit_predict(cluster_embeddings)
+        # Fine clustering deferred to _build_fine_index() — called lazily by query(lod=1)
 
         # Opt #3: Pre-compute cluster masks as boolean arrays
         self._cluster_masks: Dict[int, np.ndarray] = {}
@@ -338,12 +321,38 @@ class HRM2Engine:
         # Update stats
         self._stats.n_splats = n_samples
         self._stats.n_coarse_clusters = n_coarse_effective
-        self._stats.n_fine_clusters = sum(
-            m.n_clusters if m else 0 for m in self.fine_models.values()
-        )
+        self._stats.n_fine_clusters = 0  # Lazy: built only on query(lod=1)
         self._stats.build_time = time.time() - start_time
 
         return self._stats.build_time
+
+    def _build_fine_index(self):
+        """Build Level-2 fine clustering lazily (only when lod=1 queries are made)."""
+        if self._fine_built or self.embeddings is None:
+            return
+        for coarse_id in range(len(self.coarse_cluster_indices)):
+            cluster_indices = self.coarse_cluster_indices[coarse_id]
+            if len(cluster_indices) < 2:
+                self.fine_models[coarse_id] = None
+                self.fine_assignments[coarse_id] = np.zeros(len(cluster_indices), dtype=np.int32)
+                continue
+
+            cluster_embeddings = self.coarse_cluster_embeddings[coarse_id]
+            n_fine_effective = min(self.n_fine, len(cluster_indices) // 5)
+            n_fine_effective = max(1, n_fine_effective)
+
+            fine_model = KMeans(
+                n_clusters=n_fine_effective,
+                batch_size=min(self.batch_size, len(cluster_indices)),
+                random_state=self.random_state + coarse_id,
+            )
+            self.fine_models[coarse_id] = fine_model
+            self.fine_assignments[coarse_id] = fine_model.fit_predict(cluster_embeddings)
+
+        self._fine_built = True
+        self._stats.n_fine_clusters = sum(
+            m.n_clusters if m else 0 for m in self.fine_models.values()
+        )
 
     def query(
         self, query_vector: np.ndarray, k: int = 10, lod: int = 2
@@ -391,7 +400,9 @@ class HRM2Engine:
                     break
 
         elif lod == 1:
-            # LOD 1: Fast fine approximation. Find the closest fine cluster and return its point approximations.
+            # LOD 1: Fast fine approximation. Build fine index lazily if needed.
+            if not self._fine_built:
+                self._build_fine_index()
             for coarse_id in closest_coarse:
                 fine_model = self.fine_models.get(coarse_id)
                 if not fine_model:
@@ -536,6 +547,9 @@ class HRM2Engine:
                     break
 
         elif lod == 1:
+            # Build fine index lazily if needed
+            if not self._fine_built:
+                self._build_fine_index()
             for coarse_id in closest_coarse:
                 fine_model = self.fine_models.get(coarse_id)
                 if not fine_model:

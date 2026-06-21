@@ -40,6 +40,11 @@ class SplatStore:
         self.max_splats = config.max_splats
         self.n_active = 0
 
+        # Ranking mode: "gaussian" (default, probabilistic re-ranking) or
+        # "l2" (pure L2 distance ranking, for standard ANN benchmarks).
+        # "l2" matches FAISS IVFFlat behavior exactly.
+        self.rank_by = "gaussian"
+
         # Determine number of clusters based on config
         n_coarse = max(10, int(np.sqrt(self.max_splats) / 10))
         n_fine = max(100, int(self.max_splats / n_coarse))
@@ -78,35 +83,31 @@ class SplatStore:
         """Access the online parameter updater for feedback."""
         return self._updater
 
-    def add_splat(self, x: np.ndarray) -> bool:
-        """Add a batch of splats or a single splat."""
+    def add_splat(self, x: np.ndarray) -> int:
+        """Add a batch of splats or a single splat (vectorized)."""
         if x.ndim == 1:
             x = x[np.newaxis, :]
 
         n_new = x.shape[0]
         if self.n_active + n_new > self.max_splats:
-            return False
+            # Accept as many as fit
+            n_new = self.max_splats - self.n_active
+            if n_new <= 0:
+                return 0
+            x = x[:n_new]
 
-        new_splats = []
-        for i in range(n_new):
-            idx = self._next_id
-            self._next_id += 1
+        # Vectorized tensor updates (no Python loop)
+        start = self.n_active
+        end = start + n_new
+        self.mu[start:end] = x
+        self.alpha[start:end] = self.config.init_alpha
+        self.kappa[start:end] = self.config.init_kappa
+        self.frequency[start:end] = 1.0
+        self.n_active = end
+        self._next_id += n_new
 
-            # Update tensor tracking
-            self.mu[self.n_active] = x[i]
-            self.alpha[self.n_active] = self.config.init_alpha
-            self.kappa[self.n_active] = self.config.init_kappa
-            self.frequency[self.n_active] = 1.0  # initial access
-
-            self.n_active += 1
-
-            splat = GaussianSplat(id=idx)
-            new_splats.append(splat)
-
-        # Add dummy splats to engine so it knows the size
-        self.engine.add_splats(new_splats)
         self._cuda_dirty = True
-        return True
+        return n_new
 
     def build_index(self) -> None:
         """Build the semantic router index from active vectors."""
@@ -217,29 +218,52 @@ class SplatStore:
                 # All points are candidates for small datasets
                 candidates = np.arange(n)
 
-            # Two-phase Gaussian search on candidates
+            # Compute L2 distances to candidates (needed for both ranking modes)
             cand_mu = index_data[candidates]
             cand_alpha = index_alpha[candidates]
             cand_kappa = index_kappa[candidates]
 
-            # For non-HRM2 path, reuse pre-computed norms across queries
-            m_sq_prealoc = _non_hrm2_m_sq if (not use_hrm2 and _non_hrm2_m_sq is not None) else None
+            q_sq = float(np.dot(q, q))
 
-            # two_phase_search returns (indices, scores, distances, rank_changes)
-            # where indices are offsets INTO cand_mu (the candidate subset)
-            result_indices, result_scores, _, _ = two_phase_search(
-                q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5,
-                precomputed_m_sq=m_sq_prealoc,
-            )
+            if self.rank_by == "l2":
+                # Pure L2 ranking — matches FAISS IVFFlat behavior exactly.
+                # No Gaussian re-ranking, no score distortion.
+                if _non_hrm2_m_sq is not None and not use_hrm2:
+                    m_sq = _non_hrm2_m_sq[candidates]
+                else:
+                    m_sq = np.einsum("ij,ij->i", cand_mu, cand_mu)
+                cross = cand_mu @ q
+                dist_sq = q_sq + m_sq - 2.0 * cross
+                np.maximum(dist_sq, 0.0, out=dist_sq)
 
-            # Map candidate-local indices back to global splat indices — vectorized
-            n_results = min(k, len(result_indices))
-            if n_results > 0:
-                global_indices = candidates[result_indices[:n_results]]
+                n_results = min(k, len(candidates))
+                if len(candidates) > n_results:
+                    top_local = np.argpartition(dist_sq, n_results - 1)[:n_results]
+                    top_local = top_local[np.argsort(dist_sq[top_local])]
+                else:
+                    top_local = np.argsort(dist_sq)[:n_results]
+
+                global_indices = candidates[top_local]
                 mu_out[i, :n_results] = index_data[global_indices]
                 alpha_out[i, :n_results] = index_alpha[global_indices]
                 kappa_out[i, :n_results] = index_kappa[global_indices]
                 idx_out[i, :n_results] = global_indices
+            else:
+                # Gaussian two-phase search (default, probabilistic re-ranking)
+                m_sq_prealoc = _non_hrm2_m_sq if (not use_hrm2 and _non_hrm2_m_sq is not None) else None
+
+                result_indices, result_scores, _, _ = two_phase_search(
+                    q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5,
+                    precomputed_m_sq=m_sq_prealoc,
+                )
+
+                n_results = min(k, len(result_indices))
+                if n_results > 0:
+                    global_indices = candidates[result_indices[:n_results]]
+                    mu_out[i, :n_results] = index_data[global_indices]
+                    alpha_out[i, :n_results] = index_alpha[global_indices]
+                    kappa_out[i, :n_results] = index_kappa[global_indices]
+                    idx_out[i, :n_results] = global_indices
 
         return mu_out, alpha_out, kappa_out, idx_out
 

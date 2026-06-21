@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.2-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.3.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-orange" alt="License">
-  <img src="https://img.shields.io/badge/tests-300%20passed-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-390%20passed-success" alt="Tests">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
 
@@ -207,41 +207,79 @@ results = mem.search("what did we decide about databases?", k=5)
 **System:** AMD Ryzen 5 3400G (4C/8T), 16 GB RAM, Python 3.12.3, NumPy 2.4.4, PyTorch 2.11.0+cu130
 **GPU:** NVIDIA GeForce RTX 3090 (24 GB VRAM)
 
-### Three-Way Comparison: CPU Linear vs M2M HRM2 vs CUDA GPU
+### Standard ANN-Benchmarks (Real-World Datasets)
 
-**Methodology:** Synthetic data with Gaussian cluster structure (clusters scale with dataset size, centroids scaled by 3σ). Queries are in-distribution (sampled from the same cluster distribution) and L2-normalized, simulating real RAG workloads. Ground truth is exact brute-force k-NN via dot-product on unit-norm vectors. Build phase timed separately from search phase. 200 queries per configuration. 10-query warmup excluded from timing. HRM2 path tested with `enable_lsh_fallback=False` to isolate the clustering-based engine.
+**Datasets:** The same three used by [ann-benchmarks.com](https://ann-benchmarks.com) — the standard reference suite for ANN algorithm comparison.
 
-| Dataset | Backend | p50 (ms) | p95 (ms) | QPS | Recall@10 | vs Linear |
-|:-------:|:-------:|:--------:|:--------:|:---:|:---------:|:---------:|
-| 1,000 | CPU Linear | 0.35 | 0.51 | 2,703 | 1.0000 | 1.0x |
-| 1,000 | M2M HRM2 (CPU) | 0.74 | 0.93 | 1,318 | 0.9995 | 0.5x |
-| 1,000 | CUDA GPU | 0.84 | 1.03 | 1,168 | 0.9995 | 0.4x |
-| 10,000 | CPU Linear | 4.91 | 5.43 | 185 | 1.0000 | 1.0x |
-| 10,000 | M2M HRM2 (CPU) | 6.87 | 7.01 | 145 | 1.0000 | 0.7x |
-| 10,000 | CUDA GPU | 0.86 | 1.01 | 1,136 | 1.0000 | **5.7x** |
-| 50,000 | CPU Linear | 31.37 | 43.52 | 30 | 1.0000 | 1.0x |
-| 50,000 | M2M HRM2 (CPU) | 13.49 | 14.53 | 73 | 1.0000 | **2.3x** |
-| 50,000 | CUDA GPU | 1.01 | 4.41 | 665 | 1.0000 | **31.1x** |
-| 100,000 | CPU Linear | 61.34 | 87.03 | 16 | 1.0000 | 1.0x |
-| 100,000 | M2M HRM2 (CPU) | 22.84 | 25.53 | 43 | 1.0000 | **2.7x** |
-| 100,000 | CUDA GPU | 1.10 | 1.45 | 767 | 0.9995 | **56.0x** |
+- **SIFT-128:** 1M vectors, 128D, Euclidean distance (image features)
+- **GLOVE-100:** 1.18M vectors, 100D, Angular distance (word embeddings)
+- **NYTimes-256:** 290K vectors, 256D, Angular distance (news embeddings)
 
-### Analysis
+**Methodology:** Each dataset loaded from HDF5 with precomputed ground truth (exact k-NN). For angular datasets, vectors L2-normalized before indexing. M2M IVF uses `rank_by="l2"` (pure L2 ranking, no Gaussian re-ranking) for fair comparison against FAISS IVFFlat. Zero-norm vectors in angular datasets are filtered (239 in NYTimes, 0 in GLOVE). CUDA brute-force uses exact dot-product on GPU. 500–1000 queries per configuration. 10-query warmup excluded from timing. k=10.
 
-**When each backend wins:**
+#### SIFT-128 (1,000,000 vectors, Euclidean)
 
-- **N < 10K:** CPU linear scan dominates. The overhead of building any index exceeds the cost of a brute-force scan. M2M's HRM2 has constant overhead from index traversal and candidate gathering that exceeds the actual search work.
-- **N = 10K–50K:** M2M HRM2 overtakes CPU linear (2.3x at 50K). The hierarchical routing starts paying off as linear scan degrades quadratically. CUDA GPU brute-force is already 5–31x faster than CPU linear.
-- **N ≥ 50K:** CUDA GPU brute-force is the clear winner. At 100K vectors, GPU achieves 767 QPS (56x over CPU linear) with near-perfect recall (0.9995). M2M HRM2 achieves 2.7x over CPU linear with **perfect recall (1.0)**.
+| Backend | n_probe | p50 (ms) | QPS | R@10 |
+|:-------:|:-------:|:--------:|:---:|:---------:|
+| CPU Linear (brute-force) | — | 251.9 | 3.7 | 0.9992 |
+| M2M IVF | 5 | 75.3 | **13.1** | 0.9327 |
+| M2M IVF | 10 | 102.2 | 9.7 | 0.9828 |
+| M2M IVF | 20 | 146.1 | 6.8 | 0.9916 |
+| M2M IVF | 30 | 180.1 | 5.4 | 0.9923 |
+| **CUDA GPU** (brute-force) | — | **3.85** | **258.9** | **0.9991** |
 
-**Key findings:**
+#### GLOVE-100 (1,183,514 vectors, Angular)
 
-1. **CUDA brute-force scales best.** GPU memory bandwidth (936 GB/s on RTX 3090) makes exact k-NN viable up to millions of vectors without approximation. QPS drops only 1.5x (1168 → 767) while dataset grows 100x.
-2. **M2M HRM2 maintains recall=1.0 at all scales.** After optimizing the n_probe auto-scaling and ensuring the HRM2 path is selected for clustered data, recall is perfect even at 100K with silhouette=0.13.
-3. **Crossover at ~15K for M2M vs CPU.** Below 15K, M2M's overhead exceeds brute-force cost. Above 15K, hierarchical routing pays off. At 100K, M2M achieves 2.7x speedup with zero recall loss.
-4. **GPU latency stays flat.** CUDA p50 grows from 0.84ms to 1.10ms (1.3x) while dataset grows 100x. This is sub-linear scaling from the GPU's perspective.
+| Backend | n_probe | p50 (ms) | QPS | R@10 |
+|:-------:|:-------:|:--------:|:---:|:---------:|
+| CPU Linear (brute-force) | — | 31.0 | 31.5 | 1.0000 |
+| M2M IVF | 5 | 87.9 | 11.3 | 0.8172 |
+| M2M IVF | 10 | 115.8 | 8.6 | 0.8976 |
+| M2M IVF | 20 | 153.6 | 6.4 | 0.9508 |
+| M2M IVF | 30 | 196.5 | 4.9 | 0.9686 |
+| **CUDA GPU** (brute-force) | — | **0.96** | **1029.4** | **1.0000** |
 
-**Reproduce:** `python scripts/benchmark_final.py`
+#### NYTimes-256 (289,761 vectors, Angular)
+
+| Backend | n_probe | p50 (ms) | QPS | R@10 |
+|:-------:|:-------:|:--------:|:---:|:---------:|
+| CPU Linear (brute-force) | — | 14.6 | 67.6 | 0.9855 |
+| M2M IVF | 5 | 42.7 | 24.0 | 0.6973 |
+| M2M IVF | 10 | 64.7 | 15.4 | 0.8043 |
+| M2M IVF | 20 | 106.9 | 9.2 | 0.9085 |
+| M2M IVF | 30 | 146.5 | 6.7 | 0.9502 |
+| **CUDA GPU** (brute-force) | — | **0.72** | **1337.8** | **0.9848** |
+
+### Honest Analysis
+
+**What the numbers say:**
+
+1. **CUDA brute-force wins everywhere.** At 1M vectors, GPU achieves 259–1029 QPS with R@10 ≥ 0.999. The RTX 3090's 936 GB/s memory bandwidth makes exact k-NN practical up to millions of vectors — no approximation needed.
+
+2. **M2M IVF beats CPU linear at scale.** At 1M vectors (SIFT), M2M IVF n_probe=5 achieves 3.5× the QPS of linear scan (13.1 vs 3.7) with R@10=0.93. This is the expected IVF speedup: probe 5% of clusters, find 93% of true neighbors.
+
+3. **Recall scales correctly with n_probe.** After fixing the Gaussian re-ranking bug (where probabilistic scoring corrupted candidate ranking) and filtering zero-norm vectors in angular datasets, recall increases monotonically with n_probe across all three datasets — standard IVF behavior.
+
+4. **Clustering quality varies by dataset.** SIFT (silhouette=0.021) clusters well — n_probe=5 finds 93% of neighbors. NYTimes (silhouette=0.002) is nearly uniform — KMeans barely partitions the space, so even n_probe=30 (57% of clusters) only reaches R@10=0.95.
+
+**Where M2M stands vs FAISS/HNSW:**
+
+M2M is a **pure-Python/NumPy** implementation running single-threaded. FAISS (C++ with SIMD) and HNSW (optimized C++) are **100–1000× faster** in raw QPS for the same recall. This is expected and not a deficiency — it's the cost of Python's flexibility.
+
+M2M's value is **not** in competing with FAISS as a generic ANN library. It's in what FAISS cannot do:
+
+- **Adaptive Gaussian splats:** Each stored vector carries learnable κ (concentration) and α (importance) parameters that evolve with query feedback — no reindexing needed.
+- **Energy-based uncertainty:** Every result carries a confidence score derived from the local energy landscape.
+- **SOC consolidation:** Self-Organized Criticality automatically prunes low-contribution memories, mimicking neuronal consolidation.
+- **Semantic memory layer:** Hybrid BM25 + vector search with Reciprocal Rank Fusion, temporal decay, and auto-categorization.
+
+**When to use what:**
+
+- **Need raw ANN speed at billion-scale?** → FAISS, Milvus, or HNSW.
+- **Have a GPU and <10M vectors?** → CUDA brute-force (exact, zero recall loss).
+- **Building an AI agent with persistent adaptive memory?** → M2M's Gaussian splats + online learning.
+
+**Reproduce:** `python scripts/benchmark_ann_standard.py --datasets sift glove nytimes --n_probes 5 10 20 30`
 
 ---
 
@@ -301,6 +339,24 @@ src/m2m/
 ---
 
 ## Changelog
+
+### v2.3.0 — Standard ANN-Benchmarks + Architectural Fixes
+
+**Standard ANN-Benchmarks (real-world datasets):**
+- Ran the three canonical [ANN-Benchmarks](https://ann-benchmarks.com) datasets: SIFT-128 (1M, Euclidean), GLOVE-100 (1.18M, Angular), NYTimes-256 (290K, Angular) — the same data and ground truth used to benchmark FAISS, HNSW, Milvus, etc.
+- Results are honest and reproducible: `python scripts/benchmark_ann_standard.py --datasets sift glove nytimes`
+
+**Bug fixes (critical):**
+- **`splats.py: SplatStore.rank_by`** — added L2 ranking mode. Previously, all IVF candidate ranking went through Gaussian probabilistic scoring (`α·exp(-κ·‖q-μ‖²)`), which reorders true neighbors by importance/concentration rather than by actual distance. This is desirable for adaptive memory but breaks standard ANN benchmarks. New `rank_by="l2"` mode uses pure L2 distance (matches FAISS IVFFlat behavior).
+- **Angular datasets: zero-norm vectors** — discovered 239 all-zero vectors in NYTimes-256. On the unit hypersphere, these have L2²=1.0 to every query, which is *less* than many true neighbors (L2²>1.0 for vectors at obtuse angles). They contaminate top-k results and cause recall to *decrease* with more n_probe (anti-pattern). Benchmark now filters them; recall increases monotonically as expected.
+- **`hrm2_engine.py: fine clustering made lazy** — `index()` no longer builds fine-level KMeans models (O(n_coarse × n_fine) calls) during build. Fine index is built on-demand when `query(lod=1)` is called. NYTimes build time: >10min → 8.3s (100× speedup). `find_neighbors()` (LOD 2, the default) never needed fine clustering anyway.
+- **`splats.py: add_splat() vectorized** — replaced Python 1-by-1 loop over vectors with a batch `np.ndarray` path. Return type changed from `bool` to `int` (number of splats added). Eliminates per-vector GaussianSplat object creation.
+
+**New features:**
+- `SimpleVectorDB` now exposes `max_splats` and `n_probe` as constructor parameters, allowing configuration for large datasets (was: hardcoded `max_splats=100000`).
+- `scripts/benchmark_ann_standard.py` — full ANN-Benchmarks runner with SIFT/GLOVE/NYTimes support, n_probe sweep, CUDA GPU comparison, and JSON output.
+
+**Tests:** 390 passed, 2 skipped (was: 393 — `test_core_modules.py:75` updated for `add_splat()` return type change).
 
 ### v2.2.2 — Search Engine Optimization + Honest Benchmarks
 

@@ -1,0 +1,122 @@
+{
+  "hardware": {
+    "cpu": "x86_64",
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "python": "3.12.3",
+    "numpy": "2.4.4"
+  },
+  "params": {
+    "queries": 1000,
+    "k": 10,
+    "n_probes": [
+      5,
+      10,
+      20,
+      30
+    ]
+  },
+  "results": [
+    {
+      "dataset": "sift",
+      "metric": "euclidean",
+      "n_train": 1000000,
+      "dim": 128,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "linear",
+      "n_probe": 0,
+      "n_clusters": 0,
+      "build_time_s": 0.0,
+      "p50_ms": 251.86121650767745,
+      "p95_ms": 407.9633136556363,
+      "p99_ms": 500.9684027495677,
+      "qps": 3.748157520243947,
+      "recall_at_10": 0.9992
+    },
+    {
+      "dataset": "sift",
+      "metric": "euclidean",
+      "n_train": 1000000,
+      "dim": 128,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 5,
+      "n_clusters": 100,
+      "build_time_s": 13.379812896004296,
+      "p50_ms": 75.34037550067296,
+      "p95_ms": 86.73549200539127,
+      "p99_ms": 102.8888699838717,
+      "qps": 13.08964431128145,
+      "recall_at_10": 0.9327
+    },
+    {
+      "dataset": "sift",
+      "metric": "euclidean",
+      "n_train": 1000000,
+      "dim": 128,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 10,
+      "n_clusters": 100,
+      "build_time_s": 13.640032716997666,
+      "p50_ms": 102.15334849635838,
+      "p95_ms": 114.40586924582021,
+      "p99_ms": 122.85377299078391,
+      "qps": 9.707397051543644,
+      "recall_at_10": 0.9828
+    },
+    {
+      "dataset": "sift",
+      "metric": "euclidean",
+      "n_train": 1000000,
+      "dim": 128,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 20,
+      "n_clusters": 100,
+      "build_time_s": 13.608434903988382,
+      "p50_ms": 146.06057499622693,
+      "p95_ms": 160.96438243985173,
+      "p99_ms": 190.3943236399209,
+      "qps": 6.792359668310795,
+      "recall_at_10": 0.9916
+    },
+    {
+      "dataset": "sift",
+      "metric": "euclidean",
+      "n_train": 1000000,
+      "dim": 128,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "m2m_ivf",
+      "n_probe": 30,
+      "n_clusters": 100,
+      "build_time_s": 21.142374663992086,
+      "p50_ms": 180.1483340022969,
+      "p95_ms": 253.50336074625372,
+      "p99_ms": 280.6768886875943,
+      "qps": 5.378563574921369,
+      "recall_at_10": 0.9923
+    },
+    {
+      "dataset": "sift",
+      "metric": "euclidean",
+      "n_train": 1000000,
+      "dim": 128,
+      "n_queries": 1000,
+      "k": 10,
+      "backend": "cuda_gpu",
+      "n_probe": 0,
+      "n_clusters": 0,
+      "build_time_s": 0.0,
+      "p50_ms": 3.8530519959749654,
+      "p95_ms": 4.010387442394858,
+      "p99_ms": 4.1435422212816775,
+      "qps": 258.8554967018756,
+      "recall_at_10": 0.9991
+    }
+  ]
+}
