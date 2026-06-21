@@ -253,11 +253,11 @@
         <div class="label">Max R@10 (%)</div>
       </div>
       <div class="stat-card reveal">
-        <div class="value accent" data-target="1184">0</div>
-        <div class="label">Vectors Indexed</div>
+        <div class="value accent" data-target="2473">0</div>
+        <div class="label">Total Vectors (K)</div>
       </div>
       <div class="stat-card reveal">
-        <div class="value amber" data-target="390">0</div>
+        <div class="value amber" data-target="395">0</div>
         <div class="label">Tests Passed</div>
       </div>
     </div>
@@ -503,12 +503,12 @@ const DATA = {
     label: "NYTimes-256",
     color: "#f59e0b",
     results: [
-      { backend: "linear",  n_probe: 0, qps: 67.6,   recall: 0.9855, p50: 14.63,  p99: 22.56 },
-      { backend: "m2m_ivf", n_probe: 5, qps: 24.0,   recall: 0.6973, p50: 42.65,  p99: 48.48 },
-      { backend: "m2m_ivf", n_probe: 10,qps: 15.4,   recall: 0.8043, p50: 64.70,  p99: 88.62 },
-      { backend: "m2m_ivf", n_probe: 20,qps: 9.2,    recall: 0.9085, p50: 106.90, p99: 167.61 },
-      { backend: "m2m_ivf", n_probe: 30,qps: 6.7,    recall: 0.9502, p50: 146.48, p99: 253.80 },
-      { backend: "cuda_gpu",n_probe: 0, qps: 1337.8, recall: 0.9848, p50: 0.72,   p99: 0.82 },
+      { backend: "linear",  n_probe: 0, qps: 67.6,   recall: 0.9855, p50: 14.63,  p99: 17.67 },
+        { backend: "m2m_ivf", n_probe: 5, qps: 24.0,   recall: 0.6973, p50: 42.65,  p99: 57.45 },
+        { backend: "m2m_ivf", n_probe: 10,qps: 15.4,   recall: 0.8043, p50: 64.70,  p99: 87.60 },
+        { backend: "m2m_ivf", n_probe: 20,qps: 9.2,    recall: 0.9085, p50: 106.90, p99: 163.21 },
+        { backend: "m2m_ivf", n_probe: 30,qps: 6.7,    recall: 0.9502, p50: 146.48, p99: 201.70 },
+        { backend: "cuda_gpu",n_probe: 0, qps: 1337.8, recall: 0.9848, p50: 0.72,   p99: 0.96 },
     ]
   }
 };

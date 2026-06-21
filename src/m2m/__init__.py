@@ -14,7 +14,7 @@ Modos de operación:
   - CLUSTER:  M2MCluster (cluster distribuido con router energético opcional)
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
@@ -466,6 +466,8 @@ class SimpleVectorDB:
             self.engine.m2m.splats.engine.n_probe = n_probe
 
         self.latent_dim = latent_dim
+        self.max_splats = config.max_splats
+        self.n_probe = n_probe if n_probe is not None else getattr(self.engine.m2m.splats.engine, 'n_probe', None)
 
         self.enable_lsh_fallback = enable_lsh_fallback
         self.lsh_threshold = lsh_threshold

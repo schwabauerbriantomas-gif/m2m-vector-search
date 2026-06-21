@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/version-2.3.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-orange" alt="License">
-  <img src="https://img.shields.io/badge/tests-390%20passed-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-395%20passed-success" alt="Tests">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
 
@@ -398,7 +398,7 @@ src/m2m/
 - `SimpleVectorDB` now exposes `max_splats` and `n_probe` as constructor parameters, allowing configuration for large datasets (was: hardcoded `max_splats=100000`).
 - `scripts/benchmark_ann_standard.py` — full ANN-Benchmarks runner with SIFT/GLOVE/NYTimes support, n_probe sweep, CUDA GPU comparison, and JSON output.
 
-**Tests:** 390 passed, 2 skipped (was: 393 — `test_core_modules.py:75` updated for `add_splat()` return type change).
+**Tests:** 395 passed, 5 skipped (was: 393 — `test_core_modules.py:75` updated for `add_splat()` return type change).
 
 ### v2.2.2 — Search Engine Optimization + Honest Benchmarks
 
