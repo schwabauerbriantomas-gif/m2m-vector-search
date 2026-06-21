@@ -19,8 +19,19 @@
   <a href="#architecture">Architecture</a> &bull;
   <a href="#semantic-memory">Semantic Memory</a> &bull;
   <a href="#benchmarks">Benchmarks</a> &bull;
+  <a href="#presentation">📊 Presentation</a> &bull;
   <a href="#changelog">Changelog</a>
 </p>
+
+---
+
+## Interactive Benchmark Presentation
+
+📊 **[Open the interactive report →](presentation.html)** (opens in any browser, no server needed)
+
+A NotebookLM-style visual dashboard with animated charts, QPS-vs-Recall scatter plots, latency comparisons, and the complete results table — all data-driven, zero fabricated numbers.
+
+![Benchmark Presentation](presentation-full.png)
 
 ---
 
