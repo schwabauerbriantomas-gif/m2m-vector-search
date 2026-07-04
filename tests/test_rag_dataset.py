@@ -15,12 +15,16 @@ import pytest
 
 pytestmark = pytest.mark.embeddings
 
-# Project root
-PROJECT_ROOT = Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main")
+# Project root — relative to repo, not hardcoded Windows path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASET_DIR = PROJECT_ROOT / "datasets" / "rag_test"
 
 # Add src to path
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+# Skip all tests in this module if the dataset is not present
+_HAS_DATASET = (DATASET_DIR / "embeddings.npy").exists()
+pytestmark = [pytest.mark.embeddings, pytest.mark.skipif(not _HAS_DATASET, reason="RAG test dataset not built")]
 
 
 # ── Fixtures ────────────────────────────────────────────────────────
