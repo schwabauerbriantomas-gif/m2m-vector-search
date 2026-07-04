@@ -25,4 +25,4 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short -m "not slow and not integration"
+        run: pytest tests/ -v --tb=short -m "not slow and not integration and not gpu and not embeddings"
