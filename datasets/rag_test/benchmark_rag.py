@@ -10,7 +10,7 @@ from typing import List, Dict, Tuple
 
 import numpy as np
 
-PROJECT_ROOT = Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_DIR = PROJECT_ROOT / "datasets" / "rag_test"
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 

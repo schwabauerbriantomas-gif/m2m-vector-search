@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Setup paths
 WORKSPACE = Path.home() / ".openclaw" / "workspace"
-M2M_PROJECT = Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main")
+M2M_PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(M2M_PROJECT / "src"))
 
 INDEX_PATH = M2M_PROJECT / "semantic_index"

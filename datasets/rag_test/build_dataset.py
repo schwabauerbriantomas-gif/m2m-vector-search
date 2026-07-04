@@ -11,11 +11,12 @@ from typing import List, Dict, Any
 import numpy as np
 
 # ── Config ──────────────────────────────────────────────────────────
-OUTPUT_DIR = Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main\datasets\rag_test")
-PDF_DIR = Path(r"D:\ml-study\papers")
+OUTPUT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = OUTPUT_DIR.parents[2]
+PDF_DIR = Path(os.environ.get("M2M_PDF_DIR", str(Path.home() / "papers")))
 MD_DIRS = [
-    Path(r"D:\ml-study"),
-    Path(r"C:\Users\Brian\Desktop\m2m-vector-search-main"),
+    PDF_DIR,
+    PROJECT_ROOT,
 ]
 CHUNK_TOKENS = 512
 OVERLAP_TOKENS = 64

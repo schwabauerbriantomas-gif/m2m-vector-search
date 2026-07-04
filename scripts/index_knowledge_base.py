@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Add project to path
-PROJECT = r"C:\Users\Brian\Desktop\m2m-vector-search-main"
+PROJECT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, os.path.join(PROJECT, "src"))
 
 def get_files_to_index():
@@ -41,7 +41,7 @@ def get_files_to_index():
             files.append((p, "m2m-report", doc))
     
     # 3. OpenClaw workspace docs
-    ws = r"C:\Users\Brian\.openclaw\workspace"
+    ws = str(Path.home() / ".openclaw" / "workspace")
     ws_docs = ["MEMORY.md", "TOOLS.md", "SOUL.md", "USER.md", "AGENTS.md", "IDENTITY.md"]
     for doc in ws_docs:
         p = os.path.join(ws, doc)
@@ -173,7 +173,7 @@ def main():
         embeddings = embeddings / np.clip(norms, 1e-8, None)
     
     # Save index
-    ws = r"C:\Users\Brian\.openclaw\workspace"
+    ws = str(Path.home() / ".openclaw" / "workspace")
     index_dir = os.path.join(ws if os.path.exists(ws) else PROJECT, "knowledge_index")
     os.makedirs(index_dir, exist_ok=True)
     

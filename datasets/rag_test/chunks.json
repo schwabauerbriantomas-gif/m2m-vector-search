@@ -4962,7 +4962,7 @@
   {
     "text": "<p align=\"center\">\n  <img src=\"https://img.shields.io/badge/version-2.1.0-blue\" alt=\"Version\">\n  <img src=\"https://img.shields.io/badge/python-3.10%2B-green\" alt=\"Python\">\n  <img src=\"https://img.shields.io/badge/license-AGPL-3.0-orange\" alt=\"License\">\n  <img src=\"https://img.shields.io/badge/tests-166%20passed-success\" alt=\"Tests\">\n  <img src=\"https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple\" alt=\"Backends\">\n</p>\n\n<h1 align=\"center\">🔬 M2M Vector Search</h1>\n\n<p align=\"center\">\n  <strong>Machine-to-Memory</strong> - Búsqueda vectorial con Gaussian Splats, Modelos Basados en Energía y GPU multi-backend\n</p>\n\n<p align=\"center\">\n  <a href=\"#quick-start\">Quick Start</a> •\n  <a href=\"#semantic-memory\">Semantic Memory</a> •\n  <a href=\"#features\">Features</a> •\n  <a href=\"#architecture\">Architecture</a> •\n  <a href=\"#benchmarks\">Benchmarks</a>\n</p>\n\n---",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "intro",
     "chunk_id": 0,
     "type": "markdown"
@@ -4970,7 +4970,7 @@
   {
     "text": "| Feature | Description |\n|---------|-------------|\n| 🔮 **Gaussian Splats** | Representación probabilística de vectores con μ, κ, α |\n| ⚡ **Multi-GPU Backend** | CPU, NVIDIA CUDA, y AMD Vulkan con una sola API |\n| 🧠 **Energy-Based Models** | Quantificación de incertidumbre nativa |\n| 🔍 **HRM2 Engine** | Hierarchical Routing with Mixture Models |\n| 🌐 **Distributed Cluster** | Arquitectura Edge/Coordinator con sharding |\n| 📊 **SOC Consolidation** | Self-Organized Criticality para memoria |\n| 🗄️ **Full CRUD API** | REST API con colecciones, metadata, documentos |\n| 🔗 **LangChain Ready** | Retriever interface nativo |\n| 📈 **Query Optimizer** | LRU cache y batch optimization |",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "✨ Features",
     "chunk_id": 1,
     "type": "markdown"
@@ -4978,7 +4978,7 @@
   {
     "text": "**SemanticMemoryDB** - Semantic memory system purpose-built for AI assistants.\n\n```python\nfrom m2m import SemanticMemoryDB\nfrom sentence_transformers import SentenceTransformer",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "🎩 Semantic Memory (v2.2)",
     "chunk_id": 2,
     "type": "markdown"
@@ -4986,7 +4986,7 @@
   {
     "text": "model = SentenceTransformer(\"BAAI/bge-small-en-v1.5\")\nencoder = lambda text: model.encode(text, show_progress_bar=False)",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "1. Setup encoder (bge-small-en-v1.5: best all-rounder per research)",
     "chunk_id": 3,
     "type": "markdown"
@@ -4994,7 +4994,7 @@
   {
     "text": "mem = SemanticMemoryDB(\n    encoder=encoder,\n    latent_dim=384,\n    storage_path=\"./semantic_memory\",\n    fusion_method=\"rrf\",          # \"rrf\", \"weighted\", \"vector_only\", \"bm25_only\"\n    temporal_decay=True,           # Recent memories rank higher\n    temporal_half_life_days=30.0,  # Half-life in days\n    auto_categorize=True,          # Auto-infer category from text\n)",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "2. Create memory DB with Phase 2 features",
     "chunk_id": 4,
     "type": "markdown"
@@ -5002,7 +5002,7 @@
   {
     "text": "mem.store(\"User prefers dark mode for coding\", metadata={\"category\": \"preference\"})\nmem.store(\"We decided to use Qdrant for production\", metadata={\"category\": \"decision\"})",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "3. Store memories",
     "chunk_id": 5,
     "type": "markdown"
@@ -5010,7 +5010,7 @@
   {
     "text": "results = mem.search(\"what did we decide about databases?\", k=5)\nfor r in results:\n    print(f\"[{r.score:.3f}] [{r.metadata.get('category', '?')}] {r.document[:80]}\")\n```",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "4. Search",
     "chunk_id": 6,
     "type": "markdown"
@@ -5018,7 +5018,7 @@
   {
     "text": "| Method | Description |\n|--------|-------------|\n| `store(text, metadata, doc_id)` | Store a memory with auto-embedding |\n| `store_with_vector(text, vector, metadata, doc_id)` | Store with pre-computed vector |\n| `batch_store(texts, metadatas, ids)` | Store multiple memories efficiently |\n| `search(query, k, filter, hybrid)` | Search with hybrid fusion |\n| `delete(id, ids, filter)` | Delete memories |\n| `get(doc_id)` | Retrieve a specific memory |\n| `save()` | Persist to disk |\n| `stats()` | System statistics and health |\n| `clear()` | Clear all memories |",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "SemanticMemoryDB API Reference",
     "chunk_id": 7,
     "type": "markdown"
@@ -5026,7 +5026,7 @@
   {
     "text": "Based on research via Z.AI tools (RRF used by Elasticsearch, OpenSearch, Pinecone):\n\n| Method | Tuning | Accuracy | Latency | Use Case |\n|--------|--------|----------|---------|----------|\n| **RRF** | None (k=60) | Good | Instant | General-purpose (recommended) |\n| **Weighted** | α weight needed | Better (if tuned) | Instant | Domain-specific with known priorities |\n| **vector_only** | None | Good | Instant | Pure semantic search |\n| **bm25_only** | None | Good | Instant | Pure keyword search |",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Fusion Methods",
     "chunk_id": 8,
     "type": "markdown"
@@ -5034,7 +5034,7 @@
   {
     "text": "**Temporal Decay** - Exponential decay: `boost = exp(-λ × age)` where `λ = ln(2) / half_life`\n- Recent memories receive higher scores (configurable half-life)\n- Based on: temporal relevance in information retrieval research\n\n**Auto-Categorization** - Keyword-based classification into 10 categories:\n`decision`, `preference`, `project`, `error`, `learning`, `question`, `conversation`, `task`, `config`\n\n**Auto-Date** - Automatically sets `date` metadata to current date if not provided",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Phase 2 Features (Research-Backed)",
     "chunk_id": 9,
     "type": "markdown"
@@ -5042,7 +5042,7 @@
   {
     "text": "python scripts/index_workspace.py --storage-path ./semantic_indexed_memory",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Index all workspace files",
     "chunk_id": 10,
     "type": "markdown"
@@ -5050,7 +5050,7 @@
   {
     "text": "python scripts/index_workspace.py --reindex\n```\n\nIndexes: `~/workspace/` (all .md, .py, .json) + M2M source code.",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Force re-index",
     "chunk_id": 11,
     "type": "markdown"
@@ -5058,7 +5058,7 @@
   {
     "text": "```bash\npip install m2m-vector-search\n```\n\n```python\nfrom m2m import SimpleVectorDB\nimport numpy as np",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Quick Start (Core Vector DB)",
     "chunk_id": 12,
     "type": "markdown"
@@ -5066,7 +5066,7 @@
   {
     "text": "vectors = np.random.randn(1000, 768).astype(np.float32)\ndb.add(vectors=vectors, ids=[f\"doc_{i}\" for i in range(1000)])",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "2. Agregar vectores",
     "chunk_id": 13,
     "type": "markdown"
@@ -5074,7 +5074,7 @@
   {
     "text": "query = np.random.randn(768).astype(np.float32)\nresults = db.search(query, k=10)\n\nfor r in results:\n    print(f\"  {r.id}: score={r.score:.4f}\")\n```",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "3. Buscar",
     "chunk_id": 14,
     "type": "markdown"
@@ -5082,7 +5082,7 @@
   {
     "text": "```\n┌─────────────────────────────────────────────────┐\n│                   REST API (FastAPI)             │\n├─────────────────────────────────────────────────┤\n│  CollectionManager  │  CRUD  │  Search  │  EBM  │\n├─────────────────────────────────────────────────┤\n│         SimpleVectorDB / AdvancedVectorDB        │\n├──────────┬──────────┬───────────┬───────────────┤\n│  Splats  │  HRM2    │  EBM      │  SOC          │\n│ (μ,κ,α)  │  Engine  │  Energy   │  Consolidate  │\n├──────────┴──────────┴───────────┴───────────────┤\n│              Backend Layer (pluggable)           │\n├─────────┬──────────┬──────────┬─────────────────┤\n│   CPU   │  CUDA    │  Vulkan  │  Transformed    │\n├─────────┴──────────┴──────────┴─────────────────┤\n│              Storage Layer                       │\n├─────────┬─────────────────┬─────────────────────┤\n│  WAL    │  Persistence    │  GPUVectorIndex     │\n└─────────┴─────────────────┴─────────────────────┘\n\n            SemanticMemoryDB Architecture (v2.1)\n\n    ┌──────────────────────────────────────┐\n    │         SemanticMemoryDB               │\n    ├──────────────────────────────────────┤\n    │  store() → encoder → vector + BM25   │\n    │  search() → fusion → ranked results  │\n    ├──────────┬───────────────────────────┤\n    │  Vector  │  BM25      │  Fusion      │\n    │  Search  │  Keyword   │  Engine      │\n    │  (M2M)   │  Index     │              │\n    ├──────────┴────────────┤  RRF /       │\n    │  Temporal Decay       │  Weighted    │\n    │  Auto-Categorize      │  Vector-Only │\n    │  Auto-Date            │  BM25-Only   │\n    └───────────────────────┴──────────────┘\n```",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Architecture",
     "chunk_id": 15,
     "type": "markdown"
@@ -5090,7 +5090,7 @@
   {
     "text": "> ⚠️ **Todos los datos son mediciones reales.** Ver `benchmark_stats.md` para el análisis completo.\n\n**Sistema:** AMD Ryzen 5 3400G, 16GB RAM, NVIDIA RTX 3090, Python 3.12\n**Config:** 10K splats, 1K queries, k=10, dim=640\n\n| Backend | Latencia (ms) | Throughput (QPS) | vs Linear |\n|---------|:-------------:|:----------------:|:---------:|\n| Linear (numpy) | 24.21 | 41.31 | 1.00x |\n| M2M CPU | 32.93 | 30.37 | 0.74x |\n| M2M Vulkan | 32.78 | 30.51 | 0.74x |\n| M2M CUDA | 26.54 | 37.68 | 0.91x |",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Benchmarks",
     "chunk_id": 16,
     "type": "markdown"
@@ -5098,7 +5098,7 @@
   {
     "text": "```bash\ngit clone https://github.com/schwabauerbriantomas-gif/m2m-vector-search.git\ncd m2m-vector-search\npip install -e \".[all]\"\npytest tests/ -v  # 166 tests\n```",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Development",
     "chunk_id": 17,
     "type": "markdown"
@@ -5106,7 +5106,7 @@
   {
     "text": "Sources consulted via Z.AI tools (GLM-5 web_search + web_read):\n\n1. **Hybrid Search Fusion** - RRF is industry standard (ES, OpenSearch, Pinecone). Score-agnostic, no normalization needed, k=60 default. Cross-encoder reranking for highest accuracy (RRF → reranker pattern).\n\n2. **Embedding Models** - bge-small-en-v1.5: best all-rounder. gte-small: highest MTEB accuracy. all-MiniLM-L6-v2: fastest but aging. All 384D. all-MiniLM-L12-v2: avoid (slower, not better).\n\n3. **Vector Compression** - Scalar Quantization (int8): 4x memory reduction, <1% recall loss. Binary Quantization: 32x reduction but needs oversampling+reranking. Matryoshka embeddings: store 1024D, index 256D.\n\n4. **Index Algorithms** - HNSW: best speed/accuracy (30-50% memory overhead). IVF: good balance, tunable via nprobe. PQ: memory compression only, lossy.\n\n5. **Production Architecture** - Separate storage/compute. Tenant-based sharding. Time-based sharding for RAG. Mutability requirements in 2025.",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "Research Notes (Phase 2)",
     "chunk_id": 18,
     "type": "markdown"
@@ -5114,7 +5114,7 @@
   {
     "text": "GNU Affero General Public License v3.0 - see [LICENSE](LICENSE) for details.\nCENSE) for details.",
     "source": "m2m-vector-search-main\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\README.md",
+    "source_path": "README.md",
     "header": "License",
     "chunk_id": 19,
     "type": "markdown"
@@ -5122,7 +5122,7 @@
   {
     "text": "- **`SimpleVectorDB(device='cpu')`**: Lightweight interface for basic vector search and retrieval. Good for edge devices.\n  - `db.add(vectors)`: Add a batch of vectors.\n  - `db.search(queries, k)`: Retrieve top-k nearest neighbors.\n  - `db.save(path)` / `db.load(path)`: Persist to disk.\n\n- **`AdvancedVectorDB(device='vulkan')`**: Advanced interface with memory tiering and generative features.\n  - `db.add(vectors)`: Add vectors to hot memory.\n  - `db.search(queries, k)`: Search across tiers.\n  - `db.generate(query, n_steps)`: Run Langevin dynamics exploration.\n  - `db.consolidate(threshold)`: Clean up passive memory.\n\nFor full type stubs and internal methods, please refer to the docstrings in the `src/m2m/` directory.",
     "source": "docs\\API.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\API.md",
+    "source_path": "docs\\API.md",
     "header": "Core Interfaces",
     "chunk_id": 0,
     "type": "markdown"
@@ -5130,7 +5130,7 @@
   {
     "text": "This guide walks you through deploying the M2M Vector Search Cluster using Docker or Kubernetes.",
     "source": "docs\\cluster.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\cluster.md",
+    "source_path": "docs\\cluster.md",
     "header": "M2M Cluster Deployment Guide",
     "chunk_id": 0,
     "type": "markdown"
@@ -5138,7 +5138,7 @@
   {
     "text": "The easiest way to test the full Swarm capability is using the provided `docker-compose.yml`.",
     "source": "docs\\cluster.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\cluster.md",
+    "source_path": "docs\\cluster.md",
     "header": "1. Local Testing with Docker Compose",
     "chunk_id": 1,
     "type": "markdown"
@@ -5146,7 +5146,7 @@
   {
     "text": "1. Navigate to the project root.\n2. Run `docker-compose -f deploy/docker-compose.yml up --build -d`\n3. This creates a virtual network with 1 Coordinator (port 8080) and 3 Edge Nodes (ports 8081-8083).\n4. Coordinator will be available at `http://localhost:8080`\n5. Edges will be available at `http://localhost:8081`, `8082`, `8083`.",
     "source": "docs\\cluster.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\cluster.md",
+    "source_path": "docs\\cluster.md",
     "header": "Steps",
     "chunk_id": 2,
     "type": "markdown"
@@ -5154,7 +5154,7 @@
   {
     "text": "For production deployments, Kubernetes manifests are available in `deploy/k8s/`.",
     "source": "docs\\cluster.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\cluster.md",
+    "source_path": "docs\\cluster.md",
     "header": "2. Kubernetes Deployment",
     "chunk_id": 3,
     "type": "markdown"
@@ -5162,7 +5162,7 @@
   {
     "text": "1. Ensure your Kubernetes cluster is running (e.g., Minikube, EKS, GKE).\n2. Build your docker image or ensure `m2m-vector-search:latest` is accessible.\n3. Apply the deployments: `kubectl apply -f deploy/k8s/deployment.yaml`\n4. Apply the services: `kubectl apply -f deploy/k8s/service.yaml`\n5. Wait for pods to become ready: `kubectl get pods`",
     "source": "docs\\cluster.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\cluster.md",
+    "source_path": "docs\\cluster.md",
     "header": "Steps",
     "chunk_id": 4,
     "type": "markdown"
@@ -5170,7 +5170,7 @@
   {
     "text": "The cluster natively exposes `/metrics` API endpoints tracking `active_queries` and `query_latency_ms`. \nRefer to `monitoring/prometheus.yml` to configure your Prometheus server to autonomously scrape telemetry directly from the Coordinator and Edge pods globally.",
     "source": "docs\\cluster.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\cluster.md",
+    "source_path": "docs\\cluster.md",
     "header": "3. Monitoring via Prometheus",
     "chunk_id": 5,
     "type": "markdown"
@@ -5178,7 +5178,7 @@
   {
     "text": "M2M Vector Search leverages Vulkan and modern multi-threading to achieve high performance. To get the best out of the engine, consider the following optimization strategies:",
     "source": "docs\\PERFORMANCE.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\PERFORMANCE.md",
+    "source_path": "docs\\PERFORMANCE.md",
     "header": "Performance Guide",
     "chunk_id": 0,
     "type": "markdown"
@@ -5186,7 +5186,7 @@
   {
     "text": "- **Dimensionality**: We recommend an embedding dimension between `384` and `1536` (e.g., outputs from standard embedding models like `all-MiniLM` or OpenAI embeddings).\n- **Distribution**: HRM2 clustering heavily relies on distinct semantic groupings. If you supply purely random homogeneous noise, the K-Means index struggles to create distinct boundaries, dropping your speedup from $O(\\sqrt{N})$ down to near $O(N)$ linear scan speeds.",
     "source": "docs\\PERFORMANCE.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\PERFORMANCE.md",
+    "source_path": "docs\\PERFORMANCE.md",
     "header": "1. Input Dimensionality and Distribution",
     "chunk_id": 1,
     "type": "markdown"
@@ -5194,7 +5194,7 @@
   {
     "text": "- **Vulkan**: To use `device='vulkan'`, ensure you have the Vulkan SDK installed and up-to-date drivers. If Vulkan fails to initialize, the engine falls back to a highly-optimized CPU pathway.\n- **Batching**: Always batch your `add` and `search` queries. Submitting 10,000 queries in a single matrix is much faster than running 10,000 separate `search()` calls due to memory overhead.",
     "source": "docs\\PERFORMANCE.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\PERFORMANCE.md",
+    "source_path": "docs\\PERFORMANCE.md",
     "header": "2. Platform considerations",
     "chunk_id": 2,
     "type": "markdown"
@@ -5202,7 +5202,7 @@
   {
     "text": "If you have vectors that are rarely used, let `SOC` (Self-Organized Criticality) push them to RAM or Disk. Keeping only your most recently accessed \"hot\" splats in `VRAM` keeps latency under 1ms.",
     "source": "docs\\PERFORMANCE.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\PERFORMANCE.md",
+    "source_path": "docs\\PERFORMANCE.md",
     "header": "3. Tiered Memory (Advanced)",
     "chunk_id": 3,
     "type": "markdown"
@@ -5210,7 +5210,7 @@
   {
     "text": "This guide will help you resolve common issues when using M2M Vector Search.",
     "source": "docs\\TROUBLESHOOTING.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\TROUBLESHOOTING.md",
+    "source_path": "docs\\TROUBLESHOOTING.md",
     "header": "Troubleshooting Guide",
     "chunk_id": 0,
     "type": "markdown"
@@ -5218,7 +5218,7 @@
   {
     "text": "**Issue**: You receive `RuntimeError: Vulkan device not found` when initializing `AdvancedVectorDB(device='vulkan')`.\n**Solution**:\n- Ensure you have the Vulkan SDK installed.\n- Ensure your GPU drivers are up-to-date and natively support Vulkan > 1.0.\n- Fallback: Change `device='vulkan'` to `device='cpu'` in your initialization.",
     "source": "docs\\TROUBLESHOOTING.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\TROUBLESHOOTING.md",
+    "source_path": "docs\\TROUBLESHOOTING.md",
     "header": "1. Vulkan Device Not Found",
     "chunk_id": 1,
     "type": "markdown"
@@ -5226,7 +5226,7 @@
   {
     "text": "**Issue**: Benchmarks or queries run slower than standard linear scans.\n**Solution**:\n- This usually indicates the underlying `sklearn` fallback dataset is too homogeneous. M2M clusters and hierarchical routing benefit significantly from datasets with clear semantic structures (such as text embeddings from real-world documents). \n- Verify you are submitting **batches** of embeddings or queries. Doing 1,000 queries sequentially one-by-one introduces high loop overhead compared to an explicitly batched tensor `np.random.randn(1000, 640)`.",
     "source": "docs\\TROUBLESHOOTING.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\TROUBLESHOOTING.md",
+    "source_path": "docs\\TROUBLESHOOTING.md",
     "header": "2. Slow Performance / 0.3x Speedup",
     "chunk_id": 2,
     "type": "markdown"
@@ -5234,7 +5234,7 @@
   {
     "text": "**Issue**: Import errors when running from source.\n**Solution**:\n- Since the package is structured under `src/m2m/`, make sure you install in editable mode `pip install -e .` or set your `PYTHONPATH` correctly if running scripts directly.",
     "source": "docs\\TROUBLESHOOTING.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\docs\\TROUBLESHOOTING.md",
+    "source_path": "docs\\TROUBLESHOOTING.md",
     "header": "3. \"No Module Named '__init__'\"",
     "chunk_id": 3,
     "type": "markdown"
@@ -5242,7 +5242,7 @@
   {
     "text": "This directory contains unit tests and integration tests for M2M (Machine-to-Memory) system.",
     "source": "tests\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\tests\\README.md",
+    "source_path": "tests\\README.md",
     "header": "M2M Test Suite",
     "chunk_id": 0,
     "type": "markdown"
@@ -5250,7 +5250,7 @@
   {
     "text": "```\ntests/\n├── unit/\n│   ├── test_splats.py          # Tests for SplatStore\n│   ├── test_energy.py          # Tests for EnergyFunction\n│   ├── test_geometry.py       # Tests for Riemannian geometry\n│   ├── test_langevin.py        # Tests for Langevin sampling\n│   ├── test_soc.py             # Tests for SOC controller\n│   └── test_m2m_engine.py    # Tests for M2MEngine\n├── integration/\n│   ├── test_full_pipeline.py  # End-to-end pipeline tests\n│   ├── test_langchain.py       # LangChain integration tests\n│   ├── test_llamaindex.py     # LlamaIndex integration tests\n│   └── test_mcp.py             # MCP integration tests\n└── benchmarks/\n    ├── test_search_performance.py  # Search performance tests\n    ├── test_memory_efficiency.py  # Memory hierarchy tests\n    └── test_energy_computation.py  # Energy calculation tests\n```",
     "source": "tests\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\tests\\README.md",
+    "source_path": "tests\\README.md",
     "header": "📖 Test Structure",
     "chunk_id": 1,
     "type": "markdown"
@@ -5258,7 +5258,7 @@
   {
     "text": "To run all tests:\n```bash\ncd tests/\npython -m pytest discover\n```\n\nTo run specific test suite:\n```bash\ncd tests/\npython -m pytest unit/\npython -m pytest integration/\npython -m pytest benchmarks/\n```",
     "source": "tests\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\tests\\README.md",
+    "source_path": "tests\\README.md",
     "header": "🚀 Running Tests",
     "chunk_id": 2,
     "type": "markdown"
@@ -5266,7 +5266,7 @@
   {
     "text": "- **Unit Tests**: >90% coverage of core modules\n- **Integration Tests**: Full pipeline validation\n- **Benchmarks**: Performance regression detection\n\n---\n\n**Test suite structure created for M2M**",
     "source": "tests\\README.md",
-    "source_path": "C:\\Users\\Brian\\Desktop\\m2m-vector-search-main\\tests\\README.md",
+    "source_path": "tests\\README.md",
     "header": "📊 Test Coverage",
     "chunk_id": 3,
     "type": "markdown"
