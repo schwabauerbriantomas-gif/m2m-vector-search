@@ -41,11 +41,19 @@ class EdgeNode:
 
             # Handle both legacy tuple format and new DocResult list
             if isinstance(result, tuple):
-                neighbors_mu, neighbors_alpha, neighbors_kappa = result
+                # find_neighbors returns (mu, alpha, kappa, splat_indices)
+                # local_store.search may return 3 or 4 element tuples
+                if len(result) == 4:
+                    neighbors_mu, neighbors_alpha, neighbors_kappa, splat_indices = result
+                else:
+                    neighbors_mu, neighbors_alpha, neighbors_kappa = result
+                    splat_indices = np.arange(len(neighbors_mu))
+                # splat_indices may be multi-dimensional; flatten to 1D for indexing
+                splat_flat = np.asarray(splat_indices).flatten()
                 results = []
-                for i in range(len(neighbors_mu)):
+                for i in range(len(splat_flat)):
                     distance = float(i)  # Placeholder
-                    doc_index = int(i)
+                    doc_index = int(splat_flat[i])
                     results.append((doc_index, distance))
             else:
                 # DocResult list format
