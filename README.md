@@ -418,8 +418,8 @@ src/m2m/
 
 | N | M2M vs Linear | CUDA vs Linear | M2M Recall | CUDA Recall |
 |:---:|:---:|:---:|:---:|:---:|
-| 50K | 2.3x | 31.1x | 1.0 | 1.0 |
-| 100K | 2.7x | 56.0x | 1.0 | 0.9995 |
+| 50K | 2.4x | 21.9x | 1.0 | 1.0 |
+| 100K | 2.8x | 49.5x | 1.0 | 0.9995 |
 
 ### v2.2.1 — Critical Search Fix + Multi-Scale Benchmarks
 **Critical bug fix (P0):**

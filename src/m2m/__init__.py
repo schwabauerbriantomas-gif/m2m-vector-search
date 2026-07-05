@@ -4,7 +4,7 @@
 M2M (Machine-to-Memory) - EBM Vector Database
 High-performance Gaussian Splat storage and retrieval with Energy-Based Model features.
 
-Version: 2.1.0
+Version: 2.3.0
 Author: Brian Schwabauer
 License: AGPL-3.0
 
