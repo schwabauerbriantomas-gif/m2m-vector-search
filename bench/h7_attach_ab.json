@@ -1,0 +1,12 @@
+{
+  "attach": {
+    "total_add_s": 0.16,
+    "recall@10": 0.9995,
+    "query_qps": 1578.0
+  },
+  "retrain": {
+    "total_add_s": 0.15,
+    "recall@10": 0.9995,
+    "query_qps": 1562.0
+  }
+}

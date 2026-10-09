@@ -1,0 +1,29 @@
+{
+  "protocol": "add 10%/step sobre 20k, mitad re-insert perturbada mitad nueva; queries fijas",
+  "n_probe": 5,
+  "rows": [
+    {
+      "churn_pct": 0,
+      "recall_static": 1.0,
+      "recall_full_rebuild": 1.0
+    },
+    {
+      "churn_pct": 10,
+      "recall_static": 1.0,
+      "t_add_s": 0.03,
+      "n_docs": 22000
+    },
+    {
+      "churn_pct": 20,
+      "recall_static": 1.0,
+      "t_add_s": 0.03,
+      "n_docs": 24000
+    },
+    {
+      "churn_pct": 30,
+      "recall_static": 1.0,
+      "t_add_s": 0.03,
+      "n_docs": 26000
+    }
+  ]
+}

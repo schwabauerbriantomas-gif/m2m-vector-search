@@ -789,12 +789,64 @@ class SimpleVectorDB:
         with self._rw_lock:
             if vector is not None:
                 old_vec = self._vectors.get(id)
-                self._vectors[id] = np.asarray(vector, dtype=np.float32)
+                vec = np.asarray(vector, dtype=np.float32)
+                if vec.ndim != 1 or vec.shape[0] != self.latent_dim:
+                    raise ValueError(
+                        f"vector shape mismatch: expected ({self.latent_dim},), got {vec.shape}"
+                    )
+                self._vectors[id] = vec
+
+                # Propagar al indice: el splat de este doc vive en la posicion
+                # que le toca en _splat_id_order. Sin esto, el indice seguia
+                # devolviendo el vector VIEJO para siempre (audit C-04b).
+                if self._use_lsh and self.lsh is not None:
+                    try:
+                        pos = self._lsh_id_map.index(id)
+                        self.lsh.vectors[pos] = vec
+                    except ValueError:
+                        logger.warning("update(vector): %s no esta en el indice LSH", id)
+                elif not self._use_lsh and id in self._splat_id_order:
+                    store = self.engine.m2m.splats
+                    pos = self._splat_id_order.index(id)
+                    if 0 <= pos < store.n_active:
+                        # Misma normalizacion y mutacion in-place que add_splats
+                        # (normalize_sphere) + reconstruir el router (los coarse
+                        # centroids quedan viejos si no).
+                        store.mu[pos] = normalize_sphere(vec)
+                        store.alpha[pos] = store.config.init_alpha
+                        store.kappa[pos] = store.config.init_kappa
+                        store._m_sq_dirty = True
+                        store._cuda_dirty = True
+                        # Reasignacion quirurgica al cluster correcto (O(k·d)):
+                        # sacar del cluster viejo, asignar al centroid mas
+                        # cercano del mu nuevo, sin re-entrenar KMeans.
+                        eng = store.engine
+                        assert eng.coarse_assignments is not None
+                        assert eng.coarse_model is not None
+                        old_cid = int(eng.coarse_assignments[pos])
+                        cent = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
+                        new_cid = int(np.argmin(((cent - store.mu[pos]) ** 2).sum(axis=1)))
+                        eng.coarse_assignments[pos] = new_cid
+                        if new_cid != old_cid:
+                            idx_old = eng.coarse_cluster_indices[old_cid]
+                            keep = idx_old != pos
+                            eng.coarse_cluster_indices[old_cid] = idx_old[keep]
+                            eng.coarse_cluster_embeddings[old_cid] = (
+                                eng.coarse_cluster_embeddings[old_cid][keep]
+                            )
+                            eng._cluster_masks[old_cid][pos] = False
+                            eng.coarse_cluster_indices[new_cid] = np.append(
+                                eng.coarse_cluster_indices[new_cid], pos
+                            )
+                            eng.coarse_cluster_embeddings[new_cid] = np.vstack(
+                                [eng.coarse_cluster_embeddings[new_cid], store.mu[pos][np.newaxis, :]]
+                            )
+                            eng._cluster_masks[new_cid][pos] = True
 
                 # Calcular delta de energía si EBM habilitado
                 if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
                     old_e = self._ebm_energy.energy(old_vec)
-                    new_e = self._ebm_energy.energy(vector)
+                    new_e = self._ebm_energy.energy(vec)
                     energy_delta = new_e - old_e
 
             if metadata is not None:

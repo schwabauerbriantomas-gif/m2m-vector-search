@@ -117,13 +117,66 @@ class SplatStore:
         self._cuda_dirty = True
         return n_new
 
-    def build_index(self) -> None:
-        """Build the semantic router index from active vectors."""
-        if self.n_active == 0:
+    def build_index(self, retrain: bool = False) -> None:
+        """Build the semantic router index from active vectors.
+
+        Con retrain=False (default) usa política automática:
+          - primera vez, retrain explícito, o crecimiento >25% desde el último
+            entrenamiento: KMeans completo (como siempre);
+          - si no, ATTACH incremental: los puntos nuevos se asignan al centroide
+            existente más cercano sin re-entrenar (streaming IVF estándar).
+            O(|new|·k·d) en vez de O(n·k·d·iters) — el recall se mide en
+            bench/exp_h7_churn.py.
+        """
+        n = self.n_active
+        if n == 0:
             return
-        self._recompute_n_coarse()
-        embeddings = self.mu[: self.n_active]
-        self.engine.index(precomputed_embeddings=embeddings)
+        eng = self.engine
+        last_n = getattr(self, "_last_trained_n", 0)
+        need_full = (
+            retrain
+            or not getattr(eng, "_is_indexed", False)
+            or last_n == 0
+            or n > 1.25 * last_n
+        )
+        if need_full:
+            self._recompute_n_coarse()
+            embeddings = self.mu[:n]
+            eng.index(precomputed_embeddings=embeddings)
+            self._last_trained_n = n
+        else:
+            # Attach: nearest existing centroid for the new tail only
+            old_n = last_n
+            assert eng.coarse_model is not None
+            centroids = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
+            new_points = self.mu[old_n:n]
+            # ||x-c||^2 = ||x||^2 - 2x.c + ||c||^2; ||x||^2 es constante por fila
+            d2 = -2.0 * (new_points @ centroids.T) + (centroids ** 2).sum(axis=1)[None, :]
+            new_assign = np.argmin(d2, axis=1)
+
+            prev_assign = eng.coarse_assignments
+            assert prev_assign is not None
+            eng.coarse_assignments = np.concatenate([prev_assign, new_assign])
+            if getattr(eng, "embeddings", None) is not None and len(eng.embeddings) == old_n:
+                eng.embeddings = np.vstack([eng.embeddings, new_points])
+
+            masks = getattr(eng, "_cluster_masks", None)
+            for cid in np.unique(new_assign):
+                extra = np.where(new_assign == cid)[0] + old_n
+                prev_idx = eng.coarse_cluster_indices.get(cid)
+                eng.coarse_cluster_indices[cid] = (
+                    np.concatenate([prev_idx, extra])
+                    if prev_idx is not None
+                    else extra
+                )
+                prev_emb = eng.coarse_cluster_embeddings.get(cid)
+                assert prev_emb is not None, f"cluster {cid} sin embeddings precomputados"
+                new_emb = np.ascontiguousarray(eng.embeddings[extra])
+                eng.coarse_cluster_embeddings[cid] = np.vstack([prev_emb, new_emb])
+                if masks is not None and cid in masks:
+                    masks[cid] = np.concatenate([masks[cid], new_assign == cid])
+            self._last_trained_n = n
+
         self._gpu_index_dirty = True
         self._cuda_dirty = True
 
