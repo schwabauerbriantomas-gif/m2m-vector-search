@@ -123,6 +123,7 @@ def two_phase_search(
     k: int = 64,
     overfetch: float = 2.0,
     precomputed_m_sq: Optional[np.ndarray] = None,
+    with_ranks: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Two-phase search: L2 candidate retrieval + Gaussian re-ranking.
@@ -139,12 +140,15 @@ def two_phase_search(
         overfetch: how many extra candidates to retrieve in phase 1
         precomputed_m_sq: Pre-computed ||μ_i||² [N] to avoid recomputing
             for every query in a batch. When provided, skips the einsum.
+        with_ranks: compute gaussian_ranks diagnostics (double argsort + Python
+            loop over k). Callers that discard ranks should pass False.
 
     Returns:
         indices: [k] — splat indices (sorted by Gaussian score, descending)
         scores: [k] — Gaussian mixture scores
         distances: [k] — L2 distances (for diagnostics)
-        gaussian_ranks: [k] — rank change from L2 to Gaussian (positive = promoted)
+        gaussian_ranks: [k] — rank change from L2 to Gaussian (positive = promoted);
+            zeros when with_ranks=False
     """
     N = mu.shape[0]
     n_fetch = min(int(k * overfetch), N)
@@ -173,17 +177,18 @@ def two_phase_search(
     scores = gaussian_score(query, mu[candidates], cand_alpha, cand_kappa,
                            precomputed_dist_sq=cand_dist_sq)
 
-    # L2 ranks among candidates (for rank change tracking)
-    l2_ranks = np.argsort(np.argsort(cand_dist_sq))
-
     # Gaussian ranking (descending score = best first)
     gauss_order = np.argsort(-scores)
     top_k = gauss_order[:k]
 
-    # Compute rank changes
-    gaussian_ranks = np.zeros(k, dtype=np.int32)
-    for new_rank, idx in enumerate(top_k):
-        gaussian_ranks[new_rank] = int(l2_ranks[idx]) - new_rank
+    # Compute rank changes (diagnostics only)
+    if with_ranks:
+        l2_ranks = np.argsort(np.argsort(cand_dist_sq))
+        gaussian_ranks = np.zeros(k, dtype=np.int32)
+        for new_rank, idx in enumerate(top_k):
+            gaussian_ranks[new_rank] = int(l2_ranks[idx]) - new_rank
+    else:
+        gaussian_ranks = np.zeros(k, dtype=np.int32)
 
     result_indices = candidates[top_k]
     result_scores = scores[top_k]

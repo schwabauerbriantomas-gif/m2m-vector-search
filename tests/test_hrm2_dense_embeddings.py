@@ -46,11 +46,13 @@ class TestHRM2CosineMetric:
 
         # Euclidean baseline
         engine_euc = HRM2Engine(n_coarse=20, embedding_dim=640, metric="euclidean")
+        engine_euc.diagnostics = True
         engine_euc.index(precomputed_embeddings=emb.copy())
         sil_euc = engine_euc._silhouette_score
 
         # Cosine
         engine_cos = HRM2Engine(n_coarse=20, embedding_dim=640, metric="cosine")
+        engine_cos.diagnostics = True
         engine_cos.index(precomputed_embeddings=emb.copy())
         sil_cos = engine_cos._silhouette_score
 
@@ -64,6 +66,7 @@ class TestHRM2CosineMetric:
         emb = rng.randn(1000, 640).astype(np.float32)
 
         engine = HRM2Engine(n_coarse=20, embedding_dim=640, metric="cosine")
+        engine.diagnostics = True
         engine.index(precomputed_embeddings=emb)
 
         assert engine._silhouette_score is not None
@@ -78,6 +81,7 @@ class TestHRM2CosineMetric:
         emb = rng.randn(1000, 640).astype(np.float32)
 
         engine = HRM2Engine(n_coarse=20, embedding_dim=640, metric="cosine")
+        engine.diagnostics = True
         engine.add_splats(splats)
         engine.index(precomputed_embeddings=emb)
 
@@ -91,6 +95,7 @@ class TestHRM2CosineMetric:
         emb = rng.randn(1000, 640).astype(np.float32)
 
         engine = HRM2Engine(n_coarse=20, embedding_dim=640, metric="cosine")
+        engine.diagnostics = True
         engine.index(precomputed_embeddings=emb)
 
         assert engine._silhouette_score is not None

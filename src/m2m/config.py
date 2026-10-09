@@ -173,9 +173,10 @@ class M2MConfig:
 
         Disables heavy features like SOC, 3-tier memory, and Langevin dynamics.
         """
-        config = cls()
-        if device:
-            config.device = device
+        # Pass device to the constructor: __post_init__ derives enable_cuda /
+        # enable_vulkan from it. Setting .device afterwards silently skipped
+        # that step (device='cuda' ran on CPU with no warning).
+        config = cls(device=device) if device else cls()
 
         config.enable_3_tier_memory = False
         config.memory_tier = "ram-only"
@@ -190,9 +191,7 @@ class M2MConfig:
 
         Enables 3-tier memory, SOC, EBM, and generative capabilities.
         """
-        config = cls()
-        if device:
-            config.device = device
+        config = cls(device=device) if device else cls()
 
         config.enable_3_tier_memory = True
         config.memory_tier = "3-tier"

@@ -144,6 +144,9 @@ class HRM2Engine:
         self._silhouette_score: Optional[float] = None
         self._calinski_harabasz: Optional[float] = None
         self._auto_k_cache: Optional[int] = None
+        # Diagnostics (silhouette + Calinski-Harabasz) are O(sample^2 * d) and cost
+        # ~27% of build time; opt-in via engine.diagnostics = True.
+        self.diagnostics = False
 
     def _normalize(self, vectors: np.ndarray) -> np.ndarray:
         """L2-normalize vectors for cosine distance (makes euclidean ≡ cosine)."""
@@ -285,8 +288,8 @@ class HRM2Engine:
 
         self._is_indexed = False  # temp
 
-        # Quality diagnostics
-        if n_samples >= 100 and n_coarse_effective >= 2:
+        # Quality diagnostics (opt-in: O(sample^2*d) — ~27% of build time when on)
+        if self.diagnostics and n_samples >= 100 and n_coarse_effective >= 2:
             try:
                 sample_size = min(n_samples, 5000)
                 rng = np.random.RandomState(self.random_state)
@@ -440,7 +443,13 @@ class HRM2Engine:
                 if len(cluster_indices) == 0:
                     continue
 
-                cluster_embeddings = self.embeddings[mask]
+                # Reuse precomputed per-cluster embeddings (built in index())
+                # instead of copying embeddings[mask] on every query.
+                pre = self.coarse_cluster_embeddings.get(int(coarse_id))
+                if pre is not None and len(pre) == len(cluster_indices):
+                    cluster_embeddings = pre
+                else:
+                    cluster_embeddings = self.embeddings[mask]
 
                 expert_embeddings_list.append(cluster_embeddings)
                 expert_indices_list.append(cluster_indices)
@@ -487,6 +496,8 @@ class HRM2Engine:
         # Sort by distance and return top-k
         candidates.sort(key=lambda x: x[1])
         results = candidates[:k]
+        if not results:
+            return []
 
         # Update stats
         self._stats.total_queries += 1
@@ -664,6 +675,13 @@ class HRM2Engine:
             query_vector = query_vectors[b]
             closest_coarse = closest_coarse_batch[b]
 
+            # Normalize per-query for cosine metric (query() does the same;
+            # query_batch historically skipped it → wrong ranking on cosine).
+            if self.metric == "cosine":
+                norm = np.linalg.norm(query_vector)
+                if norm > 1e-10:
+                    query_vector = query_vector / norm
+
             if lod == 0 or lod == 1:
                 # Keep non-exact modes identical for now, just delegate
                 results_batch.append(self.query(query_vector, k=k, lod=lod))
@@ -699,9 +717,16 @@ class HRM2Engine:
                 topk_idx = np.argsort(distances_sq)
 
             # Return real distances for interface
-            local_res = [
-                (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i]))) for i in topk_idx
-            ]
+            # When the index was built with precomputed_embeddings, self.splats
+            # is empty (no Splat objects) — return (int, dist) like query() does.
+            if self.splats:
+                local_res = [
+                    (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i]))) for i in topk_idx
+                ]
+            else:
+                local_res = [
+                    (int(expert_indices[i]), float(np.sqrt(distances_sq[i]))) for i in topk_idx
+                ]
             results_batch.append(local_res)
 
             self._stats.total_queries += 1
