@@ -99,20 +99,31 @@ class M2MVectorStore(VectorStore):
         query_batch = query_tensor[np.newaxis, :]
 
         # Run search using M2MEngine public API
-        neighbors_mu, neighbors_alpha, neighbors_kappa = self._m2m.search(
+        # M2MEngine.search returns (mu, alpha, kappa, splat_indices); splat_indices
+        # are insertion-order positions, already ranked best-first.
+        neighbors_mu, neighbors_alpha, neighbors_kappa, splat_indices = self._m2m.search(
             query_batch, k=k
         )
 
-        # Get the top-k indices
-        top_k_indices = np.argsort(neighbors_kappa[0])[-k:][::-1].tolist()
+        if splat_indices.ndim == 2:
+            splat_indices = splat_indices[0]
+        if neighbors_mu.ndim == 3:
+            neighbors_mu = neighbors_mu[0]
 
+        # Build results in ranked order (previously sorted by kappa, which is a
+        # constant at initialization — no similarity signal — and the unpack
+        # expected a 3-tuple that no longer matches the engine's 4-tuple).
         results = []
-        for idx in top_k_indices:
+        q = query_batch[0]
+        for j, idx in enumerate(splat_indices[:k]):
+            idx = int(idx)
             if idx in self._store:
                 doc_info = self._store[idx]
+                score = float(-np.linalg.norm(neighbors_mu[j] - q))
                 results.append(
                     Document(
-                        page_content=doc_info["text"], metadata=doc_info["metadata"]
+                        page_content=doc_info["text"],
+                        metadata={**doc_info["metadata"], "score": score},
                     )
                 )
 

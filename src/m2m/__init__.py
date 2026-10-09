@@ -474,6 +474,10 @@ class SimpleVectorDB:
         self.lsh = None
         self._use_lsh = False
         self._lsh_id_map: List[str] = []  # maps LSH positional index -> doc_id
+        # LSH fallback decision is made ONCE (first add with n>=3): recomputing
+        # KMeans+silhouette on every add cost ~0.3-0.5s per batch.
+        self._lsh_decided = False
+        self._lsh_active_mode = False
         self._splat_id_order: List[str] = (
             []
         )  # maps splat position -> doc_id for consolidate cleanup
@@ -631,15 +635,22 @@ class SimpleVectorDB:
         if documents and len(documents) != n:
             raise ValueError(f"len(documents)={len(documents)} != len(vectors)={n}")
 
-        # Comprobar LSH fallback
-        if self.enable_lsh_fallback and n >= 3:
+        # Comprobar LSH fallback (decisión única: primer add con n>=3)
+        if self.enable_lsh_fallback and n >= 3 and not self._lsh_decided:
+            self._lsh_decided = True
             silhouette = self._compute_silhouette(vectors)
             if silhouette < self.lsh_threshold:
                 logger.info("Distribución uniforme (silhouette=%.4f)", silhouette)
                 logger.info("Activando LSH fallback...")
-                try:
-                    from .lsh_index import CrossPolytopeLSH, LSHConfig
+                self._lsh_active_mode = True
+            else:
+                logger.info("Distribución clustered (silhouette=%.4f): splats+HRM2", silhouette)
 
+        if self._lsh_active_mode and self.enable_lsh_fallback:
+            try:
+                from .lsh_index import CrossPolytopeLSH, LSHConfig
+
+                if self.lsh is None:
                     config = LSHConfig(
                         dim=self.engine.config.latent_dim,
                         n_tables=15,
@@ -648,18 +659,43 @@ class SimpleVectorDB:
                         n_candidates=500,
                     )
                     self.lsh = CrossPolytopeLSH(config)
-                    self.lsh.index(vectors)
-                    self._use_lsh = True
-                    self._lsh_id_map = list(ids)
-                    self._splat_id_order.extend(ids)
-                    # Guardar metadata en memoria
+                    base_vectors = np.empty((0, self.latent_dim), dtype=np.float32)
+                elif self.lsh.vectors is not None and len(self.lsh.vectors) > 0:
+                    # Append-only: keep previously indexed vectors searchable
+                    base_vectors = self.lsh.vectors
+                else:
+                    base_vectors = np.empty((0, self.latent_dim), dtype=np.float32)
+
+                new_vectors = np.ascontiguousarray(vectors, dtype=np.float32)
+                all_vectors = (
+                    new_vectors if len(base_vectors) == 0
+                    else np.vstack([base_vectors, new_vectors])
+                )
+                self.lsh.index(all_vectors)
+                self._use_lsh = True
+                self._lsh_id_map.extend(ids[:n])
+                self._splat_id_order.extend(ids[:n])
+                # Guardar metadata en memoria
+                for i, doc_id in enumerate(ids):
+                    self._vectors[doc_id] = vectors[i]
+                    self._metadata[doc_id] = metadata[i] if metadata else {}
+                    self._documents[doc_id] = documents[i] if documents else None
+                # Persistencia (parity with splat path)
+                if self.storage:
+                    self.storage.save_vectors(vectors, ids)
                     for i, doc_id in enumerate(ids):
-                        self._vectors[doc_id] = vectors[i]
-                        self._metadata[doc_id] = metadata[i] if metadata else {}
-                        self._documents[doc_id] = documents[i] if documents else None
-                    return n
-                except ImportError as e:
-                    logger.warning("Could not load LSH module: %s.", e)
+                        self.storage.save_metadata(
+                            doc_id,
+                            shard_idx=0,
+                            vector_idx=i,
+                            metadata=(metadata[i] if metadata else {}),
+                            document=(documents[i] if documents else None),
+                        )
+                return n
+            except ImportError as e:
+                logger.warning("Could not load LSH module: %s.", e)
+                self._lsh_active_mode = False
+                self._use_lsh = False
 
         self._use_lsh = False
         n_added = self.engine.add_splats(vectors)

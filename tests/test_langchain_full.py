@@ -10,7 +10,40 @@ import pytest
 
 pytest.importorskip("langchain_core")
 from langchain_core.documents import Document
-from langchain_core.embeddings import FakeEmbeddings
+from langchain_core.embeddings import Embeddings
+
+
+class HashedNGramEmbeddings(Embeddings):
+    """Deterministic char-3gram bag-of-words embeddings.
+
+    FakeEmbeddings (random normal) makes similarity_search non-deterministic:
+    'cat' has no relationship to 'The cat sat on the mat.' under random vectors,
+    so relevance-ordering assertions are coin flips. Hashed char n-grams give
+    lexical overlap → tests assert real (lexical) similarity, deterministically.
+    """
+
+    def __init__(self, size: int = 64):
+        self.size = size
+
+    def _embed(self, text: str):
+        import hashlib
+
+        import numpy as np
+
+        vec = np.zeros(self.size, dtype=np.float32)
+        text = text.lower()
+        for i in range(len(text) - 2):
+            gram = text[i : i + 3]
+            h = int(hashlib.md5(gram.encode()).hexdigest(), 16)
+            vec[h % self.size] += 1.0
+        norm = np.linalg.norm(vec)
+        return (vec / norm if norm > 0 else vec).tolist()
+
+    def embed_documents(self, texts):
+        return [self._embed(t) for t in texts]
+
+    def embed_query(self, text):
+        return self._embed(text)
 
 from integrations.langchain import M2MVectorStore
 from m2m import M2MConfig
@@ -23,7 +56,7 @@ def config():
 
 @pytest.fixture
 def embeddings():
-    return FakeEmbeddings(size=64)
+    return HashedNGramEmbeddings(size=64)
 
 
 @pytest.fixture
