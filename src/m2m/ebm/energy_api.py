@@ -172,7 +172,13 @@ class EBMEnergy:
         """
         Energía libre del sistema: F = -log(Z)
 
-        Z = Σᵢ αᵢ (función de partición)
+        Z = Σᵢ αᵢ (π/κᵢ)^(D/2)  — integral de la mezcla gaussiana
+            αᵢ·exp(−κᵢ‖x−μᵢ‖²) sobre ℝᴰ (integral gaussiana estándar).
+
+        La fórmula anterior (Z = Σ αᵢ) omitía el factor (π/κ)^(D/2): con D alto
+        el término omitido vale decenas de nats y F quedaba ciega a κ (dos
+        sistemas con κ distintos pero igual Σα daban idéntico F). Se computa en
+        log-space: F = −logsumexp(log αᵢ + (D/2)(log π − log κᵢ)).
 
         Útil para:
         - Comparar estados del sistema antes/después de reorganización
@@ -184,8 +190,24 @@ class EBMEnergy:
         if not self._has_splats():
             return float("inf")
 
-        Z = float(np.sum(self.splat_alpha))
-        return -np.log(Z) if Z > 0 else float("inf")
+        alpha = np.asarray(self.splat_alpha, dtype=np.float64)
+        kappa = np.asarray(self.splat_kappa, dtype=np.float64)
+        if self.splat_mu is None or self.splat_mu.ndim != 2:
+            return float("inf")
+        d = int(self.splat_mu.shape[1])
+
+        pos = (alpha > 0) & (kappa > 0) & np.isfinite(alpha) & np.isfinite(kappa)
+        if not np.any(pos):
+            return float("inf")
+
+        log_terms = (
+            np.log(alpha[pos]) + 0.5 * d * (np.log(np.pi) - np.log(kappa[pos]))
+        )
+        m = float(np.max(log_terms))
+        if not np.isfinite(m):
+            return float("inf")
+        Z = m + float(np.log(np.sum(np.exp(log_terms - m))))
+        return -Z
 
     def local_energy_map(
         self,
