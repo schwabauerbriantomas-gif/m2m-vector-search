@@ -31,7 +31,7 @@ class LangChainRAG:
         print("[INFO] Initializing M2M VectorStore...")
         from langchain_core.embeddings import FakeEmbeddings
 
-        from integrations.langchain import M2MVectorStore
+        from m2m.integrations.langchain import M2MVectorStore
 
         # Use FakeEmbeddings for demonstration (in real system, use HuggingFaceEmbeddings)
         self.embeddings = FakeEmbeddings(size=config.latent_dim)

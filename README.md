@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/version-2.3.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-orange" alt="License">
-  <img src="https://img.shields.io/badge/tests-395%20passed-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-427%20passed-success" alt="Tests">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
 

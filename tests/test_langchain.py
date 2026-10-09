@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("langchain_core")
 from langchain_core.embeddings import FakeEmbeddings
 
-from integrations.langchain import M2MVectorStore
+from m2m.integrations.langchain import M2MVectorStore
 from m2m import M2MConfig
 
 

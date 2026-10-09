@@ -555,7 +555,7 @@ class TestI4LangChainAddSearchDelete:
     @pytest.mark.integration
     def test_langchain_lifecycle(self):
         """Basic LangChain integration: add, search."""
-        from integrations.langchain import M2MVectorStore
+        from m2m.integrations.langchain import M2MVectorStore
 
         class FakeEmbeddings:
             dim = 64

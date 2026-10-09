@@ -1,0 +1,144 @@
+{
+ "meta": {
+  "timestamp": "2026-10-09 21:57:47",
+  "python": "3.12.3",
+  "numpy": "2.5.3",
+  "dim": 384,
+  "k": 10,
+  "n_queries": 200,
+  "seed": 42
+ },
+ "results": [
+  {
+   "dataset": "clustered_10000",
+   "backend": "linear_numpy",
+   "qps": 746.2022977171175,
+   "p50_ms": 1.2208745029056445,
+   "p95_ms": 2.1528925473830864,
+   "recall": 1.0
+  },
+  {
+   "dataset": "clustered_10000",
+   "backend": "m2m_l2",
+   "n": 10000,
+   "n_probe": 5,
+   "n_clusters": 100,
+   "build_s": 2.882768344003125,
+   "qps": 587.1423993126929,
+   "p50_ms": 1.6737855003157165,
+   "p95_ms": 1.97987254941836,
+   "recall": 1.0
+  },
+  {
+   "dataset": "clustered_10000",
+   "backend": "m2m_l2",
+   "n": 10000,
+   "n_probe": 10,
+   "n_clusters": 100,
+   "build_s": 2.284985249003512,
+   "qps": 388.2147754675054,
+   "p50_ms": 2.519825502531603,
+   "p95_ms": 2.989961496496107,
+   "recall": 1.0
+  },
+  {
+   "dataset": "clustered_10000",
+   "backend": "m2m_gaussian",
+   "n": 10000,
+   "n_probe": 5,
+   "n_clusters": 100,
+   "build_s": 2.3323505640000803,
+   "qps": 550.6336887153866,
+   "p50_ms": 1.7780019989004359,
+   "p95_ms": 2.092504148822627,
+   "recall": 1.0
+  },
+  {
+   "dataset": "clustered_50000",
+   "backend": "linear_numpy",
+   "qps": 223.1297907547858,
+   "p50_ms": 4.043715503939893,
+   "p95_ms": 7.684705101564752,
+   "recall": 1.0
+  },
+  {
+   "dataset": "clustered_50000",
+   "backend": "m2m_l2",
+   "n": 50000,
+   "n_probe": 5,
+   "n_clusters": 223,
+   "build_s": 11.90714897300495,
+   "qps": 195.8746545324029,
+   "p50_ms": 4.987851498299278,
+   "p95_ms": 5.75722135072283,
+   "recall": 0.9995
+  },
+  {
+   "dataset": "clustered_50000",
+   "backend": "m2m_l2",
+   "n": 50000,
+   "n_probe": 10,
+   "n_clusters": 223,
+   "build_s": 12.678205427000648,
+   "qps": 151.0691675158249,
+   "p50_ms": 6.5151880007761065,
+   "p95_ms": 7.868501702250794,
+   "recall": 1.0
+  },
+  {
+   "dataset": "clustered_50000",
+   "backend": "m2m_gaussian",
+   "n": 50000,
+   "n_probe": 5,
+   "n_clusters": 223,
+   "build_s": 11.881531674000144,
+   "qps": 186.97418534967824,
+   "p50_ms": 5.172116500034463,
+   "p95_ms": 6.088508003813329,
+   "recall": 0.9995
+  },
+  {
+   "dataset": "uniform_10000",
+   "backend": "linear_numpy",
+   "qps": 1050.461033498831,
+   "p50_ms": 0.8381774969166145,
+   "p95_ms": 1.6162225016159935,
+   "recall": 1.0
+  },
+  {
+   "dataset": "uniform_10000",
+   "backend": "m2m_l2",
+   "n": 10000,
+   "n_probe": 5,
+   "n_clusters": 100,
+   "build_s": 3.003362304996699,
+   "qps": 585.871603784689,
+   "p50_ms": 1.6811170025903266,
+   "p95_ms": 1.897696503147017,
+   "recall": 0.15
+  },
+  {
+   "dataset": "uniform_10000",
+   "backend": "m2m_l2",
+   "n": 10000,
+   "n_probe": 10,
+   "n_clusters": 100,
+   "build_s": 3.103144198001246,
+   "qps": 473.9684870856308,
+   "p50_ms": 2.068366498860996,
+   "p95_ms": 2.373370350687764,
+   "recall": 0.2495
+  },
+  {
+   "dataset": "clustered_10000",
+   "backend": "m2m_batch",
+   "qps": 842.2940292259239,
+   "note": "verificar idx shape"
+  }
+ ],
+ "default_add_10000": {
+  "init_s": 0.0019092610018560663,
+  "add_s_default": 2.5041355049979757,
+  "lsh_activated": false
+ }
+}

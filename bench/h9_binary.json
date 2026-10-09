@@ -1,0 +1,37 @@
+{
+  "n": 50000,
+  "dim": 384,
+  "nq": 200,
+  "n_clusters": 100,
+  "results": [
+    {
+      "mode": "float32_ivf",
+      "recall@10": 1.0,
+      "qps": 657.6
+    },
+    {
+      "mode": "binary_os1",
+      "recall@10": 0.098,
+      "qps": 72.2
+    },
+    {
+      "mode": "binary_os2",
+      "recall@10": 0.1615,
+      "qps": 74.3
+    },
+    {
+      "mode": "binary_os4",
+      "recall@10": 0.2515,
+      "qps": 74.6
+    },
+    {
+      "mode": "binary_os8",
+      "recall@10": 0.412,
+      "qps": 72.9
+    }
+  ],
+  "build_kmeans_s": 37.47,
+  "mem_float32_mb": 76.8,
+  "mem_binary_mb": 2.4,
+  "compression": 32.0
+}

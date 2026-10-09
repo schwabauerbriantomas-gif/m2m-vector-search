@@ -45,7 +45,7 @@ class HashedNGramEmbeddings(Embeddings):
     def embed_query(self, text):
         return self._embed(text)
 
-from integrations.langchain import M2MVectorStore
+from m2m.integrations.langchain import M2MVectorStore
 from m2m import M2MConfig
 
 
