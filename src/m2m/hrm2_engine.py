@@ -384,8 +384,17 @@ class HRM2Engine:
             if norm > 1e-10:
                 query_vector = query_vector / norm
 
-        # Find nearest coarse clusters
-        coarse_distances = self.coarse_model.transform(query_vector.reshape(1, -1))[0]
+        # Find nearest coarse clusters (numpy routing; identical to
+        # coarse_model.transform, ~20x faster per query)
+        coarse_model = self.coarse_model
+        assert coarse_model is not None
+        centroids = getattr(coarse_model, "centroids_", None)
+        if centroids is not None:
+            coarse_distances = np.sqrt(
+                np.maximum(((centroids - query_vector) ** 2).sum(axis=1), 0.0)
+            )
+        else:
+            coarse_distances = coarse_model.transform(query_vector.reshape(1, -1))[0]
         n_probe_actual = self._adaptive_n_probe(coarse_distances)
         closest_coarse = np.argsort(coarse_distances)[:n_probe_actual]
 
