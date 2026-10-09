@@ -528,7 +528,11 @@ class SimpleVectorDB:
                     continue
                 shard_idx = meta.get("shard_idx", 0)
                 vector_idx = meta.get("vector_idx", 0)
-                shard_name = f"shard_{shard_idx + 1:03d}" if shard_idx > 0 else "shard_001"
+                # shard_idx es 1-based y corresponde directo al nombre de archivo
+                # (1 -> shard_001, 2 -> shard_002, ...). La fórmula anterior
+                # (shard_idx+1) mapeaba TODO al shard siguiente y con múltiples
+                # shards restauraba solo el último lote.
+                shard_name = f"shard_{max(1, int(shard_idx)):03d}"
                 if shard_name in shard_vectors and vector_idx < len(shard_vectors[shard_name]):
                     self._vectors[doc_id] = shard_vectors[shard_name][vector_idx]
                     self._metadata[doc_id] = meta.get("metadata", {})
@@ -683,10 +687,11 @@ class SimpleVectorDB:
                 # Persistencia (parity with splat path)
                 if self.storage:
                     self.storage.save_vectors(vectors, ids)
+                    shard_idx = getattr(self.storage, "_last_shard_idx", 1)
                     for i, doc_id in enumerate(ids):
                         self.storage.save_metadata(
                             doc_id,
-                            shard_idx=0,
+                            shard_idx=shard_idx,
                             vector_idx=i,
                             metadata=(metadata[i] if metadata else {}),
                             document=(documents[i] if documents else None),
@@ -714,11 +719,14 @@ class SimpleVectorDB:
 
         # Persistencia (outside lock — I/O)
         if self.storage:
+            # Cada lote a su propio shard (shard_001, shard_002, ...); la
+            # metadata referencia el shard real vía _last_shard_idx.
             self.storage.save_vectors(vectors, ids)
+            shard_idx = getattr(self.storage, "_last_shard_idx", 1)
             for i, doc_id in enumerate(ids):
                 self.storage.save_metadata(
                     doc_id,
-                    shard_idx=0,
+                    shard_idx=shard_idx,
                     vector_idx=i,
                     metadata=(metadata[i] if metadata else {}),
                     document=(documents[i] if documents else None),
@@ -1053,6 +1061,109 @@ class SimpleVectorDB:
 
         return results[:k]
 
+    def search_batch(
+        self,
+        queries: np.ndarray,
+        k: int = 10,
+        include_metadata: bool = False,
+    ) -> Any:
+        """Búsqueda por lotes: amortiza todo el overhead per-query de Python.
+
+        Estrategia (CPU):
+          1. Routing numpy de candidatos por cluster (HRM2) para TODO el lote.
+          2. UNA pasada BLAS de distancias contra la unión de candidatos.
+          3. top-k + construcción de DocResult (o índices globales).
+
+        Con n<=3000 la unión de candidatos es todo el dataset y esto degenera
+        en exact search batched — también correcto y rápido.
+
+        Returns:
+            include_metadata=False -> np.ndarray [B, k] de índices globales (-1 si
+            falta). include_metadata=True -> List[List[DocResult]].
+        """
+        queries = np.asarray(queries, dtype=np.float32)
+        if queries.ndim == 1:
+            queries = queries[np.newaxis, :]
+        if not np.all(np.isfinite(queries)):
+            raise ValueError("queries contain NaN or Inf values")
+        if queries.shape[1] != self.latent_dim:
+            raise ValueError(
+                f"queries dim mismatch: expected {self.latent_dim}, got {queries.shape[1]}"
+            )
+        if k < 1:
+            raise ValueError(f"k must be >= 1 (got {k})")
+
+        active = [d for d in self._vectors if d not in self._deleted]
+        B = len(queries)
+        if not active or B == 0:
+            return np.full((B, 0), -1, dtype=np.int64) if not include_metadata else [[] for _ in range(B)]
+
+        store = self.engine.m2m.splats
+        n = store.n_active
+        index_data = store.mu[:n]
+        n_probe = int(getattr(store.engine, "n_probe", 5) or 5)
+
+        if n > 3000 and store.engine.coarse_model is not None:
+            centroids = getattr(store.engine.coarse_model, "centroids_", None)
+            assignments = store.engine.coarse_assignments
+            assert centroids is not None and assignments is not None
+            diff_c = queries[:, None, :] - centroids[None, :, :]
+            cdist = np.sqrt(np.einsum("bkc,bkc->bk", diff_c, diff_c))
+            probe = np.argpartition(cdist, n_probe - 1, axis=1)[:, :n_probe]
+            # Puntos cuyo cluster esta en el set probe del query: [B, n] bool
+            cand_union = np.isin(assignments[np.newaxis, :], probe)
+        else:
+            cand_union = np.ones((B, n), dtype=bool)
+
+        # One BLAS pass over the union of candidates (deduped)
+        any_cand = np.atleast_1d(cand_union.any(axis=0)) if cand_union.ndim else cand_union
+        cand_idx = np.where(any_cand)[0]
+        m_sq = store._m_sq_cache
+        if m_sq is None or len(m_sq) != n:
+            m_sq = np.einsum("ij,ij->i", index_data, index_data)
+        d2 = (
+            m_sq[cand_idx][None, :]
+            - 2.0 * (queries @ index_data[cand_idx].T)
+        )
+        d2 += np.einsum("ij,ij->i", queries, queries)[:, None]
+        np.maximum(d2, 0.0, out=d2)
+
+        k_eff = min(k, len(cand_idx))
+        out_idx = np.full((B, k), -1, dtype=np.int64)
+        part = np.argpartition(d2, k_eff - 1, axis=1)[:, :k_eff]
+        part_sorted = np.take_along_axis(
+            part, np.argsort(np.take_along_axis(d2, part, axis=1), axis=1), axis=1
+        )
+        global_top = cand_idx[part_sorted]
+        out_idx[:, :k_eff] = global_top
+
+        if not include_metadata:
+            return out_idx
+
+        results: List[List[DocResult]] = []
+        for i in range(B):
+            row: List[DocResult] = []
+            for j in range(k_eff):
+                s_idx = int(global_top[i, j])
+                if s_idx < 0 or s_idx >= len(self._splat_id_order):
+                    continue
+                doc_id = self._splat_id_order[s_idx]
+                if doc_id in self._deleted or doc_id not in self._vectors:
+                    continue
+                row.append(
+                    DocResult(
+                        id=doc_id,
+                        score=float(-np.sqrt(d2[i, part_sorted[i, j]])),
+                        vector=None,
+                        metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
+                        document=(self._documents.get(doc_id) if include_metadata else None),
+                        energy=None,
+                        confidence=None,
+                    )
+                )
+            results.append(row[:k])
+        return results
+
     def search_with_energy(self, query: np.ndarray, k: int = 10) -> SearchResult:
         """
         Búsqueda enriquecida con información energética.
@@ -1113,12 +1224,10 @@ class SimpleVectorDB:
     def save(self, path: str):
         """Guarda el índice en disco (WAL + metadata + vectores)."""
         if self.storage:
+            # save() ya no re-escribe el shard completo: cada add() persistió
+            # su propio shard (append-only), la metadata SQLite mapea cada doc
+            # a su (shard_idx, vector_idx). checkpoint() hace fsync del WAL.
             self.storage.checkpoint()
-            # Guardar vectores en memoria al storage
-            if self._vectors:
-                vecs = np.array(list(self._vectors.values()), dtype=np.float32)
-                ids = list(self._vectors.keys())
-                self.storage.save_vectors(vecs, ids)
         else:
             # Fallback: si no hay storage, intentar con engine
             try:

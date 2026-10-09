@@ -136,10 +136,27 @@ class M2MPersistence:
     # Vector Storage (numpy shards)
     # -------------------------------------------------------------------------
 
-    def save_vectors(self, vectors: np.ndarray, ids: List[str], shard_name: str = "shard_001"):
-        """Guarda vectores en un archivo numpy shard."""
+    def save_vectors(self, vectors: np.ndarray, ids: List[str], shard_name: Optional[str] = None):
+        """Guarda vectores en un archivo numpy shard.
+
+        Con shard_name=None (recomendado) se asigna automáticamente el próximo
+        shard libre (shard_001, shard_002, ...): cada add() escribe su propio
+        archivo en vez de SOBRESCRIBIR shard_001 y destruir los lotes previos
+        (data loss reproducido en la auditoría: 20 docs irrecuperables tras
+        add(20)+add(5)+restart).
+        """
+        if shard_name is None:
+            existing = self.list_shards()
+            n = len(existing) + 1
+            shard_name = f"shard_{n:03d}"
         shard_path = self.storage_path / "data" / "vectors" / f"{shard_name}.npy"
         np.save(str(shard_path), vectors.astype(np.float32))
+
+        # shard_idx (1-based) es lo que restore usa para mapear doc -> shard
+        try:
+            shard_idx = int(shard_name.rsplit("_", 1)[1])
+        except (IndexError, ValueError):
+            shard_idx = len(self.list_shards())
 
         if self.wal:
             self.wal.log_operation(
@@ -151,6 +168,8 @@ class M2MPersistence:
                     "dim": vectors.shape[1] if vectors.ndim > 1 else vectors.shape[0],
                 },
             )
+        self._last_shard_name = shard_name
+        self._last_shard_idx = shard_idx
 
     def load_vectors(self, shard_name: str = "shard_001") -> Optional[np.ndarray]:
         """Carga vectores de un shard."""
