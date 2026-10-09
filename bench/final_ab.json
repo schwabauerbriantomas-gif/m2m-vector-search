@@ -1,0 +1,16 @@
+{
+  "n10000": {
+    "single_qps": 978.6,
+    "batch_qps": 3634.5,
+    "batch_recall": 1.0,
+    "batch_md_qps": 2894.8,
+    "batch_md_ids_ok": true
+  },
+  "n50000": {
+    "single_qps": 205.3,
+    "batch_qps": 710.5,
+    "batch_recall": 0.9995,
+    "batch_md_qps": 697.7,
+    "batch_md_ids_ok": true
+  }
+}
