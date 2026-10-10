@@ -1,0 +1,25 @@
+{
+  "hipotesis": "H11: RaBitQ (arXiv:2405.12497, SIGMOD'24) en NumPy puro — fase 1 con estimador unbiased sobre códigos 1-bit + rescoring float32",
+  "setup": {"n": 50000, "dim": 384, "nq": 200, "clusters": 100, "k": 10, "gt": "exacto"},
+  "estimador_verificado": {
+    "sanity_juguete": "<x̄,o>=0.807 ≈ √(2/π); est -0.009 vs real 0.013 (error O(1/√D) esperado)",
+    "correlacion_d2_cluster": 0.966,
+    "overlap_top10": "8/10 en cluster único"
+  },
+  "resultados": {
+    "rabitq_fase1_recall": 0.4615,
+    "sq8_fase1_recall": 0.9685,
+    "float32_fase1_recall": 1.0,
+    "rabitq_e2e_os4": {"recall": 0.8325, "qps": 3329},
+    "rabitq_e2e_os8": {"recall": 0.954, "qps": 388},
+    "float32_ivf_e2e": {"recall": 1.0, "qps": 693},
+    "sq8_e2e_os2": {"recall": 1.0, "qps": 630}
+  },
+  "memoria": {"rabitq_packed_mb": 2.4, "float32_mb": 76.8, "ratio": "32x"},
+  "veredicto": "REFUTADA EN NUMPY: el estimador funciona (corr 0.966) pero pierde el tradeoff contra SQ8 (fase-1 0.46 vs 0.97; e2e 0.95@388QPS vs 1.0@630QPS). La ventaja de RaBitQ es popcount SIMD sobre bits packed + distancia exacta acotada; en NumPy sin popcount el coste del estimador por-cluster lo mata. RaBitQ queda viable solo con implementación C/SIMD.",
+  "lecciones_implementacion": [
+    "<x̄,o> es dot(o_rot, xbar) en el FRAME ROTADO (dot del blog), no <xbar, o_unit> en frame original (≈0, destruye el estimador)",
+    "el estimador usa q residual vs centroide DEL PUNTO; para sondeo IVF el q_res efectivo es vs el centroide del cluster sondeado (por par query-cluster)",
+    "ensamblado d2: ip_hat ya lleva ‖q_res‖ dentro (es ⟨o_unit, q_res⟩); d2 = qn² + ‖o_r‖² − 2·‖o_r‖·ip_hat — multiplicar por ‖q‖ otra vez da recall 0.0 silencioso"
+  ]
+}

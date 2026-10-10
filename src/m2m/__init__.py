@@ -1057,6 +1057,53 @@ class SimpleVectorDB:
         if not include_energy and not include_metadata and filter is None:
             return raw  # Compatibilidad legacy
 
+        # H12 (A/B): rutear el single sin filtro por el kernel batch PERDIO
+        # 2.2x (450 vs 979 QPS @10k: routing+isin+copia con B=1 no amortiza;
+        # el engine legacy ya es el path rapido). El single batch solo gana
+        # con FILTRO (H8: post-filter tenia recall 0.26). Por eso:
+        #   - filter is None -> flujo original (raw de arriba + assembly)
+        #   - filter is not None -> pre-filtro ACORN-lite + assembly propio
+        if not include_energy and filter is not None:
+            store = self.engine.m2m.splats
+            n_active = store.n_active
+            order = self._splat_id_order
+            allowed = np.array(
+                [
+                    self._match_filter(self._metadata.get(order[i], {}), filter)
+                    if i < len(order)
+                    else False
+                    for i in range(n_active)
+                ],
+                dtype=bool,
+            )
+            idxs = self.search_batch_filtered(
+                query[np.newaxis, :], k=k, filter_fn=lambda i: bool(allowed[i])
+            )[0]
+            qn = normalize_sphere(query)
+            results: List[DocResult] = []
+            for s_idx in idxs:
+                if s_idx < 0 or int(s_idx) >= len(order):
+                    continue
+                s_idx = int(s_idx)
+                doc_id = order[s_idx]
+                if doc_id in self._deleted or doc_id not in self._vectors:
+                    continue
+                mu_i = store.mu[s_idx]
+                dist = float(np.sqrt(np.maximum(((mu_i - qn) ** 2).sum(), 0.0)))
+                results.append(
+                    DocResult(
+                        id=doc_id,
+                        score=-dist,
+                        vector=(mu_i.copy() if include_metadata else None),
+                        metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
+                        document=(self._documents.get(doc_id) if include_metadata else None),
+                        energy=None,
+                        confidence=None,
+                    )
+                )
+            return results[:k]
+
+        # Path con EBM (include_energy=True): loop completo (energia per doc)
         # Construir lista de DocResults usando splat indices
         # raw = (mu, alpha, kappa, splat_indices)
         # splat_indices maps each result to a position in _splat_id_order

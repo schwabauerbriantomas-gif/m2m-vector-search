@@ -21,3 +21,10 @@
   (`h10_sq8.json`). Candidato a store comprimido para datasets >RAM.
 - `kmeans_bs_ab.json` — batch_size del KMeans: 10000→1000 = 3.8x build con
   igual recall (default cambiado).
+- `exp_h11_rabitq.py` — H11: RaBitQ (arXiv:2405.12497) en NumPy puro.
+  **REFUTADA en este runtime**: estimador verificado (corr 0.966 vs d2 real,
+  sanity √(2/π) ✓) pero fase-1 recall 0.46 vs SQ8 0.97; e2e 0.95 @ 388 QPS
+  vs float32 1.0 @ 693 y SQ8 1.0 @ 630. La ventaja de RaBitQ es popcount
+  SIMD; sin C/SIMD, SQ8 domina. Packed 2.4MB vs 76.8MB (32x) — el uso es
+  memoria-extrema, no velocidad (`h11_rabitq.json`, con lecciones de la
+  implementación: frame rotado, q residual por-cluster, ensamblado d2).
