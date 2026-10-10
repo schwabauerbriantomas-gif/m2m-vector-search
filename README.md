@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.3.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.3.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-orange" alt="License">
-  <img src="https://img.shields.io/badge/tests-427%20passed-success" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-433%20passed-success" alt="Tests">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
 
@@ -19,48 +19,49 @@
   <a href="#architecture">Architecture</a> &bull;
   <a href="#semantic-memory">Semantic Memory</a> &bull;
   <a href="#benchmarks">Benchmarks</a> &bull;
-  <a href="#presentation">📊 Presentation</a> &bull;
+  <a href="#measured-results-audit-2026-10">📊 Measured Results</a> &bull;
   <a href="#changelog">Changelog</a>
 </p>
 
 ---
 
-## Interactive Benchmark Presentation
+## Measured Results (Audit 2026-10)
 
-📊 **[Open the interactive report →](presentation.html)** (opens in any browser, no server needed)
+> Every number below comes from a committed JSON in [`bench/`](bench/) — same-machine A/B runs, exact ground truth, seeds fixed. Reproduce with `bench/*.py`.
 
-A NotebookLM-style visual dashboard with animated charts, QPS-vs-Recall scatter plots, latency comparisons, and the complete results table — all data-driven, zero fabricated numbers.
+![Measured results](docs/bench-hero.png)
+
+| Metric | Before | After | Source |
+|---|---|---|---|
+| Single-query QPS @10k | 97 | **979** | `bench/final_ab.json` |
+| Batch QPS @10k (R@10=1.0) | 800 | **3634** | `bench/final_ab.json` |
+| Batch QPS @50k (R@10=0.9995) | — | **710** | `bench/final_ab.json` |
+| `add()` during streaming | 6–8 s/batch | **0.03–0.06 s** | `bench/h7_churn.json` |
+| KMeans index build @50k | 11.8 s | **3.1 s** | `bench/kmeans_bs_ab.json` |
+| Filtered search recall @25% sel. | 0.26 | **1.0000** | `bench/h8_filtered.json` |
+| Tests | 420 pass / 7 fail | **433 pass / 0 fail** | CI |
+
+![Streaming and build](docs/bench-qps.png)
+
+**Filtered search** — metadata filters used to be applied *after* the top-k (recall 0.26 at 25% selectivity, empty results for selective filters). `search_batch_filtered()` / `search(filter=...)` now pre-filter the IVF candidate union with automatic probe expansion (ACORN-style, no auxiliary graph): **recall 1.0000 at 5/25/50% selectivity, 2.5–3.2k QPS**.
+
+![Filtered search](docs/bench-filtered.png)
+
+**Compressed storage** — `SQ8DiskStore` keeps SQ8 codes in RAM and float32 on disk (mmap) for exact rescoring of candidates: **recall 1.0 with 3.9× less RAM at 2.2× less QPS** (600k×384, unnormalized, per-process maxrss protocol).
+
+![Compressed storage](docs/bench-storage.png)
+
+**Refuted hypotheses (also measured, kept in `bench/` with their JSONs):** 1-bit binarization (H9: recall 0.41 @ 73 QPS vs 658 float32), RaBitQ estimator in NumPy (H11: phase-1 recall 0.46 vs 0.97 SQ8 — popcount SIMD is the real advantage), routing single queries through the batch kernel (2.2× slower at B=1).
 
 <details>
-<summary><strong>📷 Click to view presentation screenshots</strong></summary>
+<summary><strong>Audit history (6 rounds, 2026-10-09 → 10)</strong></summary>
 
-**Hero & Summary Stats**
-
-![Hero](docs/pres-hero.png)
-
-**ANN-Benchmarks Datasets**
-
-![Datasets](docs/pres-datasets.png)
-
-**QPS vs Recall — All 3 datasets**
-
-![Charts](docs/pres-charts.png)
-
-**Latency Comparison (log scale)**
-
-![Latency](docs/pres-latency.png)
-
-**Complete Results Table**
-
-![Table](docs/pres-table.png)
-
-**Features & M2M vs FAISS**
-
-![Features](docs/pres-features.png)
-
-**When to Use What**
-
-![Comparison](docs/pres-comparison.png)
+1. Query-path optimization (97→587 single @10k), `free_energy()` fix, 7 broken tests fixed
+2. Multi-shard persistence fix (C-03), `search_batch` with NumPy routing, dead-code purge (−1,459 lines), LangChain integration into the wheel
+3. `update(vector=)` propagates to the index, IVF attach (streaming adds −99% cost)
+4. KMeans `batch_size` 10000→1000 (3.8× build), `search_batch_filtered` (H8), SQ8 validated (H10)
+5. Pre-filter in single `search()` with filter, RaBitQ refuted (H11)
+6. `SQ8DiskStore` (H13), 433 tests green
 
 </details>
 
@@ -381,6 +382,25 @@ src/m2m/
 ---
 
 ## Changelog
+
+### v2.3.1 — Performance Audit (2026-10-10)
+
+**Query path (6 rounds, all numbers in `bench/*.json`):**
+- Single-query QPS @10k: 97 → **979**; new `search_batch()` API: **3634 QPS @10k / 710 @50k** (R@10 ≥ 0.9995)
+- **Filtered search fixed**: pre-filter over IVF candidates with probe expansion (was post-filter: recall 0.26 at 25% selectivity) — recall 1.0000 at 5/25/50%, in `search(filter=...)` and `search_batch_filtered()`
+- `update(vector=)` now propagates to the index (was silently stale)
+- IVF attach: streaming `add()` 6–8 s → **0.03–0.06 s** per batch; re-trains only on >25% growth
+- KMeans `batch_size` 10000 → 1000: index build **3.8×** faster (3.1 s @50k, equal recall)
+
+**Storage:**
+- New `m2m.sq8_disk.SQ8DiskStore`: SQ8 in RAM + float32 on disk (mmap) rescoring — **recall 1.0 with 3.9× less RAM** at 2.2× less QPS (opt-in compressed mode)
+
+**Fixes & hygiene:**
+- `free_energy()` crash fixed (log-space, dimension derived from splats)
+- Multi-shard persistence (C-03): `add()` appends to new shards instead of overwriting shard_001
+- Dead code purge (−1,459 lines), LangChain integration moved into the wheel, NumPy routing (replaces sklearn transform, 20× cheaper)
+- Tests 420 pass / 7 fail → **433 pass / 0 fail**
+- Refuted hypotheses documented with measurements: 1-bit codes (H9), RaBitQ in NumPy (H11), batch-kernel single-query routing (H12)
 
 ### v2.3.0 — Standard ANN-Benchmarks + Architectural Fixes
 
