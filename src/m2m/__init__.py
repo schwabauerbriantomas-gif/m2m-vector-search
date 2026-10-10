@@ -1216,6 +1216,100 @@ class SimpleVectorDB:
             results.append(row[:k])
         return results
 
+    def search_batch_filtered(
+        self,
+        queries: np.ndarray,
+        k: int = 10,
+        filter_fn=None,
+    ) -> np.ndarray:
+        """Búsqueda por lotes con PRE-filtro (ACORN-lite, H8).
+
+        El filtro corre sobre la UNION de candidatos del indice (vectorizado,
+        mask por splat index) ANTES del top-k: sin filtro, el top-k del indice
+        puede no contener ni un solo doc que pase el filtro (post-filter media
+        recall 0.26 con selectividad 25%; medido en audit).
+        filter_fn: callable(int splat_index) -> bool. Vectorizado via np where:
+        se evalúa sobre todos los splats una vez (no por query) y se aplica
+        como mask AND cand_union.
+        """
+        queries = np.asarray(queries, dtype=np.float32)
+        if queries.ndim == 1:
+            queries = queries[np.newaxis, :]
+        if not np.all(np.isfinite(queries)):
+            raise ValueError("queries contain NaN or Inf values")
+        if queries.shape[1] != self.latent_dim:
+            raise ValueError(
+                f"queries dim mismatch: expected {self.latent_dim}, got {queries.shape[1]}"
+            )
+        if k < 1:
+            raise ValueError(f"k must be >= 1 (got {k})")
+        if filter_fn is None:
+            return self.search_batch(queries, k=k, include_metadata=False)
+
+        store = self.engine.m2m.splats
+        n = store.n_active
+        index_data = store.mu[:n]
+        n_probe = int(getattr(store.engine, "n_probe", 5) or 5)
+        B = len(queries)
+
+        allowed = np.array([bool(filter_fn(i)) for i in range(n)], dtype=bool)
+
+        if n > 3000 and store.engine.coarse_model is not None:
+            centroids = getattr(store.engine.coarse_model, "centroids_", None)
+            assignments = store.engine.coarse_assignments
+            assert centroids is not None and assignments is not None
+            diff_c = queries[:, None, :] - centroids[None, :, :]
+            cdist = np.sqrt(np.einsum("bkc,bkc->bk", diff_c, diff_c))
+            probe = np.argpartition(cdist, n_probe - 1, axis=1)[:, :n_probe]
+            cand_union = np.isin(assignments[np.newaxis, :], probe)
+        else:
+            cand_union = np.ones((B, n), dtype=bool)
+
+        # ACORN-lite: si la union de candidatos deja pocos docs que pasan el
+        # filtro, expandir probes hasta que la cobertura llegue a un objetivo
+        # o se agoten los clusters (no silenciar resultados).
+        if n > 3000 and store.engine.coarse_model is not None:
+            covered = (cand_union & allowed).sum(axis=1)
+            need = np.maximum(1, int(k * 1.5))
+            poor = covered < need
+            if np.any(poor):
+                assignments = store.engine.coarse_assignments
+                centroids = np.asarray(store.engine.coarse_model.centroids_, dtype=np.float32)
+                diff_c = queries[:, None, :] - centroids[None, :, :]
+                cdist = np.sqrt(np.einsum("bkc,bkc->bk", diff_c, diff_c))
+                order = np.argsort(cdist, axis=1)
+                for b in np.where(poor)[0]:
+                    for extra in range(n_probe, cdist.shape[1]):
+                        cand_union[b] |= assignments == order[b, extra]
+                        if (cand_union[b] & allowed).sum() >= need:
+                            break
+
+        any_cand = np.atleast_1d(cand_union.any(axis=0)) if cand_union.ndim else cand_union
+        cand_idx = np.where(any_cand)[0]
+        m_sq = store._m_sq_cache
+        if m_sq is None or len(m_sq) != n:
+            m_sq = np.einsum("ij,ij->i", index_data, index_data)
+        d2 = (
+            m_sq[cand_idx][None, :]
+            - 2.0 * (queries @ index_data[cand_idx].T)
+        )
+        d2 += np.einsum("ij,ij->i", queries, queries)[:, None]
+        np.maximum(d2, 0.0, out=d2)
+
+        allowed_c = allowed[cand_idx]
+        BIG = np.float32(1e9)
+        d2 = np.where(allowed_c[None, :], d2, BIG)
+        out_idx = np.full((B, k), -1, dtype=np.int64)
+        for i in range(B):
+            n_ok = int(allowed_c.sum())
+            if n_ok == 0:
+                continue
+            k_eff = min(k, n_ok)
+            part = np.argpartition(d2[i], k_eff - 1)[:k_eff]
+            part = part[np.argsort(d2[i][part])]
+            out_idx[i, :k_eff] = cand_idx[part]
+        return out_idx
+
     def search_with_energy(self, query: np.ndarray, k: int = 10) -> SearchResult:
         """
         Búsqueda enriquecida con información energética.
