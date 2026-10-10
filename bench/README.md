@@ -28,3 +28,13 @@
   SIMD; sin C/SIMD, SQ8 domina. Packed 2.4MB vs 76.8MB (32x) — el uso es
   memoria-extrema, no velocidad (`h11_rabitq.json`, con lecciones de la
   implementación: frame rotado, q residual por-cluster, ensamblado d2).
+- `exp_h13_sq8disk.py` — H13: `SQ8DiskStore` (H10 integrado como store real).
+  SQ8 en RAM + float32 en disco (mmap) para rescoring. **600k x 384 sin
+  normalizar: recall 1.0 con 3.9x menos RAM (921.6 -> 235.2MB de arrays),
+  2.2x menos QPS (27 vs 60)** — el tradeoff del modo comprimido, opt-in
+  (`src/m2m/sq8_disk.py`, 6 tests nuevos; suite 433 passed).
+  Protocolo: dataset pre-generado en disco, cada escenario en subprocesso
+  con maxrss aislado, GT exacto precomputado. Lecciones atrapadas por tests:
+  rescoring debe ser d2 completa (la similitud 2-2<x,q> sesga sin
+  normalizar); GT incremental por chunks corrompe indices (d2 completo
+  preasignado es trivial y correcto).

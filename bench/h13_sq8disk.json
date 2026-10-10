@@ -1,0 +1,22 @@
+{
+  "float32": {
+    "mode": "float32",
+    "recall": 1.0,
+    "qps": 60.1,
+    "load_or_build_s": 0.4,
+    "ram_arrays_mb": 921.6,
+    "peak_rss_mb": 1594.4
+  },
+  "sq8disk": {
+    "mode": "sq8disk",
+    "recall": 1.0,
+    "qps": 27.2,
+    "load_or_build_s": 4.2,
+    "ram_arrays_mb": 235.2,
+    "peak_rss_mb": 1518.0
+  },
+  "disk_files_mb": {
+    "data.npy": 921.600128,
+    "dump_sq8_mb": 230.400128
+  }
+}
