@@ -1,0 +1,26 @@
+{
+  "n": 50000,
+  "dim": 384,
+  "nq": 200,
+  "n_clusters": 100,
+  "results": [
+    {
+      "mode": "float32_ivf",
+      "recall@10": 1.0,
+      "qps": 692.8
+    },
+    {
+      "mode": "sq8_os2",
+      "recall@10": 1.0,
+      "qps": 629.7
+    },
+    {
+      "mode": "sq8_os4",
+      "recall@10": 1.0,
+      "qps": 719.7
+    }
+  ],
+  "mem_float32_mb": 76.8,
+  "mem_sq8_mb": 19.2,
+  "quant_time_s": 0.18
+}

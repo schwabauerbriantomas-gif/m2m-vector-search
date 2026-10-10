@@ -12,3 +12,12 @@
   por add) y recall@10=1.0000 constante hasta 30% de churn.** Los centroides
   se re-entrenan solo al crecer >25% desde el último entrenamiento
   (`build_index(retrain=True)` fuerza re-entrenar). `h7_attach_ab.json` = A/B.
+
+- `exp_h8_filtered.py` — H8: pre-filtro sobre candidatos (ACORN-lite).
+  **Post-filter tenia recall 0.26 (selectividad 25%); el pre-filter da 1.0000
+  en 5/25/50% de selectividad a 2.5-3.2k QPS** (`h8_filtered.json`).
+- `exp_h10_sq8.py` — H10: SQ8 + rescoring. **Validada: recall 1.0000 igual a
+  float32, QPS comparable (630-720 vs 693), 4x menos RAM (76.8→19.2MB)**
+  (`h10_sq8.json`). Candidato a store comprimido para datasets >RAM.
+- `kmeans_bs_ab.json` — batch_size del KMeans: 10000→1000 = 3.8x build con
+  igual recall (default cambiado).

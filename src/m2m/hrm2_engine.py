@@ -38,7 +38,8 @@ class HRM2Config:
     n_fine: int = 1000  # Number of fine clusters per coarse
     embedding_dim: int = 640  # Embedding dimension
     n_probe: int = 5  # Clusters to probe during search
-    batch_size: int = 10000  # Batch size for K-Means
+    batch_size: int = 1000  # Batch size for K-Means (A/B: 1000 es 3.8x mas
+    # rapido que 10000 con igual recall; bench/kmeans_bs_ab.json)
     random_state: int = 42
     adaptive_probing: bool = False  # SPEC 3: adaptive probe count
     adaptive_threshold: float = 1.5  # score ratio top1/top2 to use fewer probes
