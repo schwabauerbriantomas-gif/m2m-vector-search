@@ -86,7 +86,10 @@ class TestSimpleVectorDB:
                 vectors, alphas, kappas, _ = results
             else:
                 vectors, alphas, kappas = results
-            assert len(vectors) == 10
+            # El engine HRM2 devuelve (1, k, dim) (con batch dim); el path
+            # LSH devuelve (k, dim). T2: aceptar ambos shapes.
+            k_got = vectors.shape[1] if vectors.ndim == 3 else vectors.shape[0]
+            assert k_got == 10
         else:
             assert len(results) <= 10
 
