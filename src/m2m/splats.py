@@ -56,12 +56,26 @@ class SplatStore:
         n_coarse = max(10, int(np.sqrt(self.max_splats) / 10))
         n_fine = max(100, int(self.max_splats / n_coarse))
 
+        # Orquestador: cablear los flags del gate de M2MConfig al engine.
+        # Sin gate_enabled el comportamiento es 'fixed' (= pre-gate, exacto).
+        # Con gate_enabled y k_selection en su default ('silhouette'), el
+        # docstring de config define que gate_enabled significa k_selection='gate'.
+        ksel = "fixed"
+        if getattr(config, "gate_enabled", False):
+            ksel = getattr(config, "k_selection", "gate")
+            if ksel == "silhouette":
+                ksel = "gate"
+
         self.engine = HRM2Engine(
             n_coarse=n_coarse,
             n_fine=n_fine,
             embedding_dim=config.latent_dim,
             batch_size=min(10000, self.max_splats),
             config=config,
+            k_selection=ksel,
+            gate_target_docs_per_cluster=getattr(
+                config, "gate_target_docs_per_cluster", 25
+            ),
         )
 
         # Keep track of tensors for Energy / SOC functions that access properties directly
