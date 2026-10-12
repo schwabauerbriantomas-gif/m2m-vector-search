@@ -75,3 +75,68 @@ def test_search_requires_flush(tmp_path):
     st.add(np.random.RandomState(0).randn(100, 8).astype(np.float32))
     with pytest.raises(AssertionError):
         st.search_batch(np.random.randn(2, 8).astype(np.float32))
+
+
+# --- H13b: el rescoring corre contra los float32 ORIGINALES ---------------
+
+def test_flush_preserves_original_float32(tmp_path):
+    """flush() escribe los float32 ORIGINALES entregados a add(), no
+    dequantizados desde SQ8 (regresion H13b: dump dequantizado = rescoring
+    sin informacion nueva, recall clavado en el techo SQ8)."""
+    rng = np.random.RandomState(3)
+    data = (rng.randn(200, 24) * 5.0).astype(np.float32)
+    st = SQ8DiskStore(dim=24, dump_dir=str(tmp_path))
+    st.add(data)
+    st.flush()
+    dumped = np.load(tmp_path / "float32.npy", mmap_mode="r")
+    assert dumped.shape == data.shape
+    assert np.array_equal(np.asarray(dumped[:]), data)
+
+
+def test_recall_improves_with_oversample(tmp_path):
+    """Con originales en el dump, el oversample solo puede mejorar: el
+    rescoring es exacto y monotono en el conjunto de candidatos. Un dump
+    dequantizado (bug H13b) deja el recall fijo ~0.97 sin importar el
+    oversample: este test lo detecta porque ov=8 exige >= 0.99."""
+    dim, n, K = 64, 8000, 10
+    data = _clustered(n, dim, 20)
+    st = SQ8DiskStore(dim=dim, dump_dir=str(tmp_path))
+    st.add(data)
+    st.flush()
+    rng = np.random.RandomState(11)
+    queries = data[rng.randint(0, n, size=100)]
+    gt = np.argsort(2 - 2 * (queries @ data.T), axis=1)[:, :K]
+    recs = []
+    for ov in (1, 8):
+        got = st.search_batch(queries, k=K, oversample=ov)
+        recs.append(
+            np.mean([len(set(got[i].tolist()) & set(gt[i].tolist())) / K for i in range(len(queries))])
+        )
+    assert recs[1] >= recs[0] - 1e-9, "mas oversample nunca debe bajar el recall"
+    assert recs[1] >= 0.99, f"recall@10 con oversample 8: {recs[1]:.3f} < 0.99 (dump sin originales?)"
+
+
+def test_add_after_load_merges_originals(tmp_path):
+    """load() + add() + flush(): el dump re-materializado debe contener los
+    originales de AMBAS bases (merge), no una reconstruccion dequantizada."""
+    dim, n = 32, 1000
+    data = _clustered(n, dim, 10)
+    st = SQ8DiskStore(dim=dim, dump_dir=str(tmp_path))
+    st.add(data)
+    st.flush()
+
+    extra = _clustered(50, dim, 5, seed=99)
+    st2 = SQ8DiskStore.load(str(tmp_path))
+    st2.add(extra)
+    st2.flush()
+
+    dumped = np.load(tmp_path / "float32.npy", mmap_mode="r")
+    assert dumped.shape == (n + 50, dim)
+    assert np.array_equal(np.asarray(dumped[:n]), data)
+    assert np.array_equal(np.asarray(dumped[n:]), extra)
+
+    q = extra[0]
+    got = st2.search_batch(q, k=5)[0]
+    stacked = np.vstack([data, extra])
+    gt = np.argsort(2 - 2 * (stacked @ q))[:5]
+    assert len(set(got.tolist()) & set(gt.tolist())) >= 4

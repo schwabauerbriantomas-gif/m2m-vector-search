@@ -38,3 +38,17 @@
   rescoring debe ser d2 completa (la similitud 2-2<x,q> sesga sin
   normalizar); GT incremental por chunks corrompe indices (d2 completo
   preasignado es trivial y correcto).
+  **H13b (correccion):** el float32 del rescoring son los ORIGINALES
+  entregados a `add()`, no dequantizados desde SQ8. En la version original,
+  el camino `add()+flush()` guardaba float32 dequantizado: el rescoring no
+  aportaba informacion nueva y el recall quedaba clavado en el techo SQ8
+  (~0.97) sin importar el oversample — auditado externamente (recall 0.967
+  fijo en ov=2/4/8 a 100k x 384, queries in/out-dataset); el camino
+  `build_from_float_npy` siempre fue correcto (recall 1.0 verificado).
+  Fix: spill incremental de originales a disco (append por add, RAM
+  acotada), rebuild con escritura .tmp + rename atomico, y merge real en
+  `load()`/`build_from_float_npy` + `add()` (el dump re-materializado
+  conserva los originales de ambas bases). Verificacion post-fix: recall
+  1.0000 in/out-dataset a 100k x 384 estable en ov=2/4/8, sin NaN en filas
+  constantes. 9 tests (3 nuevos atrapan la regresion: fallan contra el
+  modulo viejo, pasan contra el parche).

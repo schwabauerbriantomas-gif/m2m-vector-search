@@ -8,17 +8,24 @@ candidatos se tocan al rescorear; la fase 1 corre sobre los arrays uint8 en
 RAM (4x menos RAM que float32).
 
 Diseño: modulo aislado, no toca el store float32 de SimpleVectorDB (opt-in).
+
+H13b: el float32 del rescoring son los ORIGINALES entregados a add(), no
+dequantizados desde SQ8. Un dump dequantizado deja el rescoring sin informacion
+nueva: el recall queda clavado en el techo SQ8 (~0.97) sin importar el
+oversample (regresion atrapada por test_flush_preserves_original_float32 y
+test_recall_improves_with_oversample). El spill de originales a disco es
+incremental (append binario por add, pico de RAM acotado al chunk).
 """
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 
 
 class SQ8DiskStore:
-    """Almacen de vectores SQ8 en RAM + float32 en disco (mmap) para rescoring."""
+    """Almacen de vectores SQ8 en RAM + float32 ORIGINALES en disco (mmap) para rescoring."""
 
     def __init__(self, dim: int, dump_dir: Optional[str] = None):
         if dim < 1:
@@ -31,6 +38,13 @@ class SQ8DiskStore:
         self._n = 0
         self._float_path: Optional[str] = None
         self._float_mm: Optional[np.ndarray] = None  # mmap float32 [n, dim]
+        # spill incremental de los float32 ORIGINALES (H13b): append binario
+        # crudo (float32 little-endian, row-major). Se consolida en flush().
+        self._f32_path: Optional[str] = None
+        self._f32_file = None
+        self._f32_lines = 0
+        self._f32_mem: List[np.ndarray] = []  # solo si no hay dump_dir aun
+        self._stale_path: Optional[str] = None  # dump previo con originales (merge en flush)
 
     # --- ingestión -------------------------------------------------------
     def add(self, vectors: np.ndarray) -> None:
@@ -39,11 +53,19 @@ class SQ8DiskStore:
             x = x[np.newaxis, :]
         if x.shape[1] != self.dim:
             raise ValueError(f"dim mismatch: expected {self.dim}, got {x.shape[1]}")
+        if self._q is not None and self._float_mm is not None:
+            # dump activo + adds nuevos: invalidar para que el proximo flush()
+            # lo re-materialice con TODOS los originales. El dump previo queda
+            # como _stale_path: contiene originales reutilizables en el merge.
+            self._stale_path = self._float_path
+            self._float_mm = None
+            self._float_path = None
         mn = x.min(axis=1)
         mx = x.max(axis=1)
         scale = (mx - mn) / 255.0
         scale = np.where(scale == 0, np.float32(1e-8), scale).astype(np.float32)
         q = np.clip(np.round((x - mn[:, None]) / scale[:, None]), 0, 255).astype(np.uint8)
+        self._spill_float(x)
         if self._q is None or self._scale is None or self._zero is None:
             self._q = q
             self._scale = scale
@@ -54,9 +76,32 @@ class SQ8DiskStore:
             self._zero = np.concatenate([self._zero, mn.astype(np.float32)])
         self._n = len(self._q)
 
+    def _spill_float(self, x: np.ndarray) -> None:
+        """Append de los float32 originales: a disco si hay dump_dir, a RAM si no."""
+        if self.dump_dir is None:
+            self._f32_mem.append(x.copy())
+            self._f32_lines += len(x)
+            return
+        if self._f32_file is None:
+            os.makedirs(self.dump_dir, exist_ok=True)
+            self._f32_path = os.path.join(self.dump_dir, ".f32_spill.bin")
+            self._f32_file = open(self._f32_path, "ab")
+        self._f32_file.write(np.ascontiguousarray(x, dtype=np.float32).tobytes(order="C"))
+        self._f32_lines += len(x)
+
+    def _close_spill(self) -> None:
+        if self._f32_file is not None:
+            self._f32_file.close()
+            self._f32_file = None
+
     # --- persistencia ----------------------------------------------------
     def flush(self, dump_dir: Optional[str] = None) -> str:
-        """Escribe float32 a disco + meta; desde aca el rescoring usa mmap."""
+        """Escribe float32 ORIGINALES a disco + meta; desde aca el rescoring usa mmap.
+
+        H13b: si hubo adds desde el ultimo dump, lo re-materializa con los
+        originales del spill (escritura a .tmp + rename atomico). Si no hubo
+        cambios y el dump existe, no lo toca.
+        """
         d = dump_dir or self.dump_dir
         if not d:
             raise ValueError("dump_dir required")
@@ -65,21 +110,89 @@ class SQ8DiskStore:
         scale = self._scale
         zero = self._zero
         assert q is not None and scale is not None and zero is not None
-        if self._float_mm is not None or self._float_path is None:
-            # todavia no tenemos un dump: materializar float32 POR CHUNKS via
-            # memmap (pico de RAM acotado al chunk, no a n x dim)
+        if self._f32_mem:
+            # spill en RAM (store sin dump_dir): volcarlo a disco ahora
+            if self._f32_file is None:
+                self._f32_path = os.path.join(d, ".f32_spill.bin")
+                self._f32_file = open(self._f32_path, "ab")
+            for blk in self._f32_mem:
+                self._f32_file.write(
+                    np.ascontiguousarray(blk, dtype=np.float32).tobytes(order="C")
+                )
+            self._f32_mem = []
+        self._close_spill()
+        spill = self._f32_path if self._f32_path is not None else os.path.join(d, ".f32_spill.bin")
+        need_rebuild = (
+            self._float_mm is None
+            or self._float_path is None
+            or not os.path.exists(self._float_path)
+        )
+        if need_rebuild:
             self._float_path = os.path.join(d, "float32.npy")
+            tmp_path = self._float_path + ".tmp"
+            spill_ok = (
+                self._f32_lines == self._n
+                and os.path.exists(spill)
+                and os.path.getsize(spill) == self._n * self.dim * 4
+            )
+            stale_ok = (
+                self._stale_path is not None
+                and os.path.exists(self._stale_path)
+            )
             mm = np.lib.format.open_memmap(
-                self._float_path, mode="w+", dtype=np.float32, shape=(self._n, self.dim)
+                tmp_path, mode="w+", dtype=np.float32, shape=(self._n, self.dim)
             )
             chunk = 100_000
-            for i in range(0, self._n, chunk):
-                mm[i : i + chunk] = (
-                    q[i : i + chunk].astype(np.float32) * scale[i : i + chunk, None]
-                    + zero[i : i + chunk, None]
-                )
-            mm.flush()
+            if spill_ok:
+                # spill completo y en orden: copia por chunks, pico de RAM acotado
+                src = np.fromfile(spill, dtype=np.float32)
+                for i in range(0, self._n, chunk):
+                    mm[i : i + chunk] = src[i * self.dim : (i + chunk) * self.dim].reshape(
+                        chunk if i + chunk <= self._n else self._n - i, self.dim
+                    )
+                mm.flush()
+                del src
+            elif stale_ok:
+                # adds sobre un dump cargado (load()/build_from_float_npy()):
+                # merge del dump previo (originales, filas [0, n_old)) con el
+                # spill de los adds nuevos (filas [n_old, n)). No degrada a
+                # dequantizado: el rescoring conserva los originales (H13b).
+                stale = self._stale_path
+                assert stale is not None
+                st_mm = np.load(stale, mmap_mode="r")
+                n_old = 0
+                if st_mm.ndim == 2 and st_mm.shape[1] == self.dim and st_mm.shape[0] <= self._n:
+                    n_old = int(st_mm.shape[0])
+                    mm[:n_old] = st_mm[:]
+                del st_mm
+                for i in range(n_old, self._n, chunk):
+                    j = min(i + chunk, self._n)
+                    # el spill solo tiene las filas nuevas: offset relativo a n_old
+                    src = np.fromfile(
+                        spill, dtype=np.float32,
+                        offset=(i - n_old) * self.dim * 4,
+                        count=(j - i) * self.dim,
+                    )
+                    mm[i:j] = src.reshape(j - i, self.dim)
+                mm.flush()
+            else:
+                # reconstruccion de emergencia desde SQ8 (estados sin spill
+                # completo, p.ej. dumps previos a H13b): NO preserva
+                # originales, el rescoring queda con techo SQ8 (ver H13b).
+                for i in range(0, self._n, chunk):
+                    mm[i : i + chunk] = (
+                        q[i : i + chunk].astype(np.float32) * scale[i : i + chunk, None]
+                        + zero[i : i + chunk, None]
+                    )
+                mm.flush()
             del mm
+            os.replace(tmp_path, self._float_path)
+            # el spill ya fue consumido (o es invalido): borrarlo para que el
+            # proximo add-after-flush arranque uno fresco con SOLO las filas nuevas
+            if os.path.exists(spill):
+                os.remove(spill)
+            self._f32_path = None
+            self._f32_lines = 0
         np.save(os.path.join(d, "sq8.npy"), q)
         np.save(os.path.join(d, "scale.npy"), scale)
         np.save(os.path.join(d, "zero.npy"), zero)
@@ -92,7 +205,13 @@ class SQ8DiskStore:
     ) -> "SQ8DiskStore":
         """Cuantiza por chunks desde un .npy en disco (mmap) y deja el store
         listo: SQ8 en RAM, rescoring contra el float32 ORIGINAL (sin
-        duplicarlo). Pico de RAM acotado al chunk."""
+        duplicarlo). Pico de RAM acotado al chunk.
+
+        Nota H13b: adds posteriores invalidan el dump y el proximo flush()
+        lo re-materializa desde el spill de originales del propio store (el
+        archivo float_npy_path NO se modifica ni se relee: si se movio, el
+        flush re-construye desde el spill interno completo).
+        """
         mm = np.load(float_npy_path, mmap_mode="r")
         st = cls(dim=int(mm.shape[1]), dump_dir=dump_dir)
         for i in range(0, len(mm), chunk):
@@ -105,8 +224,14 @@ class SQ8DiskStore:
         np.save(os.path.join(dump_dir, "sq8.npy"), q)
         np.save(os.path.join(dump_dir, "scale.npy"), scale)
         np.save(os.path.join(dump_dir, "zero.npy"), zero)
-        st._float_path = str(float_npy_path)
-        st._float_mm = np.load(st._float_path, mmap_mode="r")
+        fp = str(float_npy_path)
+        st._float_path = fp
+        st._float_mm = np.load(fp, mmap_mode="r")
+        st._close_spill()
+        if st._f32_path is not None and os.path.exists(st._f32_path):
+            os.remove(st._f32_path)
+        st._f32_path = None
+        st._f32_lines = 0
         return st
 
     @classmethod
@@ -139,6 +264,7 @@ class SQ8DiskStore:
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
         assert self._q is not None and self._scale is not None and self._zero is not None
+        assert self._float_mm is not None, "flush()/load() required before search"
         n = self._n
         k1 = min(k * oversample, n)
 
@@ -158,7 +284,6 @@ class SQ8DiskStore:
 
         # fase 2: rescoring float32 via mmap gather (solo k1 candidatos/fila)
         # d2 completa: ||x||^2 + ||q||^2 - 2<x,q> (valida SIN normalizar)
-        assert self._float_mm is not None, "flush()/load() required before search"
         out = np.full((len(Q), k), -1, dtype=np.int64)
         for b in range(len(Q)):
             part = np.argpartition(d2[b], k1 - 1)[:k1]
@@ -177,7 +302,7 @@ class SQ8DiskStore:
         return self._n
 
     def ram_bytes(self) -> int:
-        """Bytes de arrays en RAM (uint8 + scales), sin contar el mmap."""
+        """Bytes de arrays en RAM (uint8 + scales), sin contar el mmap ni el spill."""
         total = 0
         q = self._q
         scale = self._scale
