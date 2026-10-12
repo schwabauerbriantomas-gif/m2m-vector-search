@@ -523,9 +523,16 @@ def search(name: str, req: SearchRequest, request: Request):
     elapsed_ms = (time.time() - start) * 1000
 
     if isinstance(results_raw, tuple):
-        # Legacy format
-        mu, alpha, kappa = results_raw
-        results = [{"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(mu)))]
+        # Legacy format: (mu, alpha, kappa) o (mu, alpha, kappa, splat_indices)
+        # T2: el engine HRM2 devuelve 4-tuple; unpack tolerante a ambos.
+        if len(results_raw) == 4:
+            mu, alpha, kappa, _ = results_raw
+        else:
+            mu, alpha, kappa = results_raw
+        # T2: el engine HRM2 devuelve mu/alpha con batch dim (1, k); el path
+        # LSH (k,). Aplanar el batch dim para el scoring legacy.
+        alpha = np.asarray(alpha).reshape(-1)[: len(mu) if mu.ndim < 2 else mu.shape[-2]] if hasattr(alpha, "reshape") else alpha
+        results = [{"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(alpha)))]
     else:
         results = []
         for r in results_raw:
