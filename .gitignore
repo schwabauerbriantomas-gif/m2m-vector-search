@@ -186,3 +186,5 @@ archive/
 mypy_out.txt
 pdoc_out.txt
 pdoc_err.txt
+.bench/
+.smoke/
