@@ -45,7 +45,11 @@ class HRM2Config:
     adaptive_threshold: float = 1.5  # score ratio top1/top2 to use fewer probes
     adaptive_min_probe: int = 1  # minimum probes for "easy" queries
     metric: str = "euclidean"  # "euclidean" or "cosine"
-    auto_k: bool = False  # Auto-detect optimal k via silhouette analysis
+    auto_k: bool = False  # Auto-detect optimal k via silhouette analysis (legacy)
+    # Elección de K: 'fixed' usa n_coarse tal cual; 'silhouette' es el sweep
+    # legacy (auto_k=True); 'gate' usa el gate de modulus (gate_modulus.py).
+    k_selection: str = "fixed"
+    gate_target_docs_per_cluster: int = 25  # K = N // target si el gate dice jerárquico
 
 
 @dataclass
@@ -89,6 +93,8 @@ class HRM2Engine:
         config=None,
         metric: str = "euclidean",
         auto_k: bool = False,
+        k_selection: str = "fixed",
+        gate_target_docs_per_cluster: int = 25,
     ):
         """
         Initialize HRM2 Engine.
@@ -102,7 +108,13 @@ class HRM2Engine:
             random_state: Random seed
             config: M2MConfig for hardware acceleration
             metric: Distance metric - "euclidean" or "cosine"
-            auto_k: Auto-detect optimal k via silhouette analysis
+            auto_k: Auto-detect optimal k via silhouette analysis (legacy;
+                equivalente a k_selection='silhouette')
+            k_selection: 'fixed' (n_coarse tal cual, default) | 'silhouette'
+                (sweep legacy) | 'gate' (gate de modulus, gate_modulus.py:
+                mono-escala -> knee; jerárquico -> K operacional)
+            gate_target_docs_per_cluster: target de docs/cluster cuando el
+                gate dictamina corpus jerárquico (K = N // target)
         """
         self.n_coarse = n_coarse
         self.n_fine = n_fine
@@ -116,6 +128,15 @@ class HRM2Engine:
         self.adaptive_min_probe = 1
         self.metric = metric
         self.auto_k = auto_k
+        if auto_k and k_selection == "fixed":
+            # Backward-compat: auto_k=True mantiene el comportamiento silhouette
+            k_selection = "silhouette"
+        if k_selection not in ("fixed", "silhouette", "gate"):
+            raise ValueError(
+                f"k_selection debe ser 'fixed'|'silhouette'|'gate', no {k_selection!r}"
+            )
+        self.k_selection = k_selection
+        self.gate_target_docs_per_cluster = int(gate_target_docs_per_cluster)
 
         # Initialize hardware router if configured
         self.router = M2MEngine(config) if config else None
@@ -145,6 +166,7 @@ class HRM2Engine:
         self._silhouette_score: Optional[float] = None
         self._calinski_harabasz: Optional[float] = None
         self._auto_k_cache: Optional[int] = None
+        self._gate_selection = None  # GateKSelection si k_selection='gate'
         # Diagnostics (silhouette + Calinski-Harabasz) are O(sample^2 * d) and cost
         # ~27% of build time; opt-in via engine.diagnostics = True.
         self.diagnostics = False
@@ -246,8 +268,36 @@ class HRM2Engine:
         if self.metric == "cosine":
             self.embeddings = self._normalize(self.embeddings)
 
-        # Auto-detect k if enabled
-        if self.auto_k and self._auto_k_cache is None:
+        # Elección de K
+        if self.k_selection == "gate":
+            # Gate de modulus (index-time, una vez): mono-escala -> knee;
+            # jerárquico -> K operacional N//target. Reemplaza el sweep
+            # silhouette, que sobre curva lisa maximiza ruido (gate_integration_plan).
+            from .gate_modulus import gate_select_k
+
+            sel = gate_select_k(
+                self.embeddings,
+                target_docs_per_cluster=self.gate_target_docs_per_cluster,
+                seed=self.random_state,
+            )
+            self._gate_selection = sel
+            self.n_coarse = sel.k
+            # Presupuesto de escaneo: el default n_probe=5 fue calibrado para
+            # K~sqrt(N) (fracción 5/25 = 20% del corpus, splats.py). Si el gate
+            # elige una K distinta, mantener la fracción de escaneo (knob real
+            # de latencia/recall) subiendo el piso de n_probe. Solo en modo gate.
+            scan_floor = math.ceil(sel.k * (5 / 25))
+            if self.n_probe < scan_floor:
+                print(
+                    f"[HRM2] Gate: n_probe {self.n_probe}->{scan_floor} "
+                    f"(fracción de escaneo >= 20% con K={sel.k})"
+                )
+                self.n_probe = scan_floor
+            print(
+                f"[HRM2] Gate k_selection: k={sel.k} jerarquico={sel.jerarquico} "
+                f"slope_fino={sel.slope_fino} octava={sel.octava}"
+            )
+        elif self.k_selection == "silhouette" and self._auto_k_cache is None:
             detected_k = self._auto_detect_k(self.embeddings)
             self.n_coarse = detected_k
             print(f"[HRM2] Auto-detected n_coarse={detected_k} via silhouette analysis")
@@ -762,6 +812,7 @@ class HRM2Engine:
         self._stats = HRM2Stats()
         self._silhouette_score = None
         self._calinski_harabasz = None
+        self._gate_selection = None
 
 
 def generate_test_splats(n_splats: int, seed: int = 42) -> List[GaussianSplat]:
