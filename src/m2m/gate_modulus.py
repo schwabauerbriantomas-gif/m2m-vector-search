@@ -2,12 +2,16 @@
 Gate de modulus para la elección de K (vendorizado de swarm11/gate_modulus.py).
 
 Decide, a partir de la trayectoria del módulo combinatorio del grafo kNN bajo
-particiones K-Means, si un corpus de embeddings es:
+particiones K-Means, la clasificación del corpus (por IC95 del slope fino,
+NUNCA por valor puntual — cruza umbrales entre versiones de numpy/BLAS):
 
-- **mono-escala** (existe un K* natural ~ knee de la curva de modulus):
-  el codebook debe usar K ~ knee; o
-- **jerárquico / curva lisa** (sin K* interior): K es un knob operacional
-  K = N // target_docs_per_cluster, NO algo a optimizar con silhouette.
+- **jerárquico** (IC95 completo <= umbral): sin K* interior; K es un knob
+  operacional K = N // target_docs_per_cluster.
+- **mono** (IC95 completo > umbral): si existe knee ESTRUCTURAL
+  (slope_seg < SLOPE_KNEE_STRUCTURAL), K = knee; si no, K operacional.
+  El knee por argmax de desviación sobre curva plana es FANTASMA y se
+  descarta (dio 16 vs 44 entre py3.10/py3.12 en el mismo corpus).
+- **inconclusivo** (el IC cruza el umbral): se declara honesto, K operacional.
 
 API pública:
     gate_select_k(X, target_docs_per_cluster=25, verdict_cache=None, seed=42)
@@ -35,6 +39,10 @@ from sklearn.cluster import MiniBatchKMeans
 
 # Umbral calibrado (ver docstring del módulo).
 SLOPE_FINO_UMBRAL = -0.75
+# Un knee solo manda K si es ESTRUCTURAL (caida abrupta del modulo), no si es
+# el argmax de desviacion sobre una curva plana (eso es ruido: en el corpus
+# real dio knee=16 con slope_seg -1.45 en py3.10 vs k=44 en py3.12).
+SLOPE_KNEE_STRUCTURAL = -3.0
 # Escalas base del sweep de trayectoria (sub-octavas de 2 aprox.).
 BASE_SCALES: Tuple[int, ...] = (
     16, 22, 30, 44, 56, 64, 88, 105, 125, 144, 175, 250, 350, 700, 1400, 2750, 5500,
@@ -191,6 +199,65 @@ def _ratio_ci(traj, Khi, Klo, B=10000, seed=42):
                                     float(np.percentile(rats, 97.5))]
 
 
+def _slope_fino_ci(traj, fine_oct, B=10000, seed=42):
+    """IC95 bootstrap del slope de la octava fina (log-log entre 2 escalas).
+
+    El slope puntual de una sub-octava es ruidoso (30 pares por escala) y
+    cruza umbrales entre builds/BLAS; la decisión se toma con el intervalo.
+    """
+    if not fine_oct:
+        return None
+    try:
+        klo_s, khi_s = fine_oct.split("->")
+        klo, khi = int(klo_s), int(khi_s)
+    except ValueError:
+        return None
+    if klo not in traj or khi not in traj:
+        return None
+    a = np.asarray(traj[khi], float)
+    b = np.asarray(traj[klo], float)
+    if len(a) < 5 or len(b) < 5:
+        return None
+    lr = np.log(khi / klo)
+    r = np.random.default_rng(seed)
+    ia = r.integers(0, len(a), (B, len(a)))
+    ib = r.integers(0, len(b), (B, len(b)))
+    slopes = (np.log(np.median(a[ia], axis=1)) - np.log(np.median(b[ib], axis=1))) / lr
+    return [float(np.percentile(slopes, 2.5)), float(np.percentile(slopes, 97.5))]
+
+
+def _classify_fine(traj, med, fine_oct, seed=42):
+    """Clasificación en 3 estados por IC95 del slope fino (función pura).
+
+    - 'jerarquico': IC95 completo del slope fino <= umbral (señal robusta).
+    - 'mono': IC95 completo > umbral (plano con margen).
+    - 'inconclusivo': el IC cruza el umbral (corpus chico / banda fina
+      ruidosa). HONESTO: no se finge clasificación; K va operacional.
+
+    La decisión es por IC y NO por valor puntual: el slope de una única
+    sub-octava amplifica el ruido de endpoints (brazo corto, 30 pares por
+    escala) y cruza umbrales entre versiones de numpy/BLAS (bug py3.10 vs
+    3.12: -0.62 vs -1.33 en el mismo corpus con medianas idénticas).
+    """
+    osl = _octave_slopes(med)
+    slope_fine = osl.get(fine_oct)
+    slope_ci = _slope_fino_ci(traj, fine_oct, seed=seed)
+    if slope_fine is None or slope_ci is None:
+        clasificacion = "inconclusivo"
+    elif slope_ci[1] <= SLOPE_FINO_UMBRAL:
+        clasificacion = "jerarquico"
+    elif slope_ci[0] > SLOPE_FINO_UMBRAL:
+        clasificacion = "mono"
+    else:
+        clasificacion = "inconclusivo"
+    return {
+        "clasificacion": clasificacion,
+        "jerarquico": clasificacion == "jerarquico",
+        "slope_fino": slope_fine,
+        "IC95": slope_ci,
+    }
+
+
 def _octave_slopes(med: Dict[int, float]) -> Dict[str, float]:
     """Slope log-log entre escalas consecutivas."""
     ks = sorted(med)
@@ -223,22 +290,30 @@ def _verdict(X: np.ndarray, seed: int = 42) -> Dict:
     osl = _octave_slopes(med)
     # Señal libre de escala: slope de la (sub)octava más fina con buckets
     # >= ~10 docs. Jerárquico real: slope <= SLOPE_FINO_UMBRAL (mono: ~0).
+    # DECISIÓN POR IC, no por valor puntual: el slope puntual sobre una única
+    # sub-octava es ruidoso y cruza el umbral entre versiones de numpy/BLAS
+    # (bug py3.10 vs 3.12: -0.62 vs -1.33 en el mismo corpus). El bootstrap
+    # de pares (misma unidad que el resto del gate) da el error estándar y
+    # la decisión se toma si el IC95 completo queda del lado jerárquico.
     ks_sorted = sorted(med)
     fine_oct = None
     for i in range(len(ks_sorted) - 1):
         if ks_sorted[i] <= max(44, X.shape[0] // 10):
             fine_oct = f"{ks_sorted[i]}->{ks_sorted[i + 1]}"
     slope_fine = osl.get(fine_oct)
-    jerarquico = bool(slope_fine is not None and slope_fine <= SLOPE_FINO_UMBRAL)
-    knee_rompe = bool(knee and knee["slope_seg"] < -3 and knee["knee_K"] > 44)
-    jerarquico = bool(jerarquico and not knee_rompe)
+    cls = _classify_fine(traj, med, fine_oct, seed=seed)
+    clasificacion = cls["clasificacion"]
+    slope_fine = cls["slope_fino"]
+    slope_ci = cls["IC95"]
+    jerarquico = cls["jerarquico"]
     res = {
         "N": int(X.shape[0]),
         "D": int(X.shape[1]),
         "medianas": med,
         "octave_slopes": osl,
-        "slope_octava_fina": {"octava": fine_oct, "slope": slope_fine},
+        "slope_octava_fina": {"octava": fine_oct, "slope": slope_fine, "IC95": slope_ci},
         "growth_fino_grueso": {"par": [int(max(med)), int(Kref)], "ratio": g, "IC95": ci},
+        "clasificacion": clasificacion,
         "jerarquico": jerarquico,
         "knee": knee,
         "regla": (
@@ -320,23 +395,33 @@ def gate_select_k(
 
     n = Xn.shape[0]
     knee = verdict.get("knee")
+    knee_structural = bool(knee and knee["slope_seg"] < SLOPE_KNEE_STRUCTURAL)
     if verdict["jerarquico"]:
         k = n // max(1, int(target_docs_per_cluster))
         regla = (
             f"jerárquico (slope_fino {verdict['slope_octava_fina']['slope']:.2f} "
-            f"<= {SLOPE_FINO_UMBRAL} en octava {verdict['slope_octava_fina']['octava']}): "
+            f"IC95 {verdict['slope_octava_fina'].get('IC95')} <= {SLOPE_FINO_UMBRAL} "
+            f"en octava {verdict['slope_octava_fina']['octava']}): "
             f"K operacional = N//{target_docs_per_cluster} = {k}; NO optimizar K"
         )
-    elif knee:
+    elif knee_structural:
         k = int(knee["knee_K"])
         regla = (
-            f"mono-escala: K ~ knee {k} (slope_seg {knee['slope_seg']:.2f}); "
-            f"{verdict['regla']}"
+            f"mono-escala con knee ESTRUCTURAL: K ~ knee {k} "
+            f"(slope_seg {knee['slope_seg']:.2f} < {SLOPE_KNEE_STRUCTURAL})"
         )
     else:
         k = n // max(1, int(target_docs_per_cluster))
+        if knee:
+            knee_nota = (
+                f"knee={knee['knee_K']} descartado como fantasma "
+                f"(slope_seg {knee['slope_seg']:.2f} >= {SLOPE_KNEE_STRUCTURAL})"
+            )
+        else:
+            knee_nota = "sin knee detectado"
         regla = (
-            f"sin knee detectado: K operacional = N//{target_docs_per_cluster} = {k}"
+            f"corpus mono-escala: {knee_nota} -> K operacional = "
+            f"N//{target_docs_per_cluster} = {k}"
         )
 
     # Saneo: KMeans necesita k >= 2 y buckets no vacíos masivamente.
