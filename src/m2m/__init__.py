@@ -453,6 +453,11 @@ class SimpleVectorDB:
         mode: str = "standard",  # 'edge', 'standard', 'ebm'
         max_splats: Optional[int] = None,  # auto-scale if None
         n_probe: Optional[int] = None,  # HRM2 clusters to probe
+        # Orquestador: puente del gate de modulus a la API publica.
+        # None = no tocar el default de M2MConfig (backward-compat exacto).
+        gate_enabled: Optional[bool] = None,
+        k_selection: Optional[str] = None,  # 'fixed' | 'silhouette' | 'gate'
+        gate_target_docs_per_cluster: Optional[int] = None,
         _config: Optional["M2MConfig"] = None,  # internal: allows subclass to pass custom config
     ):
         if _config is not None:
@@ -461,6 +466,14 @@ class SimpleVectorDB:
         else:
             config = M2MConfig.simple(device=device)
             config.latent_dim = latent_dim
+
+        # Orquestador: aplicar los flags del gate sobre la config resuelta.
+        if gate_enabled is not None:
+            config.gate_enabled = gate_enabled
+        if k_selection is not None:
+            config.k_selection = k_selection
+        if gate_target_docs_per_cluster is not None:
+            config.gate_target_docs_per_cluster = gate_target_docs_per_cluster
 
         # Auto-scale max_splats if not specified (use 2x default to allow growth)
         if max_splats is not None:
