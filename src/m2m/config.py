@@ -140,6 +140,18 @@ class M2MConfig:
     rest_port: int = 8080
     grpc_port: int = 9090
 
+    # --- Gate de modulus (elección de K en index-time) ---
+    # gate_enabled: prender el gate para elegir K (k_selection='gate' en HRM2).
+    # Default False: sin cambio de comportamiento hasta opt-in.
+    gate_enabled: bool = False
+    # Target de docs por cluster cuando el gate dictamina corpus jerárquico
+    # (K operacional = N // target; no hay K* interior que buscar).
+    gate_target_docs_per_cluster: int = 25
+    # Estrategia de elección de K: 'fixed' (n_coarse tal cual) |
+    # 'silhouette' (sweep legacy) | 'gate' (gate de modulus).
+    # Default 'silhouette' preserva el comportamiento auto_k legacy.
+    k_selection: str = "silhouette"
+
     def __post_init__(self):
         """Handle device auto-detection and flags."""
         if self.device == "auto":
