@@ -19,7 +19,12 @@ import os
 import numpy as np
 import pytest
 
-from m2m.gate_modulus import GateKSelection, gate_select_k
+from m2m.gate_modulus import (
+    GateKSelection,
+    SLOPE_FINO_UMBRAL,
+    _classify_fine,
+    gate_select_k,
+)
 from m2m.hrm2_engine import HRM2Engine
 
 DATA_NPY = "/tmp/m2mvs/embeddings.npy"
@@ -73,35 +78,130 @@ def make_hier(n=N_SYNTH, d=D_SYNTH, seed=41, sig=0.30):
 
 
 # ---------------------------------------------------------------------------
-# (a) corpus mono-escala sintético
+# (a) clasificación: regla de decisión del slope fino (función pura, sin
+#     KMeans -> determinística en cualquier versión de numpy/BLAS)
 # ---------------------------------------------------------------------------
 
-def test_gate_mono_scale():
-    X = make_mono()
-    sel = gate_select_k(X, target_docs_per_cluster=25, seed=42)
-    assert isinstance(sel, GateKSelection)
-    # mono-escala: veredicto NO jerarquico (slope fino y/o veto del knee
-    # anti-artefacto, ver knee_detector) y K sigue al knee detectado
-    assert sel.jerarquico is False
-    knee = sel.verdict["knee"]
-    assert knee is not None
-    assert sel.k == knee["knee_K"]
-    assert 44 <= sel.k <= 144
+def _traj_consta(med_dict, eps=0.0, n_pairs=30):
+    """Trayectoria sintética con mediana EXACTA por escala.
+
+    eps=0 -> valores constantes (IC degenerado de ancho cero).
+    eps>0 -> valores alternos m*(1±eps) (mediana m, IC de ancho > 0).
+    """
+    out = {}
+    for K, m in med_dict.items():
+        if eps == 0:
+            vals = [m] * n_pairs
+        else:
+            vals = [m * (1 + eps), m * (1 - eps)] * (n_pairs // 2)
+        out[K] = [float(v) for v in vals]
+    return out
+
+
+def test_classify_flat_plateau_is_mono():
+    # curva PLANA en toda la banda fina -> slope 0 con IC [0,0] -> mono
+    med = {44: 100.0, 88: 100.0, 175: 100.0, 250: 100.0}
+    traj = _traj_consta(med)
+    cls = _classify_fine(traj, med, "175->250", seed=42)
+    assert cls["clasificacion"] == "mono"
+    assert cls["jerarquico"] is False
+    assert cls["slope_fino"] == 0.0
+    assert cls["IC95"] == [0.0, 0.0]
+
+
+def test_classify_powerlaw_is_hierarchical():
+    # ley de potencias steep en la banda fina -> slope ~ -0.96, IC estrecho
+    # -> jerárquico (el IC completo queda del lado del umbral)
+    med = {44: 800.0, 88: 400.0, 175: 200.0, 250: 142.0}
+    traj = _traj_consta(med)
+    cls = _classify_fine(traj, med, "175->250", seed=42)
+    assert cls["clasificacion"] == "jerarquico"
+    assert cls["jerarquico"] is True
+    assert cls["IC95"][1] <= SLOPE_FINO_UMBRAL
+
+
+def test_classify_borderline_is_inconclusive():
+    # slope puntual ~ -0.8 (del lado jerárquico del umbral) PERO con dispersión
+    # ±25% por escala -> el IC cruza -0.75 -> inconclusivo (honesto)
+    m_b = 100.0
+    m_a = m_b * (2 ** -0.8)
+    med = {88: m_b, 175: m_a}
+    traj = _traj_consta(med, eps=0.25)
+    cls = _classify_fine(traj, med, "88->175", seed=42)
+    assert cls["slope_fino"] is not None and cls["slope_fino"] < SLOPE_FINO_UMBRAL
+    assert cls["IC95"][0] <= SLOPE_FINO_UMBRAL < cls["IC95"][1]
+    assert cls["clasificacion"] == "inconclusivo"
+    assert cls["jerarquico"] is False
 
 
 # ---------------------------------------------------------------------------
-# (b) corpus jerarquico sintético
+# (b) selección de K: matriz de decisión sobre veredictos INYECTADOS vía
+#     verdict_cache (sin física -> determinística; la clasificación ya está
+#     testeada arriba y contra anclas reales en swarm11)
 # ---------------------------------------------------------------------------
 
-def test_gate_hierarchical():
-    X = make_hier()
-    n = X.shape[0]
-    sel = gate_select_k(X, target_docs_per_cluster=25, seed=42)
+def _fake_X(n=64, d=8, seed=0):
+    r = np.random.default_rng(seed)
+    return r.normal(size=(n, d)).astype(np.float32)
+
+
+def _fake_verdict(tmp_path, N, D, jerarquico, knee, slope=-1.2, ic=(-1.5, -0.9)):
+    verdict = {
+        "N": N, "D": D,
+        "medianas": {16: 10.0, 22: 9.0},
+        "octave_slopes": {"16->22": -0.15},
+        "slope_octava_fina": {"octava": "16->22", "slope": slope, "IC95": list(ic)},
+        "growth_fino_grueso": {"par": [22, 16], "ratio": 0.9, "IC95": [0.8, 1.0]},
+        "clasificacion": "jerarquico" if jerarquico else "mono",
+        "jerarquico": jerarquico,
+        "knee": knee,
+        "regla": "fake",
+        "t_s": 0.1,
+    }
+    path = tmp_path / "verdict_cache.json"
+    path.write_text(json.dumps({
+        "target_docs_per_cluster": 25, "seed": 42, "verdict": verdict,
+    }))
+    return str(path)
+
+
+def test_selection_hierarchical_uses_operational_k(tmp_path):
+    X = _fake_X()
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=True,
+                          knee={"knee_K": 10, "slope_seg": -5.0})
+    sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
+    # jerárquico: K operacional N//target aunque exista knee estructural
     assert sel.jerarquico is True
-    assert sel.slope_fino <= -0.75
-    # jerarquico: K operacional N // target, NO knee ni sweep interior
-    assert sel.k == n // 25
-    assert sel.k == 80  # congelado con el generador actual (N=2000)
+    assert sel.k == len(X) // 25
+
+
+def test_selection_structural_knee_wins_on_mono(tmp_path):
+    X = _fake_X()
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=False,
+                          knee={"knee_K": 10, "slope_seg": -5.0})
+    sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
+    assert sel.jerarquico is False
+    # mono con knee ESTRUCTURAL (slope_seg < -3): el knee manda
+    assert sel.k == 10
+
+
+def test_selection_phantom_knee_discarded_on_mono(tmp_path):
+    X = _fake_X()
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=False,
+                          knee={"knee_K": 10, "slope_seg": -1.0})
+    sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
+    assert sel.jerarquico is False
+    # knee fantasma (argmax de desviación sobre curva plana): descartado,
+    # K operacional (el knee 16-vs-44 entre versiones era exactamente esto)
+    assert sel.k == len(X) // 25
+
+
+def test_selection_no_knee_operational_k(tmp_path):
+    X = _fake_X()
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=False, knee=None)
+    sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
+    assert sel.jerarquico is False
+    assert sel.k == len(X) // 25
 
 
 # ---------------------------------------------------------------------------
@@ -119,12 +219,17 @@ def test_engine_gate_integration_recall():
     )
     engine.index(precomputed_embeddings=Xn)
 
-    # El gate sobre este corpus (validado en swarm11): mono-escala, knee 44
+    # El gate sobre este corpus (validado en swarm11): mono-escala, SIN knee
+    # estructural (el knee por argmax de desviacion sobre curva plana es
+    # fantasma: 16 en py3.10 vs 44 en py3.12 en el mismo corpus) -> K
+    # OPERACIONAL = N//25 = 26. El criterio se pinnea, no el numero fragil.
     sel = engine._gate_selection
     assert sel is not None
     assert sel.jerarquico is False
-    assert sel.k == 44
-    assert engine.n_coarse == 44
+    assert sel.slope_fino is not None and sel.slope_fino > -0.75  # plano en la octava fina
+    assert sel.k == n // 25
+    assert sel.k == 26
+    assert engine.n_coarse == 26
 
     # recall@10 vs brute-force con config default de búsqueda (n_probe=5, lod=2)
     rng = np.random.default_rng(0)
