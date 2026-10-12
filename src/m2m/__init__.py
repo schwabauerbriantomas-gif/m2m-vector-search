@@ -438,7 +438,14 @@ class SimpleVectorDB:
         self,
         device: Optional[str] = None,
         latent_dim: int = 640,
-        enable_lsh_fallback: bool = True,
+        # T2: default False. Evidencia (bench_t2_results.json + sondas, OMP=4):
+        #   rag_test 659x384:  LSH single 76 QPS R@10=0.717 | HRM2 4269 QPS R@10=1.0
+        #   uniforme 5000x384: LSH batch R@10=0.116            | HRM2 batch R@10=0.966
+        #   uniforme 20000x640 (design target de LSH): LSH batch R@10=0.108
+        #                                              | HRM2 batch 1055 QPS R@10=0.868
+        # LSH pierde recall Y QPS en todos los escenarios medidos; el routing
+        # LSH de search()/search_batch() queda disponible via flag explicito.
+        enable_lsh_fallback: bool = False,
         lsh_threshold: float = 0.15,
         storage_path: Optional[str] = None,
         enable_wal: bool = True,
@@ -1009,7 +1016,7 @@ class SimpleVectorDB:
             return []
 
         if self._use_lsh and self.lsh is not None:
-            indices, distances = self.lsh.query(query, k=k)
+            indices, distances = self._lsh_query_deterministic(query, k=k)
             candidate_vectors = self.lsh.vectors[indices]
             dummy_alpha = np.ones(len(indices), dtype=np.float32)
             dummy_kappa = np.ones(len(indices), dtype=np.float32) * 10.0
@@ -1019,38 +1026,16 @@ class SimpleVectorDB:
                 return candidate_vectors, dummy_alpha, dummy_kappa
 
             # Build DocResult list from LSH indices using _lsh_id_map
-            results = []
-            for i, idx in enumerate(indices):
-                if i >= k:
-                    break
-                # Map LSH positional index to doc_id using stored map
-                if idx < len(self._lsh_id_map):
-                    doc_id = self._lsh_id_map[idx]
-                else:
-                    continue  # stale index, skip
-                # Skip deleted or hard-removed documents
-                if doc_id in self._deleted or doc_id not in self._vectors:
-                    continue
-                meta = self._metadata.get(doc_id, {}) if include_metadata else {}
-                if filter and not self._match_filter(meta, filter):
-                    continue
-                score = float(distances[i])
-                energy_val = None
-                if include_energy and self.ebm_enabled and self._ebm_energy:
-                    vec = self._vectors.get(doc_id, candidate_vectors[i])
-                    energy_val = self._ebm_energy.energy(vec)
-                results.append(
-                    DocResult(
-                        id=doc_id,
-                        score=score,
-                        vector=candidate_vectors[i] if include_metadata else None,
-                        metadata=meta,
-                        document=(self._documents.get(doc_id) if include_metadata else None),
-                        energy=energy_val,
-                        confidence=(1.0 / (1.0 + energy_val) if energy_val is not None else None),
-                    )
-                )
-            return results[:k]
+            # (T2: logica extraida a _doc_results_from_lsh, compartida con
+            # _search_batch_lsh para garantizar parity single vs batch)
+            return self._doc_results_from_lsh(
+                indices,
+                distances,
+                k=k,
+                include_metadata=include_metadata,
+                include_energy=include_energy,
+                filter=filter,
+            )
 
         raw = self.engine.search(query, k)
 
@@ -1160,6 +1145,100 @@ class SimpleVectorDB:
 
         return results[:k]
 
+    def _lsh_query_deterministic(self, query: np.ndarray, k: int):
+        """lsh.query() con RNG global pineado: su fallback interno de
+        candidatos usa np.random.choice, lo que hacia que dos llamadas con
+        la MISMA query devolvieran resultados distintos (rompia la parity
+        single vs batch). Seed fija + restauracion del estado global."""
+        state = np.random.get_state()
+        np.random.seed(0)
+        try:
+            return self.lsh.query(query, k=k)
+        finally:
+            np.random.set_state(state)
+
+    def _doc_results_from_lsh(
+        self,
+        indices: np.ndarray,
+        distances: np.ndarray,
+        k: int,
+        include_metadata: bool,
+        include_energy: bool = False,
+        filter: Optional[Dict] = None,
+    ) -> List[Any]:
+        """Ensambla List[DocResult] desde indices posicionales del LSH.
+
+        Logica comun extraida del path LSH de search() single (T2): el mapeo
+        _lsh_id_map + skip de borrados + filtro + energia. La usa search()
+        single y _search_batch_lsh para garantizar parity exacta.
+        """
+        candidate_vectors = self.lsh.vectors[indices]
+        results: List[Any] = []
+        for i, idx in enumerate(indices):
+            if i >= k:
+                break
+            if idx < len(self._lsh_id_map):
+                doc_id = self._lsh_id_map[idx]
+            else:
+                continue  # stale index, skip
+            if doc_id in self._deleted or doc_id not in self._vectors:
+                continue
+            meta = self._metadata.get(doc_id, {}) if include_metadata else {}
+            if filter and not self._match_filter(meta, filter):
+                continue
+            score = float(distances[i])
+            energy_val = None
+            if include_energy and self.ebm_enabled and self._ebm_energy:
+                vec = self._vectors.get(doc_id, candidate_vectors[i])
+                energy_val = self._ebm_energy.energy(vec)
+            results.append(
+                DocResult(
+                    id=doc_id,
+                    score=score,
+                    vector=candidate_vectors[i] if include_metadata else None,
+                    metadata=meta,
+                    document=(self._documents.get(doc_id) if include_metadata else None),
+                    energy=energy_val,
+                    confidence=(1.0 / (1.0 + energy_val) if energy_val is not None else None),
+                )
+            )
+        return results[:k]
+
+    def _search_batch_lsh(
+        self,
+        queries: np.ndarray,
+        k: int = 10,
+        include_metadata: bool = False,
+    ) -> Any:
+        """Batch en modo LSH: mismo llamado lsh.query() que search() single.
+
+        LSH.query() es single-query y su fallback interno de candidatos usa
+        RNG global, asi que la unica forma de garantizar resultados IDENTICOS
+        al single (requisito de parity) es llamarlo por query y ensamblar con
+        el helper comun _doc_results_from_lsh.
+        """
+        B = len(queries)
+        out_idx = np.full((B, k), -1, dtype=np.int64)
+        results: List[List[Any]] = []
+        for i in range(B):
+            indices, distances = self._lsh_query_deterministic(queries[i], k=k)
+            row = self._doc_results_from_lsh(
+                indices, distances, k=k, include_metadata=include_metadata
+            )
+            results.append(row)
+            # Indices posicionales del LSH == posicion en _splat_id_order
+            # (ambos se extienden en el mismo orden en add()); -1 si falta.
+            filled = 0
+            for idx in indices[:k]:
+                if filled >= k:
+                    break
+                if idx < len(self._lsh_id_map):
+                    out_idx[i, filled] = int(idx)
+                    filled += 1
+        if not include_metadata:
+            return out_idx
+        return results
+
     def search_batch(
         self,
         queries: np.ndarray,
@@ -1196,6 +1275,12 @@ class SimpleVectorDB:
         B = len(queries)
         if not active or B == 0:
             return np.full((B, 0), -1, dtype=np.int64) if not include_metadata else [[] for _ in range(B)]
+
+        # BUG 1 fix (T2): en modo LSH los vectores viven en el indice LSH
+        # (n_active=0 en splats), por lo que el path HRM2 de abajo devolvia
+        # -1/[] para toda query. Routear al LSH igual que search() single.
+        if self._use_lsh and self.lsh is not None:
+            return self._search_batch_lsh(queries, k=k, include_metadata=include_metadata)
 
         store = self.engine.m2m.splats
         n = store.n_active
