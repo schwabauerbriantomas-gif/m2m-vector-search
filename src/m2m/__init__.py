@@ -438,7 +438,14 @@ class SimpleVectorDB:
         self,
         device: Optional[str] = None,
         latent_dim: int = 640,
-        enable_lsh_fallback: bool = True,
+        # T2: default False. Evidencia (bench_t2_results.json + sondas, OMP=4):
+        #   rag_test 659x384:  LSH single 76 QPS R@10=0.717 | HRM2 4269 QPS R@10=1.0
+        #   uniforme 5000x384: LSH batch R@10=0.116            | HRM2 batch R@10=0.966
+        #   uniforme 20000x640 (design target de LSH): LSH batch R@10=0.108
+        #                                              | HRM2 batch 1055 QPS R@10=0.868
+        # LSH pierde recall Y QPS en todos los escenarios medidos; el routing
+        # LSH de search()/search_batch() queda disponible via flag explicito.
+        enable_lsh_fallback: bool = False,
         lsh_threshold: float = 0.15,
         storage_path: Optional[str] = None,
         enable_wal: bool = True,
