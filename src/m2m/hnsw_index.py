@@ -180,14 +180,18 @@ class HNSWIndex(VectorIndex):
                 if idx not in neighbor.neighbors[lev]:
                     neighbor.neighbors[lev].append(idx)
                 if len(neighbor.neighbors[lev]) > M_max:
-                    # Prune: keep only M_max closest
+                    # Prune with the same diversity heuristic (Alg. 4) seen
+                    # from the existing node: a long-range edge that pure
+                    # closeness would drop now survives, while the degree
+                    # contract (<= M_max) is preserved exactly.
                     neighbor_vec = self._vectors[neighbor_idx]
                     scored = [
                         (self._distance(neighbor_vec, self._vectors[ni]), ni)
                         for ni in neighbor.neighbors[lev]
                     ]
-                    scored.sort()
-                    neighbor.neighbors[lev] = [ni for _, ni in scored[:M_max]]
+                    neighbor.neighbors[lev] = self._select_neighbors(
+                        neighbor_vec, scored, M_max, lev
+                    )
 
             if candidates:
                 ep = candidates[0][1]
@@ -258,8 +262,38 @@ class HNSWIndex(VectorIndex):
         return [(abs(d), idx) for d, idx in sorted(results)]
 
     def _select_neighbors(
-        self, query: np.ndarray, candidates: List[Tuple[float, int]], M: int, level: int
+        self,
+        query: np.ndarray,
+        candidates: List[Tuple[float, int]],
+        M: int,
+        level: int,
+        keep_pruned: bool = True,
     ) -> List[int]:
-        """Simple selection: take M closest from candidates."""
-        sorted_cands = sorted(candidates)[:M]
-        return [idx for _, idx in sorted_cands]
+        """Diverse neighbor selection (Malkov & Yashunin 2016, Algorithm 4).
+
+        A candidate e is redundant (discarded) when some already-selected
+        neighbor r is closer to e than the query is: e is then reachable
+        through r and adding the edge adds no navigability. With
+        keep_pruned=True (keepPrunedConnections in the paper) the result is
+        padded back up to M with the closest discarded candidates, so the
+        degree contract (<= M per node per layer, <= 2M at layer 0) is
+        identical to plain closest-first selection.
+        """
+        W = sorted(candidates)  # ascending distance to query
+        selected: List[Tuple[float, int]] = []
+        discarded: List[Tuple[float, int]] = []
+        for d_qe, e in W:
+            if len(selected) >= M:
+                break
+            redundant = False
+            for _, r in selected:
+                if self._distance(self._vectors[e], self._vectors[r]) < d_qe:
+                    redundant = True
+                    break
+            if redundant:
+                discarded.append((d_qe, e))
+            else:
+                selected.append((d_qe, e))
+        if keep_pruned and len(selected) < M:
+            selected.extend(discarded[: M - len(selected)])
+        return [idx for _, idx in selected]
