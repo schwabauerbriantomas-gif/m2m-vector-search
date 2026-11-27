@@ -22,6 +22,13 @@ principales (r explicito o "auto" por knee del autoespectro). La RAM de fase
 1 baja ~D/r (probe E: 23.5MB -> 1.4MB = 16.3x con r=16, D=384, N=60k) y el
 rescoring mmap full-D queda EXACTAMENTE igual (mismos float32 originales).
 ``spectral_r=None`` (default) reproduce bit a bit el flujo historico.
+
+Costo en recall de la fase espectral (audit r2-01/r2-02): la fase 1 ordena por
+la distancia en el subespacio y descarta el residuo, que es lo que separa
+vecinos dentro de un mismo grupo. Por eso (a) ``spectral_r="auto"`` solo trunca
+si hay rodilla real (``_knee_rank``: ruido Marchenko-Pastur o decaimiento sin
+codo -> r = dim) y (b) el oversample por defecto con codigos r < dim es
+``SPECTRAL_DEFAULT_OVERSAMPLE`` (ver ``search_batch``).
 """
 from __future__ import annotations
 
@@ -33,30 +40,77 @@ import numpy as np
 
 SpectralSpec = Union[None, int, str]  # None | int >= 1 | "auto"
 
+# --- oversample por defecto de search_batch --------------------------------
+# Con codigos full-D el SQ8 conserva el orden relativo y 2 basta (H10).
+DEFAULT_OVERSAMPLE = 2
+# Con codigos en un subespacio r < dim la fase 1 ordena por ||P^T(q-x)||^2 y
+# descarta el residuo, que es justamente lo que separa vecinos dentro de un
+# mismo grupo. Recall@10 in-distribution con rescore exacto (N=20k, D=384,
+# 50 grupos de ~400, r=16 / r=49) por oversample: 2 -> 0.11/0.17, 10 ->
+# 0.41/0.56, 20 -> 0.70/0.83, 30 -> 0.90/0.95, 40 -> 0.99/1.00, 50 -> 1.0/1.0.
+# Con 50 el rescoring (500 candidatos/query) domina el tiempo y el QPS iguala
+# al modo completo con oversample 2: el ahorro del modo espectral es la RAM de
+# fase 1, no el QPS (audit r2-01).
+SPECTRAL_DEFAULT_OVERSAMPLE = 50
 
-def _knee_rank(evals_desc: np.ndarray) -> int:
-    """Rank (nro de componentes) en la rodilla del autoespectro descendente.
+# --- rodilla del autoespectro (Kneedle) ------------------------------------
+# Curvatura minima (distancia maxima a la cuerda de la varianza explicada
+# acumulada, en fraccion de varianza) para aceptar una rodilla. Espectros sin
+# rodilla miden <= 0.09 (ruido Marchenko-Pastur a D/N=0.02: 0.058; decaimiento
+# lineal 2 -> 1: 0.083) y una rodilla real >= 0.3.
+KNEE_MIN_CURVATURE = 0.1
+# La curvatura del espectro Marchenko-Pastur crece con D/N (0.06 en 0.02, 0.23
+# en 0.32), asi que con n_samples se exige ademas que el autovalor maximo
+# supere la envolvente MP (1+sqrt(D/N))^2 * media por este margen (el maximo
+# de ruido puro la fluctua ~1% a N=500).
+MP_EDGE_MARGIN = 1.10
 
-    Metodo de la maxima distancia a la cuerda sobre la curva de varianza
-    explicada acumulada (Kneedle). Determinista. Si el espectro es plano
-    (sin rodilla) devuelve la dimension completa.
-    """
+
+def _knee_deviation(evals_desc: np.ndarray):
+    """Kneedle crudo, sin umbral -> (rank en la maxima distancia a la cuerda de
+    la varianza explicada acumulada, distancia maxima, varianza explicada ahi).
+    Determinista."""
     ev = np.clip(np.asarray(evals_desc, dtype=np.float64), 0.0, None)
     n = len(ev)
     if n < 2:
-        return max(1, n)
+        return max(1, n), 0.0, 1.0
     cum = np.cumsum(ev)
     total = cum[-1]
     if total <= 0.0:
-        return n
+        return n, 0.0, 1.0
     y = cum / total  # varianza explicada acumulada, y[-1] == 1
     xn = np.arange(n) / (n - 1)
     chord = y[0] + (y[-1] - y[0]) * xn
     d = y - chord  # > 0 en la zona convexa; max en la rodilla
     i = int(np.argmax(d))
-    if d[i] <= 1e-12:  # espectro plano: no hay rodilla -> sin truncar
+    return i + 1, float(d[i]), float(y[i])
+
+
+def _knee_rank(evals_desc: np.ndarray, n_samples: Optional[int] = None) -> int:
+    """Rank (nro de componentes) en la rodilla del autoespectro descendente.
+
+    Metodo de la maxima distancia a la cuerda sobre la curva de varianza
+    explicada acumulada (Kneedle). Determinista. Si el espectro es plano o no
+    tiene una rodilla detectable devuelve la dimension completa: no hay
+    subespacio dominante y truncar ahi descarta ~la mitad de la varianza
+    (recall de fase 1 colapsado, audit r2-02). Dos umbrales:
+      - curvatura maxima >= KNEE_MIN_CURVATURE;
+      - con ``n_samples`` (filas del corpus): el autovalor maximo debe superar
+        la envolvente de Marchenko-Pastur (1+sqrt(D/N))^2 * media por
+        MP_EDGE_MARGIN; si no, la anisotropia es ruido de muestreo.
+    """
+    ev = np.asarray(evals_desc, dtype=np.float64)
+    n = len(ev)
+    rank, dmax, _ = _knee_deviation(ev)
+    if dmax <= 1e-12 or dmax < KNEE_MIN_CURVATURE:  # plano / sin codo -> sin truncar
         return n
-    return i + 1
+    if n_samples is not None and n_samples > 0:
+        ev = np.clip(ev, 0.0, None)
+        if ev.sum() > 0.0:
+            mp_edge = (1.0 + np.sqrt(n / float(n_samples))) ** 2 * float(ev.mean())
+            if float(ev[0]) <= MP_EDGE_MARGIN * mp_edge:
+                return n  # Marchenko-Pastur: anisotropia de muestreo, no senal
+    return rank
 
 
 class SQ8DiskStore:
@@ -102,6 +156,7 @@ class SQ8DiskStore:
         self._mean: Optional[np.ndarray] = None    # float32 [dim]
         self._rdim = int(dim)                      # dimension de los codigos
         self.eigenvalues: Optional[np.ndarray] = None  # autoespectro descendente
+        self._knee_info: Optional[dict] = None     # diagnostico de _knee_rank ("auto")
         self._stats: Optional[tuple] = None        # (n, sum_x, sum_xx) float64
         self._raw_chunks: list = []                # buffer transient de filas nuevas
         self._float_rows_written = 0               # filas ya persistidas en float32.npy
@@ -202,7 +257,21 @@ class SQ8DiskStore:
         evals, evecs = np.linalg.eigh(cov)  # ascendente
         evals_desc = evals[::-1]
         if self.spectral_r == "auto":
-            r = _knee_rank(evals_desc)
+            # audit r2-02: sin rodilla detectable -> r = dim (P es una rotacion
+            # completa: misma RAM de fase 1 que el modo historico y recall
+            # intacto) en vez de truncar al ruido de muestreo.
+            rank_raw, dmax, explained = _knee_deviation(evals_desc)
+            r = _knee_rank(evals_desc, n_samples=int(n))
+            self._knee_info = {
+                "applied": bool(r < self.dim),
+                "rank": int(r),
+                "kneedle_rank": int(rank_raw),
+                "curvature": round(dmax, 6),
+                "explained_at_knee": round(explained, 6),
+                "min_curvature": KNEE_MIN_CURVATURE,
+                "mp_edge_margin": MP_EDGE_MARGIN,
+                "n_samples": int(n),
+            }
         else:
             r = int(self.spectral_r)  # type: ignore[arg-type]
         r = max(1, min(r, self.dim))
@@ -343,6 +412,8 @@ class SQ8DiskStore:
                 self.eigenvalues[: min(64, len(self.eigenvalues))], 0.0)]
             if self.eigenvalues is not None else [],
         }
+        if self._knee_info is not None:
+            meta["knee"] = self._knee_info  # audit r2-02: diagnostico de "auto"
         with open(os.path.join(d, "proj_meta.json"), "w") as f:
             json.dump(meta, f)
 
@@ -504,13 +575,21 @@ class SQ8DiskStore:
         self,
         queries: np.ndarray,
         k: int = 10,
-        oversample: int = 2,
+        oversample: Optional[int] = None,
     ) -> np.ndarray:
         """Fase 1 sobre SQ8 en RAM + rescoring float32 via mmap (solo candidatos).
 
         En modo espectral las queries (full-D) se proyectan con la misma P de
         indexacion antes de la fase 1; el rescoring de la fase 2 es full-D
         sobre los float32 originales (identico al modo historico).
+
+        ``oversample``: candidatos de fase 1 por resultado (k * oversample).
+        ``None`` (default) = DEFAULT_OVERSAMPLE con codigos full-D y
+        SPECTRAL_DEFAULT_OVERSAMPLE si los codigos son un subespacio r < dim:
+        ahi la fase 1 pierde el orden de vecinos dentro de un mismo grupo y
+        hay que rescorear ~todo el grupo para no perder recall (audit r2-01;
+        curva recall-vs-oversample en SPECTRAL_DEFAULT_OVERSAMPLE). Un valor
+        explicito se respeta tal cual.
         """
         Q = np.asarray(queries, dtype=np.float32)
         if Q.ndim == 1:
@@ -519,6 +598,11 @@ class SQ8DiskStore:
             raise ValueError(f"dim mismatch: expected {self.dim}, got {Q.shape[1]}")
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
+        if oversample is None:
+            oversample = (SPECTRAL_DEFAULT_OVERSAMPLE if self._rdim < self.dim
+                          else DEFAULT_OVERSAMPLE)
+        if oversample < 1:
+            raise ValueError(f"oversample must be >= 1 (got {oversample})")
         assert self._q is not None and self._scale is not None and self._zero is not None
         if self._P is not None:
             assert self._mean is not None
@@ -529,7 +613,6 @@ class SQ8DiskStore:
             Qp = Q
         n = self._n
         k1 = min(k * oversample, n)
-
         # fase 1: dequantize por chunks (linea H10), d2 aproximada
         qq = np.einsum("ij,ij->i", Qp, Qp)
         d2 = np.empty((len(Q), n), dtype=np.float32)
