@@ -38,7 +38,7 @@ try:
     from .config import M2MConfig
     from .ebm import EBMEnergy, EBMExploration, SOCEngine
     from .ebm.energy_api import EnergyResult as EnergyResult  # re-export
-    from .ebm.energy_api import confidence_from_energy
+    from .ebm.energy_api import confidence_from_energy, splat_energy
     from .ebm.exploration import EnergyRegion, ExplorationSuggestion
     from .ebm.soc import AvalancheResult, CriticalityReport, RelaxationResult
     from .energy import EnergyFunction
@@ -343,6 +343,13 @@ def _cosine_to_query(qn: np.ndarray, mu_i: np.ndarray) -> float:
     return float(np.clip(np.dot(qn, mu_i), -1.0, 1.0))
 
 
+def _result_energy(qn: np.ndarray, mu_i, alpha_i: float, kappa_i: float) -> float:
+    """Energía por resultado [audit r3a-02]: la implementación canónica aplicada al
+    splat de UN resultado, Eᵢ(q̂) = -ln αᵢ + κᵢ·‖q̂−μᵢ‖² (tope OOD_ENERGY). αᵢ y κᵢ
+    son los del splat que produjo el resultado (los mismos de ``DocResult.alpha``)."""
+    return splat_energy(qn, np.asarray(mu_i, dtype=np.float32)[None, :], [alpha_i], [kappa_i])
+
+
 def _l2_to_query(qn: np.ndarray, mu_i: np.ndarray) -> float:
     """Distancia L2 entre la query normalizada y el vector almacenado (d² = 2 − 2·cos)."""
     diff = np.asarray(mu_i, dtype=np.float64) - qn
@@ -364,6 +371,17 @@ class DocResult:
       None en modo LSH (ahí no hay splats por documento).
     - ``distance``: distancia L2 entre la query normalizada y el vector almacenado;
       sobre la esfera ``distance² = 2 − 2·score``.
+    - ``energy`` (solo con ``include_energy=True`` y ``enable_ebm=True``): la energía
+      canónica del paisaje (``m2m.ebm.energy_api.splat_energy``) de la query normalizada
+      bajo el splat de ESTE resultado, ``Eᵢ(q̂) = -ln αᵢ + κᵢ·‖q̂−μᵢ‖²`` con tope
+      ``OOD_ENERGY`` (10). Depende de la relación query-resultado, así que resultados
+      distintos tienen energías distintas [audit r3a-02]; es ≥ la energía del paisaje
+      en la query (``-ln Σⱼ exp(−Eⱼ)``). Antes se evaluaba el paisaje en la posición
+      del propio documento: un valor igual para todos los resultados. None si no se
+      pidió energía.
+    - ``confidence``: ``sigmoid(−energy) = 1 / (1 + e^E)`` ∈ (0, 1), monotona
+      decreciente en la energía (elección del pack P7a [audit r2-15]; antes
+      ``1/(1+E)``, que daba negativa para E < −1). None si no se pidió energía.
     - ``vector``: el vector almacenado NORMALIZADO (μᵢ), no el crudo que se insertó;
       None en ``search_batch(include_metadata=True)``.
     """
@@ -1571,10 +1589,11 @@ class SimpleVectorDB:
                         energy_val = None
                         confidence_val = None
                         if include_energy and self.ebm_enabled and self._ebm_energy:
-                            vec = self._vectors.get(doc_id)
-                            if vec is not None:
-                                energy_val = self._ebm_energy.energy(vec)
-                                confidence_val = 1.0 / (1.0 + energy_val)
+                            # [audit r3a-02] misma energía por resultado que el camino sin filtro
+                            energy_val = _result_energy(
+                                qn, mu_i, float(store.alpha[s_idx]), float(store.kappa[s_idx])
+                            )
+                            confidence_val = confidence_from_energy(energy_val)
                         results.append(
                             DocResult(
                                 id=doc_id,
@@ -1628,11 +1647,17 @@ class SimpleVectorDB:
                 energy_val = None
                 confidence_val = None
 
-                if include_energy and self.ebm_enabled and self._ebm_energy:
-                    vec = self._vectors.get(doc_id)
-                    if vec is not None:
-                        energy_val = self._ebm_energy.energy(vec)
-                        confidence_val = 1.0 / (1.0 + energy_val)
+                if (
+                    include_energy
+                    and self.ebm_enabled
+                    and self._ebm_energy
+                    and alpha_val is not None
+                ):
+                    # [audit r3a-02] energía de la QUERY normalizada bajo el splat de ESTE
+                    # resultado. Antes: el paisaje en la posición del propio documento
+                    # (10.0 para todos con el vector crudo; ≈ -ln αᵢ con unitarios).
+                    energy_val = _result_energy(qn, mu_i, alpha_val, float(kappa[i]))
+                    confidence_val = confidence_from_energy(energy_val)
 
                 results.append(
                     DocResult(
@@ -1682,9 +1707,11 @@ class SimpleVectorDB:
 
         `query` (aditivo, requerida) es la query cruda de esta busqueda: `score` es la
         similitud coseno entre su version normalizada y el vector del LSH —la misma
-        semantica que en modo splats [audit r1-13]— y `distance` la L2. En modo LSH no
-        hay splats por documento: `alpha` es None y la energia es la del paisaje EBM en
-        la query normalizada (igual para todos los resultados de esa query).
+        semantica que en modo splats [audit r1-13]— y `distance` la L2. En modo LSH el
+        engine no tiene splats (n_active = 0), asi que NO hay energia por resultado:
+        `alpha` es None y `energy` es la del paisaje EBM en la query normalizada —igual
+        para todos los resultados de esa query—; con ``enable_ebm=True`` y el EBM sin
+        splats es ``OOD_ENERGY`` (10) y ``confidence = sigmoid(-10) ≈ 4.5e-5``.
         """
         if query is None:
             raise ValueError("_doc_results_from_lsh requiere `query` (score = similitud coseno)")

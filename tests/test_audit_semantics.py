@@ -141,6 +141,109 @@ def test_r1_13_lsh_mode_score_is_cosine():
 
 
 # ---------------------------------------------------------------------------
+# r3a-02 — energy / confidence deben distinguir resultados
+# ---------------------------------------------------------------------------
+
+
+def test_r3a_02_energy_and_confidence_distinguish_results():
+    # Antes: 10x energy=10.0000 confidence=0.0909 (vector crudo → OOD para todos) o,
+    # con vectores unitarios, energía evaluada en el centro del propio splat (≈ -ln αᵢ).
+    db, X = _random_db(n=20, d=8, seed=5, enable_ebm=True)
+    q = X[0] * 2.5  # query cruda, norma != 1 (escenario del Quick Start avanzado)
+    res = db.search(q, k=10, include_energy=True, include_metadata=True)
+    assert len(res) == 10
+    E = [r.energy for r in res]
+    C = [r.confidence for r in res]
+    assert len({round(e, 6) for e in E}) >= 2
+    assert len({round(c, 6) for c in C}) >= 2
+    assert all(0.0 <= c <= 1.0 for r, c in zip(res, C) if r is not None)
+
+    # D3/D4: energía = E(q̂) bajo el splat del resultado: -ln αᵢ + κᵢ‖q̂−μᵢ‖² (tope OOD);
+    # la query en el centro de su propio splat es el mínimo de energía.
+    assert res[0].id == "d0"
+    assert E[0] == pytest.approx(0.0, abs=1e-6) and E[0] == min(E)
+    qn = _unit(np.asarray(q, dtype=np.float64))
+    store = db.engine.m2m.splats
+    by_id = {doc_id: pos for pos, doc_id in enumerate(db._splat_id_order)}
+    for r in res:
+        pos = by_id[r.id]
+        d2 = float(((store.mu[pos].astype(np.float64) - qn) ** 2).sum())
+        expected = min(-math.log(float(store.alpha[pos])) + float(store.kappa[pos]) * d2, ea.OOD_ENERGY)
+        np.testing.assert_allclose(r.energy, expected, atol=1e-4)
+
+    # D4: confidence = sigmoid(-E), monotona decreciente en la energía
+    for e, c in zip(E, C):
+        np.testing.assert_allclose(c, 1.0 / (1.0 + math.exp(e)), rtol=1e-6, atol=1e-9)
+    order = np.argsort(E)
+    cs = [C[i] for i in order]
+    assert all(cs[i] >= cs[i + 1] - 1e-12 for i in range(len(cs) - 1))
+    assert res[0].confidence >= 0.5 - 1e-9 and res[0].confidence > res[-1].confidence
+
+    # mismo doc → misma energía/confianza por el camino con filtro, e independiente de k
+    res_f = db.search(q, k=10, filter={"cat": {"$gte": 0}}, include_energy=True, include_metadata=True)
+    ef = {r.id: (r.energy, r.confidence) for r in res_f}
+    for r in res:
+        np.testing.assert_allclose([r.energy, r.confidence], ef[r.id], atol=1e-6)
+    res3 = db.search(q, k=3, include_energy=True, include_metadata=True)
+    full = {r.id: (r.energy, r.confidence) for r in res}
+    for r in res3:
+        np.testing.assert_allclose([r.energy, r.confidence], full[r.id], atol=1e-6)
+
+
+def test_r3a_02_search_with_energy_reports_bounded_confidence():
+    # Bloque del README: AdvancedVectorDB + search_with_energy sobre randn (sin normalizar).
+    from m2m import AdvancedVectorDB
+
+    rng = np.random.default_rng(42)
+
+    # (1) El dato del README (puntos aleatorios, sin estructura) es genuinamente OOD:
+    # el vecino mas cercano de una query aleatoria esta a d2 = 2 - 2·cos ≈ 1.9 y
+    # E = κ·d2 ≈ 19 > tope OOD. Antes: 1/(1+E) con E = 10 -> 0.0909 para todos (y
+    # negativa en centros de splat). Ahora el modelo lo dice con la energia canonica
+    # acotada: OOD_ENERGY y sigmoid(-OOD_ENERGY) > 0, igual para los 10 resultados.
+    db = AdvancedVectorDB(latent_dim=32)
+    db.add(ids=[f"item_{i}" for i in range(50)], vectors=rng.standard_normal((50, 32)).astype(np.float32))
+    sr = db.search_with_energy(rng.standard_normal(32).astype(np.float32), k=10)
+    confs = [r.confidence for r in sr.results]
+    assert len(confs) == 10
+    assert all(0.0 <= c <= 1.0 for c in confs)
+    assert 0.0 <= sr.total_confidence <= 1.0
+    assert math.isfinite(sr.query_energy)
+    assert all(r.energy == ea.OOD_ENERGY for r in sr.results)
+    assert all(c == pytest.approx(ea.confidence_from_energy(ea.OOD_ENERGY)) for c in confs)
+    assert sr.query_energy == ea.OOD_ENERGY  # el paisaje en la query tampoco tiene cobertura
+
+    # (2) Con datos CON estructura el modelo tiene cobertura y la energia por resultado
+    # distingue: no constante, acotada, y la formula canonica sobre el splat de CADA
+    # resultado (verificado contra el store, no contra el paisaje total).
+    centers = rng.standard_normal((6, 32)).astype(np.float32)
+    labels = rng.integers(0, 6, 300)
+    X = centers[labels] + 0.05 * rng.standard_normal((300, 32)).astype(np.float32)
+    db2 = AdvancedVectorDB(latent_dim=32)
+    db2.add(ids=[f"c{i}" for i in range(300)], vectors=X)
+    q = centers[2] + 0.05 * rng.standard_normal(32).astype(np.float32)
+    res = db2.search_with_energy(q, k=10).results
+    E = [r.energy for r in res]
+    C = [r.confidence for r in res]
+    assert len(res) == 10
+    assert len({round(e, 6) for e in E}) == 10
+    assert all(0.0 <= c <= 1.0 for c in C)
+    qn = _unit(np.asarray(q, dtype=np.float64))
+    store = db2.engine.m2m.splats
+    by_id = {doc_id: pos for pos, doc_id in enumerate(db2._splat_id_order)}
+    for r in res:
+        pos = by_id[r.id]
+        d2 = float(((store.mu[pos].astype(np.float64) - qn) ** 2).sum())
+        expected = min(-math.log(float(store.alpha[pos])) + float(store.kappa[pos]) * d2, ea.OOD_ENERGY)
+        np.testing.assert_allclose(r.energy, expected, atol=1e-4)
+        np.testing.assert_allclose(r.confidence, 1.0 / (1.0 + math.exp(r.energy)), rtol=1e-6, atol=1e-9)
+    # a mayor energia, menor o igual confianza
+    order = np.argsort(E)
+    cs = [C[i] for i in order]
+    assert all(cs[i] >= cs[i + 1] - 1e-12 for i in range(len(cs) - 1))
+
+
+# ---------------------------------------------------------------------------
 # r2-15 — confidence acotada; una sola energía con la misma normalización
 # ---------------------------------------------------------------------------
 
