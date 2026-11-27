@@ -143,3 +143,129 @@ class TestR2_14HebbianDriftKeepsMuOnSphere:
             FeedbackEvent(query=q, splat_index=0, relevant=True), mu, alpha, kappa
         )
         np.testing.assert_array_equal(mu[0], mu0)
+
+    @pytest.mark.parametrize("cls", [SimpleVectorDB, AdvancedVectorDB])
+    def test_db_feedback_keeps_every_splat_on_the_sphere(self, cls):
+        db = cls(latent_dim=32, enable_ebm=True) if cls is SimpleVectorDB else cls(latent_dim=32)
+        x = _random_unit(20, 32, seed=3)
+        ids = [f"d{i}" for i in range(20)]
+        db.add(ids=ids, vectors=x)
+        rng = np.random.default_rng(4)
+        for _ in range(500):
+            q = _unit(x[0] + 0.3 * rng.normal(size=32).astype(np.float32))
+            db.feedback(q, relevant_ids=["d0", "d1"])
+        st = db.engine.m2m.splats
+        n = st.n_active
+        assert np.isfinite(st.mu[:n]).all() and np.isfinite(st.alpha[:n]).all()
+        assert np.isfinite(st.kappa[:n]).all()
+        assert np.all(_norms(st.mu[:n]) >= 0.999) and np.all(_norms(st.mu[:n]) <= 1.001)
+        assert st.alpha[:n].max() <= 10.0 + 1e-6 and st.kappa[:n].max() <= 100.0 + 1e-6
+
+
+# ---------------------------------------------------------------------------
+# r3a-08 — feedback() público por ids de documento
+# ---------------------------------------------------------------------------
+
+
+class TestR3a_08FeedbackApi:
+    @pytest.mark.parametrize("cls", [SimpleVectorDB, AdvancedVectorDB])
+    def test_feedback_exists_and_reports_unknown_ids(self, cls):
+        db = cls(latent_dim=32, enable_ebm=True) if cls is SimpleVectorDB else cls(latent_dim=32)
+        x, _ = _clustered(12, 32, seed=5)
+        ids = [f"d{i}" for i in range(12)]
+        db.add(ids=ids, vectors=x)
+        db.delete("d7")  # soft-deleted: no es un target válido
+
+        res = db.feedback(
+            x[0],
+            relevant_ids=["d0", "nope", "d1", "d0"],
+            irrelevant_ids=["d2", "gone", "d7"],
+        )
+        assert isinstance(res, FeedbackResult)
+        assert res.n_relevant == 2  # d0 (una vez), d1
+        assert res.n_irrelevant == 1  # d2
+        assert res.unknown_ids == ["d7", "gone", "nope"]  # ordenados
+        st = db.engine.m2m.splats
+        p = {d: i for i, d in enumerate(db._splat_id_order)}
+        assert st.alpha[p["d0"]] > 1.0 and st.alpha[p["d1"]] > 1.0
+        assert st.alpha[p["d2"]] < 1.0
+        assert np.isclose(st.alpha[p["d3"]], 1.0)
+        # el EBM ve el estado aprendido
+        np.testing.assert_allclose(db._ebm_energy.splat_alpha, st.alpha[: st.n_active])
+
+    def test_feedback_validates_query(self):
+        db = SimpleVectorDB(latent_dim=8, enable_ebm=True)
+        with pytest.raises(ValueError, match="dimension"):
+            db.feedback(np.zeros(4, dtype=np.float32), relevant_ids=[])
+        with pytest.raises(ValueError, match="NaN"):
+            q = np.zeros(8, dtype=np.float32)
+            q[0] = np.nan
+            db.feedback(q, relevant_ids=[])
+
+    def test_feedback_loop_improves_ranking_without_hurting_recall(self):
+        """Un loop de feedback relevante mejora el ranking del doc para ESA consulta
+        (rank menor y score mayor, medidos) sin empeorar recall@10 del resto > 1%."""
+        x, _ = _clustered(400, 64, seed=6)
+        ids = [f"d{i}" for i in range(400)]
+        db = SimpleVectorDB(latent_dim=64, enable_ebm=True)
+        db.add(ids=ids, vectors=x)
+
+        rng = np.random.default_rng(7)
+        q_idx = rng.choice(400, 100, replace=False)
+        queries = _unit(x[q_idx] + 0.15 * rng.normal(size=(100, 64)).astype(np.float32))
+        q = queries[0]
+        others = list(range(1, 100))
+
+        def recall():
+            hits = tot = 0
+            for j in others:
+                got = {r.id for r in db.search(queries[j], k=10, include_metadata=True)}
+                truth = {ids[i] for i in _brute_topk(x, queries[j], 10)}
+                hits += len(got & truth)
+                tot += 10
+            return hits / tot
+
+        before = db.search(q, k=10, include_metadata=True)
+        rank0 = [r.id for r in before].index("d%d" % q_idx[0])  # el propio doc: rank 0
+        # target: el 3er resultado (no el primero) para que el rank pueda mejorar
+        target = before[2].id
+        rank0 = 2
+        score0 = before[2].score
+        recall0 = recall()
+
+        for _ in range(300):
+            db.feedback(q, relevant_ids=[target])
+
+        after = db.search(q, k=10, include_metadata=True)
+        ids_after = [r.id for r in after]
+        rank1 = ids_after.index(target) if target in ids_after else len(ids_after)
+        score1 = next(r.score for r in after if r.id == target)
+        recall1 = recall()
+        print(
+            f"\n[feedback] rank {rank0}->{rank1} | score {score0:.4f}->{score1:.4f} | "
+            f"recall@10 otros {recall0:.4f}->{recall1:.4f}"
+        )
+        assert score1 > score0 + 1e-3
+        assert rank1 < rank0
+        assert recall0 >= 0.95
+        assert recall1 >= recall0 - 0.01
+        st = db.engine.m2m.splats
+        n = st.n_active
+        assert np.all(_norms(st.mu[:n]) >= 0.999) and np.all(_norms(st.mu[:n]) <= 1.001)
+        assert np.isfinite(st.alpha[:n]).all() and np.isfinite(st.kappa[:n]).all()
+
+    def test_irrelevant_feedback_then_consolidate_prunes_those_docs(self):
+        db = AdvancedVectorDB(latent_dim=32)
+        x, _ = _clustered(20, 32, seed=8)
+        ids = [f"d{i}" for i in range(20)]
+        db.add(ids=ids, vectors=x)
+        for _ in range(60):
+            db.feedback(x[0], irrelevant_ids=["d3", "d4", "d5"])
+        st = db.engine.m2m.splats
+        p = {d: i for i, d in enumerate(db._splat_id_order)}
+        assert max(st.alpha[p[d]] for d in ("d3", "d4", "d5")) <= 0.01 + 1e-6
+        removed = db.consolidate(threshold=0.05)
+        assert removed == 3
+        assert not ({"d3", "d4", "d5"} & set(db._vectors))
+        got = [r.id for r in db.search(x[0], k=20, include_metadata=True)]
+        assert len(got) == 17 and not ({"d3", "d4", "d5"} & set(got))

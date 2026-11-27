@@ -2479,6 +2479,270 @@ class SimpleVectorDB:
         return base
 
 
+    # ------------------------------------------------------------------
+    # Online learning por ids de documento [audit r3a-08]
+    # ------------------------------------------------------------------
+
+    def feedback(
+        self,
+        query: np.ndarray,
+        relevant_ids: Optional[List[Any]] = None,
+        irrelevant_ids: Optional[List[Any]] = None,
+    ) -> "FeedbackResult":
+        """
+        Aprende de feedback del usuario tras una búsqueda (reglas Hebbianas).
+
+        ``relevant_ids`` / ``irrelevant_ids`` son IDS DE DOCUMENTO (los que
+        devuelve ``DocResult.id``), NO posiciones de splat: ``DocResult`` no
+        expone la posición a propósito porque es inestable (el hard-delete y
+        ``consolidate()`` compactan el store y reordenan ``_splat_id_order``).
+        Las posiciones se resuelven en el momento de la llamada, bajo
+        ``_rw_lock`` (el mismo de search/writers).
+
+        Reglas (``OnlineUpdater``): relevante → α += η_α, κ += η_κ y μ deriva
+        hacia la query re-proyectado a la esfera; irrelevante → α decae y κ baja.
+        α y κ quedan acotados. Con EBM, el paisaje (y el SOC de
+        ``AdvancedVectorDB``) se refresca al terminar.
+
+        Args:
+            query: Vector de consulta [D] (finito).
+            relevant_ids: ids de documentos confirmados relevantes.
+            irrelevant_ids: ids de documentos confirmados NO relevantes.
+
+        Returns:
+            ``FeedbackResult`` con cuántos ids se aplicaron y cuáles se
+            ignoraron por no existir (o estar borrados).
+
+        Raises:
+            ValueError: dimensión incorrecta o query con NaN/Inf.
+        """
+        q = np.asarray(query, dtype=np.float32).reshape(-1)
+        if q.shape[0] != self.latent_dim:
+            raise ValueError(
+                f"query dimension mismatch: expected {self.latent_dim}, got {q.shape[0]}"
+            )
+        if not np.all(np.isfinite(q)):
+            raise ValueError("query contains NaN or Inf values")
+
+        with self._rw_lock:
+            # ids -> posiciones AHORA (nunca se guardan entre llamadas)
+            pos_of: Dict[Any, int] = {}
+            for pos, doc_id in enumerate(self._splat_id_order):
+                if (
+                    doc_id is not None
+                    and doc_id not in pos_of
+                    and doc_id in self._vectors
+                    and doc_id not in self._deleted
+                ):
+                    pos_of[doc_id] = pos
+
+            def _resolve(doc_ids) -> Tuple[List[int], List[Any]]:
+                positions: List[int] = []
+                unknown: List[Any] = []
+                for doc_id in doc_ids or []:
+                    pos = pos_of.get(doc_id)
+                    if pos is None:
+                        unknown.append(doc_id)
+                    elif pos not in positions:
+                        positions.append(pos)
+                return positions, unknown
+
+            rel, unk_rel = _resolve(relevant_ids)
+            irr, unk_irr = _resolve(irrelevant_ids)
+            unknown = sorted({str(d) for d in unk_rel + unk_irr})
+            summary: Dict[str, int] = {}
+            if rel or irr:
+                summary = self.engine.m2m.splats.feedback(q, rel, irr)
+                # el drift Hebbiano movió mu[:n] in-place; el índice HRM2 guarda
+                # una copia -> se sincronizan esas filas (n > 3000 rankea por la copia)
+                self._sync_index_mu(rel)
+                self._update_ebm_splats()
+                self._write_splat_state()
+
+        return FeedbackResult(
+            n_relevant=len(rel),
+            n_irrelevant=len(irr),
+            updated_positions=rel + irr,
+            unknown_ids=unknown,
+            summary=summary,
+        )
+
+    def _sync_index_mu(self, positions: List[int]) -> None:
+        """Refresca en el índice HRM2 las filas de ``positions`` cuyo μ cambió
+        in-place (drift Hebbiano). ``engine.embeddings`` y
+        ``coarse_cluster_embeddings`` son COPIAS de μ: sin esto, con
+        n > 3000 (camino IVF) ``search()`` seguía rankeando con el μ viejo.
+        La asignación a clúster no cambia (drift chico): attach in-place,
+        O(len(positions)). Requiere el lock tomado. [audit r3a-08]
+        """
+        store = self.engine.m2m.splats
+        eng = store.engine
+        n = store.n_active
+        emb = getattr(eng, "embeddings", None)
+        if not positions or emb is None or len(emb) != n or not getattr(eng, "_is_indexed", False):
+            return
+        masks = getattr(eng, "_cluster_masks", None) or {}
+        blocks = getattr(eng, "coarse_cluster_embeddings", None) or {}
+        for p in positions:
+            if not 0 <= p < n:
+                continue
+            emb[p] = store.mu[p]
+            for cid, mask in masks.items():
+                if len(mask) == n and mask[p]:
+                    rows = np.flatnonzero(mask)
+                    j = int(np.searchsorted(rows, p))
+                    block = blocks.get(cid)
+                    if block is not None and j < len(block) and rows[j] == p:
+                        block[j] = store.mu[p]
+                    break
+
+    # ------------------------------------------------------------------
+    # Estado aprendido de los splats (α, κ, μ por id) [audit r3a-07]
+    # ------------------------------------------------------------------
+    # El storage persiste vectores + metadata; α/κ/μ aprendidos (feedback,
+    # avalanche, relax) vivían sólo en memoria y al reabrir volvían a
+    # init_alpha/init_kappa. Se guardan en <storage>/energy/landscape.npz
+    # (API existente ``save_energy_state``/``load_energy_state``, sin pickle),
+    # junto con el vector normalizado del que nació cada splat (``base``): al
+    # restaurar, un doc cuyo vector cambió después (``update(vector=)``, que
+    # resetea α/κ) NO recibe el estado viejo.
+
+    def _splat_state(self) -> Optional[Dict[str, np.ndarray]]:
+        """Snapshot (α, κ, μ, base) por id en el orden actual de splats, o None si
+        ``_splat_id_order`` no está alineado con el store (no se persiste un
+        estado que no se pueda volver a aplicar). Lock tomado."""
+        order = self._splat_id_order
+        store = self.engine.m2m.splats
+        n = store.n_active
+        if len(order) != n:
+            return None
+        base = np.zeros((n, self.latent_dim), dtype=np.float32)
+        for p, doc_id in enumerate(order):
+            v = self._vectors.get(doc_id)
+            if v is not None:
+                base[p] = normalize_sphere(np.asarray(v, dtype=np.float32).reshape(-1))
+        return {
+            "version": np.array([1], dtype=np.int64),
+            "ids": np.array([str(d) if d is not None else "" for d in order], dtype=np.str_),
+            "alpha": np.array(store.alpha[:n], dtype=np.float32),
+            "kappa": np.array(store.kappa[:n], dtype=np.float32),
+            "mu": np.array(store.mu[:n], dtype=np.float32),
+            "base": base,
+        }
+
+    def _write_splat_state(self, target_dir: Optional[str] = None) -> None:
+        """Persiste el estado aprendido en ``<target_dir|storage>/energy/landscape.npz``.
+        ``target_dir`` se usa para el snapshot de una DB sólo en memoria
+        (``save(path)``). Fallas de escritura se loguean, no rompen."""
+        state = self._splat_state()
+        if state is None:
+            return
+        from pathlib import Path
+
+        try:
+            if target_dir is not None:
+                edir = Path(target_dir) / "energy"
+                edir.mkdir(parents=True, exist_ok=True)
+                np.savez(str(edir / "landscape.npz"), **state)
+            elif self.storage is not None:
+                Path(self.storage.storage_path, "energy").mkdir(parents=True, exist_ok=True)
+                self.storage.save_energy_state(state)
+        except Exception as e:  # defensa: la persistencia del estado es best-effort
+            logger.warning("splat state not persisted: %s: %s", type(e).__name__, e)
+
+    def _restore_splat_state(self) -> bool:
+        """Re-aplica el estado aprendido (α, κ, μ) por id tras reconstruir el
+        store desde storage. Devuelve True si aplicó al menos un splat."""
+        if self.storage is None:
+            return False
+        try:
+            state = self.storage.load_energy_state()
+        except Exception as e:
+            logger.warning("splat state not restored: %s: %s", type(e).__name__, e)
+            return False
+        if not state or not {"ids", "alpha", "kappa", "mu", "base"} <= set(state):
+            return False  # sin estado (storage viejo) u otro formato: nada que aplicar
+        ids = np.asarray(state["ids"]).reshape(-1).tolist()
+        alpha = np.asarray(state["alpha"], dtype=np.float64).reshape(-1)
+        kappa = np.asarray(state["kappa"], dtype=np.float64).reshape(-1)
+        mu = np.asarray(state["mu"], dtype=np.float32)
+        base = np.asarray(state["base"], dtype=np.float32)
+        n_st = len(ids)
+        if (
+            len(alpha) != n_st
+            or len(kappa) != n_st
+            or mu.shape != (n_st, self.latent_dim)
+            or base.shape != (n_st, self.latent_dim)
+        ):
+            logger.warning("splat state ignored: inconsistent shapes")
+            return False
+
+        store = self.engine.m2m.splats
+        order = self._splat_id_order
+        if len(order) != store.n_active:
+            return False
+        pos_of = {d: p for p, d in enumerate(order)}
+        applied = 0
+        drifted: List[int] = []
+        for j, doc_id in enumerate(ids):
+            p = pos_of.get(doc_id)
+            v = self._vectors.get(doc_id) if p is not None else None
+            if p is None or v is None:
+                continue
+            cur = normalize_sphere(np.asarray(v, dtype=np.float32).reshape(-1))
+            if not np.allclose(cur, base[j], atol=1e-5):
+                continue  # el doc cambió de vector después: el estado aprendido ya no aplica
+            a, k = float(alpha[j]), float(kappa[j])
+            if np.isfinite(a) and a > 0:
+                store.alpha[p] = a
+            if np.isfinite(k) and k > 0:
+                store.kappa[p] = k
+            m = mu[j]
+            nrm = float(np.linalg.norm(m))
+            if np.isfinite(m).all() and abs(nrm - 1.0) < 1e-3:
+                store.mu[p] = m
+                drifted.append(p)
+            applied += 1
+        if applied:
+            store._m_sq_dirty = True
+            self._sync_index_mu(drifted)
+            self._update_ebm_splats()
+        return applied > 0
+
+
+from dataclasses import dataclass, field as _dataclass_field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # sólo para anotaciones: ConsolidationDecision se importa dentro del método
+    from .ebm.soc import ConsolidationDecision
+
+
+@dataclass
+class FeedbackResult:
+    """Resultado de ``SimpleVectorDB.feedback()`` [audit r3a-08].
+
+    - ``n_relevant`` / ``n_irrelevant``: ids resueltos a un splat activo y
+      aplicados (ids repetidos cuentan una vez).
+    - ``updated_positions``: posiciones de splat tocadas EN ESA llamada. Son
+      informativas: las posiciones son inestables (hard-delete y
+      ``consolidate()`` compactan el store). Para seguir operando, usá ids.
+    - ``unknown_ids``: ids ignorados por no existir o estar borrados.
+    - ``summary``: contadores acumulados del ``OnlineUpdater``.
+    """
+
+    n_relevant: int
+    n_irrelevant: int
+    updated_positions: List[int] = _dataclass_field(default_factory=list)
+    unknown_ids: List[str] = _dataclass_field(default_factory=list)
+    summary: Dict[str, int] = _dataclass_field(default_factory=dict)
+
+    def __repr__(self):
+        return (
+            f"FeedbackResult(n_relevant={self.n_relevant}, n_irrelevant={self.n_irrelevant}, "
+            f"updated_positions={self.updated_positions}, unknown_ids={self.unknown_ids})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # AdvancedVectorDB - CRUD + SOC + EBM completo
 # ---------------------------------------------------------------------------
