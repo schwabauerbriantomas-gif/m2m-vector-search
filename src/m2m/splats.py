@@ -104,6 +104,32 @@ class SplatStore:
         """Access the online parameter updater for feedback."""
         return self._updater
 
+    def reset(self) -> None:
+        """Leave the store as freshly constructed, without re-instantiating it.
+
+        Clears the splats (``n_active``, id counter, ``mu``/``alpha``/``kappa``/
+        ``frequency``) and the HRM2 index, and resets the caches and the online
+        updater. ``self.engine`` and the preallocated arrays are kept (reset in
+        place), so external references stay valid. Configuration (``config``,
+        ``max_splats``, ``rank_by``) is not reverted. Before this method the only
+        way was poking private attributes from the outside (``_restore_from_storage``).
+        """
+        self.n_active = 0
+        self._next_id = 0
+        self._last_trained_n = 0
+        self.mu[...] = 0.0
+        self.alpha[...] = self.config.init_alpha
+        self.kappa[...] = self.config.init_kappa
+        self.frequency[...] = 0.0
+        self._m_sq_cache = None
+        self._m_sq_dirty = False
+        self._gpu_index = None
+        self._gpu_index_dirty = True
+        self._cuda_searcher = None
+        self._cuda_dirty = True
+        self.engine.clear()
+        self._updater = OnlineUpdater()
+
     def add_splat(self, x: np.ndarray) -> int:
         """Add a batch of splats or a single splat (vectorized)."""
         if x.ndim == 1:

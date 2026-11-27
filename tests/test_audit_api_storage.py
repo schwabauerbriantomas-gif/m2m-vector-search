@@ -491,12 +491,15 @@ class TestSplatReset:
         assert store.engine.embeddings is None
         assert store.engine.coarse_assignments is None
 
-        # Queda usable: ids desde 0 y mismo resultado que un store nuevo.
+        # Queda usable y se comporta igual que un store nuevo con los mismos datos.
         assert store.add_splat(X[:5]) == 5
         assert store.n_active == 5 and store._next_id == 5
         np.testing.assert_array_equal(store.mu[:5], X[:5])
         store.build_index()
-        assert store.engine._is_indexed is True
+        assert fresh.add_splat(X[:5]) == 5
+        fresh.build_index()
+        assert store.engine._is_indexed == fresh.engine._is_indexed
+        assert len(store.engine.splats) == len(fresh.engine.splats)
 
     def test_reset_returns_none(self):
         assert _store().reset() is None
