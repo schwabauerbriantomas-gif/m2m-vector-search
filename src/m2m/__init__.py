@@ -231,25 +231,47 @@ class M2MMemory:
 
 
 class M2MEngine:
-    """M2M High-Performance Engine."""
+    """M2M High-Performance Engine: envoltorio interno de :class:`M2MMemory`.
+
+    Este NO es el selector de backend de hardware. Ese es ``m2m.engine.M2MEngine``
+    (``src/m2m/engine.py``), que ``HRM2Engine`` crea como ``router`` y es el único
+    que decide qué corre (CUDA > Vulkan > CPU, según disponibilidad real).
+    ``SimpleVectorDB.engine`` es una instancia de ESTA clase y
+    ``from m2m import M2MEngine`` la sigue devolviendo (compatibilidad): todos
+    los métodos delegan en ``self.m2m`` (la ``M2MMemory``).
+
+    Estado del backend (audit r3a-09): :attr:`backend` y :meth:`get_backend_info`
+    delegan en el selector real. :attr:`vulkan_engine` se conserva por
+    compatibilidad y siempre es ``None`` (Vulkan se maneja en ``gpu_vector_index``).
+    """
 
     def __init__(self, config: M2MConfig):
         self.config = config
         self.m2m = M2MMemory(config)
+        self.vulkan_engine = None  # Vulkan GPU is handled via gpu_vector_index
 
-        if config.enable_vulkan:
-            try:
-                from .engine import M2MEngine as VulkanEngine
+        # audit r3a-09: un solo log de backend, el del estado EFECTIVO que resolvió
+        # el selector real (m2m.engine.M2MEngine, que ya loguea con WARNING cada
+        # caída con su motivo). Antes este bloque logueaba 'Vulkan GPU acceleration
+        # enabled' con enable_vulkan aunque Vulkan hubiera fallado y corriera en CPU.
+        info = self.get_backend_info()
+        logger.info(
+            "M2M backend efectivo: %s (pedido: %s)", info["effective"], info["requested"]
+        )
 
-                self.vulkan_engine = None  # Vulkan GPU is handled via gpu_vector_index
-                logger.info("Vulkan GPU acceleration enabled via compute shaders")
-            except ImportError:
-                logger.warning("Engine module import failed, falling back to CPU.")
-                self.vulkan_engine = None
-        else:
-            self.vulkan_engine = None
-            logger.info("Vulkan acceleration disabled")
+    @property
+    def backend(self) -> str:
+        """Backend EFECTIVO en el que corre: 'cuda' | 'vulkan' | 'cpu'."""
+        return self.get_backend_info()["effective"]
 
+    def get_backend_info(self) -> Dict[str, Any]:
+        """Delega en el selector real: ``{'requested', 'effective', 'reasons'}``."""
+        router = getattr(
+            getattr(getattr(self.m2m, "splats", None), "engine", None), "router", None
+        )
+        if not hasattr(router, "get_backend_info"):
+            return {"requested": "cpu", "effective": "cpu", "reasons": {}}
+        return router.get_backend_info()
     def add_splats(self, vectors: np.ndarray, labels: List[str] = None) -> int:
         """Add new splats to the system (batch-vectorized for large datasets)."""
         vectors_norm = normalize_sphere(vectors)

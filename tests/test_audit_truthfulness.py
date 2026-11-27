@@ -88,3 +88,106 @@ def test_main_warns_when_binding_non_loopback_without_api_key(monkeypatch, caplo
 def test_dockerfiles_keep_container_reachable(dockerfile):
     """El default pasó a 127.0.0.1: los Dockerfiles setean M2M_HOST=0.0.0.0 explícito."""
     assert "ENV M2M_HOST=0.0.0.0" in (REPO_ROOT / dockerfile).read_text()
+
+
+# ---------------------------------------------------------------------------
+# r3a-09 — logs veraces del backend GPU + warning con device='cuda' sin torch
+# ---------------------------------------------------------------------------
+
+
+def _no_torch(monkeypatch):
+    """`import torch` pasa a levantar ImportError aunque torch esté instalado."""
+    monkeypatch.setitem(sys.modules, "torch", None)
+
+
+def _db(device):
+    return m2m.SimpleVectorDB(latent_dim=8, device=device)
+
+
+def _reset_guard():
+    getattr(m2m.engine, "_reset_backend_warning_guard", lambda: None)()
+
+
+def test_cuda_without_torch_reports_cpu_as_effective_backend(monkeypatch):
+    """El backend reportado coincide con lo que corre: sin torch nada de CUDA está activo."""
+    _no_torch(monkeypatch)
+    db = _db("cuda")
+    splats = db.engine.m2m.splats
+    router = splats.engine.router
+    rng = np.random.default_rng(0)
+    db.add(ids=[f"d{i}" for i in range(4)], vectors=rng.normal(size=(4, 8)).astype("float32"))
+    db.search(rng.normal(size=8).astype("float32"), k=2)
+    # lo que corre realmente
+    assert router.gpu_router is None and router.use_cuda is False
+    assert splats._cuda_searcher is None
+    # lo que el selector reporta
+    info = db.engine.get_backend_info()
+    assert info["requested"] == "cuda"
+    assert info["effective"] == "cpu"
+    assert "torch" in info["reasons"]["cuda"]
+    assert db.engine.backend == "cpu"
+    assert router.backend == "cpu"
+    assert router.get_backend_info() == info
+
+
+def test_cuda_without_torch_warns_once(monkeypatch, caplog):
+    """UserWarning explícito una sola vez por proceso + logger.warning en cada construcción."""
+    _no_torch(monkeypatch)
+    _reset_guard()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with caplog.at_level(logging.WARNING):
+            _db("cuda")
+            _db("cuda")
+    uw = [w for w in caught if issubclass(w.category, UserWarning) and "cuda" in str(w.message).lower()]
+    assert len(uw) == 1, [str(w.message) for w in caught]
+    assert "cpu" in str(uw[0].message).lower()
+    logs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert sum("cuda" in m.lower() for m in logs) >= 2, logs
+
+
+def test_vulkan_unavailable_is_not_logged_as_enabled(monkeypatch, caplog):
+    """Con enable_vulkan y Vulkan caído, ningún log afirma que la aceleración está habilitada."""
+    import m2m.gpu_vector_index as gvi
+
+    class _BrokenVulkan:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("simulación: Vulkan no disponible")
+
+    monkeypatch.setattr(gvi, "GPUVectorIndex", _BrokenVulkan)
+    with caplog.at_level(logging.INFO, logger="m2m"):
+        db = _db("vulkan")
+    msgs = [r.getMessage() for r in caplog.records]
+    enabled_claims = [m for m in msgs if "acceleration enabled" in m.lower()]
+    assert enabled_claims == [], enabled_claims
+    assert any("vulkan" in m.lower() and "cpu" in m.lower() for m in msgs), msgs
+    assert db.engine.backend == "cpu"
+    info = db.engine.get_backend_info()
+    assert (info["requested"], info["effective"]) == ("vulkan", "cpu")
+    assert info["reasons"]["vulkan"]
+
+
+def test_cuda_available_reports_cuda_without_warning(monkeypatch, caplog):
+    """Rama 'disponible': con CUDA usable el selector reporta cuda y no emite fallback."""
+    import m2m.gpu_vector_index as gvi
+
+    class _FakeCUDAIndex:
+        def __init__(self, index, max_batch_size=1):
+            self.index = index
+
+    monkeypatch.setattr(gvi, "CUDAVectorIndex", _FakeCUDAIndex)
+    monkeypatch.setattr(m2m.engine, "_cuda_unavailable_reason", lambda: None, raising=False)
+    _reset_guard()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with caplog.at_level(logging.INFO, logger="m2m"):
+            db = _db("cuda")
+    assert db.engine.backend == "cuda"
+    assert db.engine.get_backend_info() == {"requested": "cuda", "effective": "cuda", "reasons": {}}
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+    assert any("CUDA" in r.getMessage() for r in caplog.records)
+
+
+def test_cpu_default_is_not_a_fallback():
+    db = _db("cpu")
+    assert db.engine.get_backend_info() == {"requested": "cpu", "effective": "cpu", "reasons": {}}
