@@ -317,3 +317,116 @@ def test_gate_reports_seed_stability():
     print(f"\n[r2-12] estabilidad_semilla={est}")
 
 
+# ===========================================================================
+# Criterio 4 (r2-18): query_batch == query fila a fila (norma != 1)
+# ===========================================================================
+
+def _build(metric, n=4000, d=32, n_coarse=50, n_probe=5):
+    eng = HRM2Engine(n_coarse=n_coarse, n_fine=20, embedding_dim=d, n_probe=n_probe,
+                     metric=metric)
+    eng.index(precomputed_embeddings=_unit(_uniform(n, d, seed=7)))
+    return eng
+
+
+def _non_unit_queries(d=32, n=500, seed=11):
+    rng = np.random.default_rng(seed)
+    return (rng.standard_normal((n, d)) * 3.0).astype(np.float32)
+
+
+@pytest.mark.parametrize("metric", ["cosine", "euclidean"])
+def test_query_batch_matches_query_row_by_row_non_unit_queries(metric):
+    eng = _build(metric)
+    Q = _non_unit_queries(d=32)
+    assert np.all(np.abs(np.linalg.norm(Q, axis=1) - 1) > 1)
+    rb = eng.query_batch(Q, k=10)
+    rq = [eng.query(q, k=10) for q in Q]
+    assert len(rb) == len(rq) == 500
+    mism = sum(_ids(a) != _ids(b) for a, b in zip(rb, rq))
+    print(f"\n[r2-18 metric={metric}] filas distintas={mism}/500")
+    for a, b in zip(rb, rq):
+        assert _ids(a) == _ids(b)
+        np.testing.assert_array_equal(_dists(a), _dists(b))
+
+
+def test_query_batch_matches_query_with_adaptive_probing():
+    eng = _build("cosine")
+    eng.adaptive_probing = True
+    eng.adaptive_threshold = 1.0   # casi todas las queries "fáciles" -> 1 sonda
+    eng.adaptive_min_probe = 1
+    Q = _non_unit_queries(d=32, n=300)
+    rb = eng.query_batch(Q, k=10)
+    rq = [eng.query(q, k=10) for q in Q]
+    mism = sum(_ids(a) != _ids(b) for a, b in zip(rb, rq))
+    print(f"\n[r2-18 adaptive] filas distintas={mism}/300")
+    for a, b in zip(rb, rq):
+        assert _ids(a) == _ids(b)
+        np.testing.assert_array_equal(_dists(a), _dists(b))
+
+
+@pytest.mark.parametrize("lod", [0, 1])
+def test_query_batch_lod01_delegates_with_parity(lod):
+    eng = _build("cosine", n=1500, d=16, n_coarse=20)
+    Q = _non_unit_queries(d=16, n=40)
+    rb = eng.query_batch(Q, k=10, lod=lod)
+    rq = [eng.query(q, k=10, lod=lod) for q in Q]
+    for a, b in zip(rb, rq):
+        assert _ids(a) == _ids(b)
+        np.testing.assert_allclose(_dists(a), _dists(b), rtol=0, atol=1e-6)
+
+
+# ===========================================================================
+# Criterio 5 (r2-19): HRM2Config cableado; lod 0/1 devuelven los más cercanos
+# ===========================================================================
+
+def test_hrm2config_is_wired_into_engine():
+    cfg = HRM2Config(adaptive_probing=True, adaptive_threshold=1.2, adaptive_min_probe=2,
+                     n_probe=7, n_coarse=12, n_fine=17, metric="cosine", random_state=7)
+    eng = HRM2Engine(config=cfg)  # hoy: adaptive_probing False, n_probe 5
+    assert eng.adaptive_probing is True
+    assert eng.adaptive_threshold == 1.2 and eng.adaptive_min_probe == 2
+    assert eng.n_probe == 7 and eng.n_coarse == 12 and eng.n_fine == 17
+    assert eng.metric == "cosine" and eng.random_state == 7
+    # El adaptive probing del config tiene efecto en el ruteo
+    assert eng._adaptive_n_probe(np.array([1.0, 2.0], dtype=np.float32)) == 2  # ratio 2 > 1.2 -> fácil
+    assert eng._adaptive_n_probe(np.array([1.0, 1.1], dtype=np.float32)) == 7
+    # Kwarg explícito (distinto del default) manda sobre el config
+    eng2 = HRM2Engine(config=cfg, n_probe=3, metric="euclidean")
+    assert eng2.n_probe == 3 and eng2.metric == "euclidean" and eng2.adaptive_probing is True
+    # Sin config (o con M2MConfig): sin cambios de comportamiento
+    eng3 = HRM2Engine(n_coarse=10)
+    assert eng3.adaptive_probing is False and eng3.n_probe == 5 and eng3.batch_size == 10000
+    from m2m import engine as _engine_mod
+    eng4 = HRM2Engine(n_coarse=10, config=_engine_mod.M2MConfig())
+    assert eng4.adaptive_probing is False and eng4.n_probe == 5
+
+
+@pytest.mark.parametrize("lod", [0, 1])
+def test_lod01_returns_nearest_within_probed_clusters(lod):
+    X = _clustered(n_centers=20, per_center=150, d=32)
+    rng = np.random.default_rng(5)
+    Q = _unit(X[rng.integers(0, len(X), 100)]) * 2.0  # norma 2 (no unitaria)
+    eng = HRM2Engine(n_coarse=20, n_fine=5, embedding_dim=32, n_probe=3, metric="cosine")
+    eng.index(precomputed_embeddings=X)
+    res = [eng.query(q, k=10, lod=lod) for q in Q]
+    # Contrato exacto: los más cercanos de los clústeres sondeados, ordenados
+    for q, r in zip(Q, res):
+        exp = _expected_lod01(eng, q, 10, lod)
+        assert _ids(r) == [i for i, _ in exp]
+        np.testing.assert_allclose(_dists(r), [d for _, d in exp], rtol=0, atol=1e-5)
+        assert _dists(r) == sorted(_dists(r))
+    # query_with_details sigue el mismo contrato
+    det = [eng.query_with_details(q, k=10, lod=lod) for q in Q[:30]]
+    for r, d in zip(res[:30], det):
+        assert _ids(r) == [x.splat_id for x in d]
+    # Medición (sonda p6_hrm2.py, clustered): recall@10 vs brute force
+    gt = np.argsort(-(_unit(Q) @ X.T), axis=1)[:, :10]
+    rec = _recall([_ids(r) for r in res], gt)
+    print(f"\n[r2-19 lod={lod}] recall@10 clustered (n_fine=5) = {rec:.3f}")
+    # lod 0 (clúster grueso completo) recupera lo mismo que lod 2 en datos
+    # clusterizados. lod 1 sólo escanea los clústeres finos más cercanos
+    # (hasta k miembros por clúster grueso): techo estructural ~0.5 con
+    # n_fine=5 (los 10-NN se reparten entre 2-5 clústeres finos); antes del
+    # fix (primeros k por índice) la sonda p6_hrm2.py daba 0.166 (n_fine=20).
+    assert rec >= (0.9 if lod == 0 else 0.4), f"lod={lod} recall@10 {rec:.3f}"
+
+
