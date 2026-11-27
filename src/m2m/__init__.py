@@ -47,7 +47,10 @@ try:
     from .ebm.exploration import EnergyRegion, ExplorationSuggestion
     from .ebm.soc import AvalancheResult, CriticalityReport, RelaxationResult
     from .energy import EnergyFunction
-    from .engine import M2MEngine
+
+    # `m2m.M2MEngine` es el envoltorio definido abajo (ver __all__); este import
+    # solo carga/valida m2m.engine dentro del bloque try, igual que antes.
+    from .engine import M2MEngine as _EngineM2MEngine  # noqa: F401
     from .entity_extractor import EntityCandidate as EntityCandidate
     from .entity_extractor import M2MEntityExtractor as M2MEntityExtractor
     from .entity_extractor import M2MGraphEntityExtractor as M2MGraphEntityExtractor
@@ -2383,7 +2386,10 @@ class SimpleVectorDB:
                 id_map = self._lsh_id_map
                 with self._rw_lock:
                     allowed = self._filter_position_mask(filter, id_map, len(id_map))
-                filter_fn = lambda i: i < len(allowed) and bool(allowed[i])
+
+                def filter_fn(i):
+                    return i < len(allowed) and bool(allowed[i])
+
             return self._lsh_batch_topk(queries, k=k, filter_fn=filter_fn)[0]
 
         # Mismo lock que los writers (audit r1-03): ver search_batch().

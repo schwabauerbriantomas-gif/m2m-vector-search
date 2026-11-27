@@ -22,11 +22,13 @@ def test_extractor_without_dataset_transformer():
 
     embedding_model = MockEmbeddingModel(dim=640)
 
-    text = """
-    Apple Inc. reported quarterly earnings. 
-    Microsoft Corporation announced Azure growth.
-    Google LLC released new AI features.
-    """
+    text = (
+        "\n"
+        "    Apple Inc. reported quarterly earnings. \n"
+        "    Microsoft Corporation announced Azure growth.\n"
+        "    Google LLC released new AI features.\n"
+        "    "
+    )
 
     entities = extractor.extract(
         text,

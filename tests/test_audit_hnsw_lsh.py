@@ -96,7 +96,7 @@ def test_default_level_multiplier_is_one_over_ln_M():
         assert math.isclose(h.max_level_mult, 1.0 / math.log(M)), h.max_level_mult
     h = HNSWIndex(dim=16, M=16)
     levels = [h._random_level() for _ in range(4000)]
-    frac = sum(l >= 1 for l in levels) / len(levels)
+    frac = sum(lvl >= 1 for lvl in levels) / len(levels)
     assert 0.04 <= frac <= 0.09, f"fracción de nodos en capa >= 1 = {frac:.3f} (esperado ~1/16)"
 
 
@@ -104,7 +104,7 @@ def test_explicit_level_multiplier_is_honored():
     h = HNSWIndex(dim=16, M=16, max_level_mult=2.0)
     assert h.max_level_mult == 2.0
     levels = [h._random_level() for _ in range(2000)]
-    assert 0.55 <= sum(l >= 1 for l in levels) / len(levels) <= 0.67  # e^-0.5 = 0.607
+    assert 0.55 <= sum(lvl >= 1 for lvl in levels) / len(levels) <= 0.67  # e^-0.5 = 0.607
 
 
 def test_built_hierarchy_has_paper_density():

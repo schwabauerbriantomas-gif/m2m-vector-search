@@ -604,6 +604,6 @@ class M2MDatasetTransformer:
         print(f"   Savings: {result['stats']['memory_savings_pct']:.1f}%")
         print(f"   Transform time: {self._transform_time:.2f}s")
         if result.get("cached"):
-            print(f"   * Loaded from cache")
+            print("   * Loaded from cache")
 
         return result
