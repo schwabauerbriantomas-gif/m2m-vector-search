@@ -514,6 +514,20 @@ class SimpleVectorDB:
         # Thread safety: protect all mutations to shared dicts
         import threading as _threading
         self._rw_lock = _threading.RLock()
+        # audit r1-03: search()/search_batch() (región de otro pack) entran al
+        # índice por engine.search() sin tomar el lock; sin esto un lector veía
+        # el índice a medias mientras un writer corría build_index (KMeans sin
+        # fitear, máscaras desalineadas). Se toma el mismo RLock en la frontera
+        # del engine: reentrante para update() -> add() en el mismo hilo. Cuando
+        # search() tome el lock explícitamente, este wrapper sobra.
+        _engine_search = self.engine.search
+        _lock = self._rw_lock
+
+        def _locked_engine_search(*args, **kwargs):
+            with _lock:
+                return _engine_search(*args, **kwargs)
+
+        self.engine.search = _locked_engine_search
 
         # Persistencia
         self.storage = None
@@ -604,6 +618,165 @@ class SimpleVectorDB:
                 ids = list(self._vectors.keys())
                 self._ebm_exploration.update_vectors(vecs, ids)
 
+    def _publish_added(
+        self,
+        ids: List[Any],
+        accepted: List[int],
+        vectors: np.ndarray,
+        metadata: Optional[List[Dict]],
+        documents: Optional[List[str]],
+    ) -> None:
+        """Publica un lote aceptado por add(): dicts (copy-on-write) + storage.
+
+        Copy-on-write (audit r1-03): un lector que está iterando ``_vectors``
+        (``search`` arma la lista de activos así) sigue viendo el dict viejo,
+        completo y consistente, en vez de un RuntimeError por "dictionary
+        changed size during iteration". Requiere el lock tomado (el storage va
+        dentro: dos writers intercalando save_vectors/save_metadata rompían el
+        shard_idx de la metadata).
+        """
+        if not accepted:
+            return
+        self._vectors = dict(self._vectors)
+        self._metadata = dict(self._metadata)
+        self._documents = dict(self._documents)
+        self._deleted = set(self._deleted)
+        for i in accepted:
+            doc_id = ids[i]
+            self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
+            self._metadata[doc_id] = metadata[i] if metadata else {}
+            self._documents[doc_id] = documents[i] if documents else None
+            # Re-add de un id soft-deleted: revive (audit r1-04)
+            self._deleted.discard(doc_id)
+        if self.storage:
+            # Cada lote a su propio shard (shard_001, shard_002, ...); la
+            # metadata referencia el shard real vía _last_shard_idx. Para un id
+            # re-agregado, save_metadata (INSERT OR REPLACE, deleted=0) además
+            # deshace el soft-delete persistido.
+            self.storage.save_vectors(vectors[accepted], [ids[i] for i in accepted])
+            shard_idx = getattr(self.storage, "_last_shard_idx", 1)
+            for row, i in enumerate(accepted):
+                self.storage.save_metadata(
+                    ids[i],
+                    shard_idx=shard_idx,
+                    vector_idx=row,
+                    metadata=(metadata[i] if metadata else {}),
+                    document=(documents[i] if documents else None),
+                )
+
+    def _write_splat_at(self, pos: int, vec: np.ndarray) -> None:
+        """Reescribe el splat de la posición ``pos`` con ``vec`` y lo reasigna a
+        su cluster sin re-entrenar KMeans. Misma normalización y mutación
+        in-place que add_splats (normalize_sphere) + reconstrucción del router
+        (los coarse centroids quedan viejos si no). Lo usan update(vector) y el
+        re-add de un id que ya tiene splat (audit r1-04/C-04b). Lock tomado.
+        """
+        store = self.engine.m2m.splats
+        store.mu[pos] = normalize_sphere(vec)
+        store.alpha[pos] = store.config.init_alpha
+        store.kappa[pos] = store.config.init_kappa
+        store._m_sq_dirty = True
+        store._cuda_dirty = True
+        # Reasignacion quirurgica al cluster correcto (O(k·d)): sacar del
+        # cluster viejo, asignar al centroid mas cercano del mu nuevo.
+        eng = store.engine
+        # engine.embeddings es la copia del store con la que rankean
+        # HRM2Engine.query (lod 0/1) y query_batch (audit r1-24).
+        if getattr(eng, "embeddings", None) is not None and pos < len(eng.embeddings):
+            eng.embeddings[pos] = store.mu[pos]
+        assert eng.coarse_assignments is not None
+        assert eng.coarse_model is not None
+        old_cid = int(eng.coarse_assignments[pos])
+        cent = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
+        new_cid = int(np.argmin(((cent - store.mu[pos]) ** 2).sum(axis=1)))
+        eng.coarse_assignments[pos] = new_cid
+        if new_cid != old_cid:
+            idx_old = eng.coarse_cluster_indices[old_cid]
+            keep = idx_old != pos
+            eng.coarse_cluster_indices[old_cid] = idx_old[keep]
+            eng.coarse_cluster_embeddings[old_cid] = eng.coarse_cluster_embeddings[old_cid][keep]
+            eng._cluster_masks[old_cid][pos] = False
+            eng.coarse_cluster_indices[new_cid] = np.append(eng.coarse_cluster_indices[new_cid], pos)
+            eng.coarse_cluster_embeddings[new_cid] = np.vstack(
+                [eng.coarse_cluster_embeddings[new_cid], store.mu[pos][np.newaxis, :]]
+            )
+            eng._cluster_masks[new_cid][pos] = True
+        else:
+            # Sin cambio de cluster: refrescar la fila que ya existe (misma
+            # causa raíz que r1-24: copia derivada del vector viejo).
+            row = np.flatnonzero(eng.coarse_cluster_indices[old_cid] == pos)
+            cemb = eng.coarse_cluster_embeddings.get(old_cid)
+            if row.size == 1 and cemb is not None and row[0] < len(cemb):
+                cemb[row[0]] = store.mu[pos]
+
+    def _add_lsh(
+        self,
+        ids: List[Any],
+        vectors: np.ndarray,
+        metadata: Optional[List[Dict]],
+        documents: Optional[List[str]],
+    ) -> Optional[int]:
+        """Camino LSH de add(). Devuelve n, o None si el módulo LSH no está
+        (el llamador sigue por el camino splats). Lock tomado.
+
+        Activación tardía (audit r1-08): si el modo LSH se decide cuando ya hay
+        docs indexados por el camino splats, TODOS los almacenados entran al
+        índice LSH en orden de inserción, de modo que ``_lsh_id_map`` quede
+        alineado con ``_splat_id_order`` (antes los previos quedaban
+        inalcanzables y search_batch devolvía ids corridos).
+        """
+        try:
+            from .lsh_index import CrossPolytopeLSH, LSHConfig
+        except ImportError as e:
+            logger.warning("Could not load LSH module: %s.", e)
+            self._lsh_active_mode = False
+            self._use_lsh = False
+            return None
+
+        if self.lsh is None:
+            config = LSHConfig(
+                dim=self.engine.config.latent_dim,
+                n_tables=15,
+                n_bits=18,
+                n_probes=50,
+                n_candidates=500,
+            )
+            self.lsh = CrossPolytopeLSH(config)
+            base_ids = [d for d in self._splat_id_order if d in self._vectors]
+            base_vectors = (
+                np.stack([self._vectors[d] for d in base_ids])
+                if base_ids
+                else np.empty((0, self.latent_dim), dtype=np.float32)
+            )
+        else:
+            # Append-only: keep previously indexed vectors searchable
+            base_ids = list(self._lsh_id_map)
+            base_vectors = (
+                self.lsh.vectors
+                if self.lsh.vectors is not None and len(self.lsh.vectors) > 0
+                else np.empty((0, self.latent_dim), dtype=np.float32)
+            )
+
+        rows = [np.asarray(r, dtype=np.float32) for r in base_vectors]
+        id_map = list(base_ids)
+        for i, doc_id in enumerate(ids):
+            if doc_id in id_map:
+                rows[id_map.index(doc_id)] = vectors[i]  # re-add: se reescribe
+            else:
+                rows.append(vectors[i])
+                id_map.append(doc_id)
+        all_vectors = (
+            np.ascontiguousarray(np.stack(rows), dtype=np.float32)
+            if rows
+            else np.empty((0, self.latent_dim), dtype=np.float32)
+        )
+        self.lsh.index(all_vectors)
+        self._lsh_id_map = id_map
+        self._splat_id_order = list(id_map)
+        self._use_lsh = True
+        self._publish_added(ids, list(range(len(ids))), vectors, metadata, documents)
+        return len(ids)
+
     def add(
         self,
         ids: Optional[Any] = None,  # Can be List[str] or np.ndarray (legacy compat)
@@ -617,12 +790,16 @@ class SimpleVectorDB:
         Args:
             ids: Lista de IDs únicos (opcional; si no se pasa, se auto-generan).
                  Para compatibilidad legacy también acepta np.ndarray como primer arg.
+                 Un id unhashable o repetido dentro del lote → ValueError antes de
+                 mutar nada (audit r1-23). Un id que ya existe se reescribe en su
+                 posición (sin splat huérfano); si estaba soft-deleted, revive
+                 (audit r1-04).
             vectors: Array numpy [N, D]
             metadata: Lista de dicts de metadata por documento
             documents: Lista de textos originales
 
         Returns:
-            Número de vectores añadidos.
+            Número de vectores añadidos (nuevos + reescritos/revividos).
         """
         # Backward compat: add(vectors_array) without keyword
         if ids is not None and isinstance(ids, np.ndarray):
@@ -662,6 +839,8 @@ class SimpleVectorDB:
             import uuid
 
             ids = [str(uuid.uuid4()) for _ in range(n)]
+        elif isinstance(ids, np.ndarray):
+            ids = ids.tolist()
 
         # Validar longitudes
         if len(ids) != n:
@@ -671,120 +850,84 @@ class SimpleVectorDB:
         if documents and len(documents) != n:
             raise ValueError(f"len(documents)={len(documents)} != len(vectors)={n}")
 
-        # Comprobar LSH fallback (decisión única: primer add con n>=3)
-        if self.enable_lsh_fallback and n >= 3 and not self._lsh_decided:
-            self._lsh_decided = True
-            silhouette = self._compute_silhouette(vectors)
-            if silhouette < self.lsh_threshold:
-                logger.info("Distribución uniforme (silhouette=%.4f)", silhouette)
-                logger.info("Activando LSH fallback...")
-                self._lsh_active_mode = True
-            else:
-                logger.info("Distribución clustered (silhouette=%.4f): splats+HRM2", silhouette)
+        # IDs válidos ANTES de mutar nada (audit r1-23): un id unhashable
+        # dejaba n_active avanzado y una entrada no-string en _splat_id_order.
+        from collections.abc import Hashable as _Hashable
 
-        if self._lsh_active_mode and self.enable_lsh_fallback:
-            try:
-                from .lsh_index import CrossPolytopeLSH, LSHConfig
+        seen = set()
+        for i, doc_id in enumerate(ids):
+            if not isinstance(doc_id, _Hashable):
+                raise ValueError(
+                    f"ids[{i}] is not hashable (type {type(doc_id).__name__}): "
+                    "document ids must be hashable (e.g. str or int)"
+                )
+            if doc_id in seen:
+                raise ValueError(
+                    f"duplicate id {doc_id!r} in the same add() batch (ids must be unique)"
+                )
+            seen.add(doc_id)
 
-                if self.lsh is None:
-                    config = LSHConfig(
-                        dim=self.engine.config.latent_dim,
-                        n_tables=15,
-                        n_bits=18,
-                        n_probes=50,
-                        n_candidates=500,
-                    )
-                    self.lsh = CrossPolytopeLSH(config)
-                    base_vectors = np.empty((0, self.latent_dim), dtype=np.float32)
-                elif self.lsh.vectors is not None and len(self.lsh.vectors) > 0:
-                    # Append-only: keep previously indexed vectors searchable
-                    base_vectors = self.lsh.vectors
+        # Sección crítica ÚNICA (audit r1-03): la decisión LSH, la mutación del
+        # store/índice (add_splats = add_splat + build_index), los dicts y el
+        # storage corren todos bajo el lock. Antes add_splats corría fuera y dos
+        # writers dejaban el índice a medias (IndexError/AssertionError en
+        # build_index, n_active != len(_splat_id_order)). Los lectores entran al
+        # índice por engine.search, que toma este mismo lock (ver __init__).
+        with self._rw_lock:
+            # Comprobar LSH fallback (decisión única: primer add con n>=3)
+            if self.enable_lsh_fallback and n >= 3 and not self._lsh_decided:
+                self._lsh_decided = True
+                silhouette = self._compute_silhouette(vectors)
+                if silhouette < self.lsh_threshold:
+                    logger.info("Distribución uniforme (silhouette=%.4f)", silhouette)
+                    logger.info("Activando LSH fallback...")
+                    self._lsh_active_mode = True
                 else:
-                    base_vectors = np.empty((0, self.latent_dim), dtype=np.float32)
+                    logger.info(
+                        "Distribución clustered (silhouette=%.4f): splats+HRM2", silhouette
+                    )
 
-                new_vectors = np.ascontiguousarray(vectors, dtype=np.float32)
-                all_vectors = (
-                    new_vectors if len(base_vectors) == 0
-                    else np.vstack([base_vectors, new_vectors])
-                )
-                self.lsh.index(all_vectors)
-                self._use_lsh = True
-                self._lsh_id_map.extend(ids[:n])
-                self._splat_id_order.extend(ids[:n])
-                # Guardar metadata en memoria
-                for i, doc_id in enumerate(ids):
-                    self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
-                    self._metadata[doc_id] = metadata[i] if metadata else {}
-                    self._documents[doc_id] = documents[i] if documents else None
-                # Persistencia (parity with splat path)
-                if self.storage:
-                    self.storage.save_vectors(vectors, ids)
-                    shard_idx = getattr(self.storage, "_last_shard_idx", 1)
-                    for i, doc_id in enumerate(ids):
-                        self.storage.save_metadata(
-                            doc_id,
-                            shard_idx=shard_idx,
-                            vector_idx=i,
-                            metadata=(metadata[i] if metadata else {}),
-                            document=(documents[i] if documents else None),
-                        )
-                return n
-            except ImportError as e:
-                logger.warning("Could not load LSH module: %s.", e)
-                self._lsh_active_mode = False
-                self._use_lsh = False
+            if self._lsh_active_mode and self.enable_lsh_fallback:
+                n_lsh = self._add_lsh(ids, vectors, metadata, documents)
+                if n_lsh is not None:
+                    return n_lsh
 
-        self._use_lsh = False
-        n_added = self.engine.add_splats(vectors)
-
-        # Honestidad de capacidad (audit r1-26): SplatStore.add_splat acepta "tantos
-        # como entren" en max_splats. Lo que no entró NO es buscable: no se guarda en
-        # _vectors ni en storage y se avisa con los ids descartados.
-        if n_added < n:
-            rejected = [str(i) for i in ids[n_added:]]
-            logger.warning(
-                "max_splats=%d alcanzado: %d de %d vectores rechazados (no indexados ni "
-                "persistidos). Ids descartados: %s%s",
-                self.max_splats,
-                n - n_added,
-                n,
-                rejected[:20],
-                " ..." if len(rejected) > 20 else "",
-            )
-            ids = ids[:n_added]
-
-        # Thread-safe mutation block
-        with self._rw_lock:
-            # Track which doc_ids correspond to splat positions (first n_added accepted)
-            self._splat_id_order.extend(ids[:n_added])
+            self._use_lsh = False
+            # Ids que ya tienen splat (activos → se reescriben; en _deleted →
+            # reviven en la misma posición) vs ids nuevos.
+            has_splat = [doc_id in self._vectors for doc_id in ids]
+            new_rows = [i for i, h in enumerate(has_splat) if not h]
+            if new_rows:
+                # Honestidad de capacidad (audit r1-26): lo que no entra NO es
+                # buscable: no se guarda en _vectors ni en storage y se avisa.
+                n_added = self.engine.add_splats(vectors[new_rows])
+                if n_added < len(new_rows):
+                    rejected = [str(ids[i]) for i in new_rows[n_added:]]
+                    logger.warning(
+                        "max_splats=%d alcanzado: %d de %d vectores rechazados (no indexados ni "
+                        "persistidos). Ids descartados: %s%s",
+                        self.max_splats,
+                        len(new_rows) - n_added,
+                        n,
+                        rejected[:20],
+                        " ..." if len(rejected) > 20 else "",
+                    )
+                    new_rows = new_rows[:n_added]
+                # Track which doc_ids correspond to splat positions
+                self._splat_id_order.extend(ids[i] for i in new_rows)
+            accepted = set(new_rows)
+            for i, h in enumerate(has_splat):
+                if h:
+                    self._write_splat_at(self._splat_id_order.index(ids[i]), vectors[i])
+                    accepted.add(i)
+            accepted_idx = sorted(accepted)
             self._lsh_id_map = []  # LSH no longer active after normal add
+            self._publish_added(ids, accepted_idx, vectors, metadata, documents)
 
-            # Guardar en memoria
-            for i, doc_id in enumerate(ids):
-                self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
-                self._metadata[doc_id] = metadata[i] if metadata else {}
-                self._documents[doc_id] = documents[i] if documents else None
-
-        # Persistencia (outside lock — I/O); solo lo que realmente se indexó
-        if self.storage and n_added > 0:
-            # Cada lote a su propio shard (shard_001, shard_002, ...); la
-            # metadata referencia el shard real vía _last_shard_idx.
-            self.storage.save_vectors(vectors[:n_added], ids)
-            shard_idx = getattr(self.storage, "_last_shard_idx", 1)
-            for i, doc_id in enumerate(ids):
-                self.storage.save_metadata(
-                    doc_id,
-                    shard_idx=shard_idx,
-                    vector_idx=i,
-                    metadata=(metadata[i] if metadata else {}),
-                    document=(documents[i] if documents else None),
-                )
-
-        # Actualizar EBM
-        with self._rw_lock:
+            # Actualizar EBM
             self._update_ebm_splats()
 
-        return n_added
+        return len(accepted_idx)
 
     def update(
         self,
@@ -802,7 +945,8 @@ class SimpleVectorDB:
             vector: Nuevo vector (opcional)
             metadata: Nueva metadata (opcional)
             document: Nuevo texto (opcional)
-            upsert: Si True, crea el documento si no existe
+            upsert: Si True, crea el documento si no existe (o lo revive si
+                estaba soft-deleted; audit r1-04)
 
         Returns:
             UpdateResult con éxito y delta de energía.
@@ -832,7 +976,9 @@ class SimpleVectorDB:
                         "(without it a zero vector — a hub in every search — was inserted)"
                     )
                 vec = vector
-                # add() valida el vector: si lo rechaza, el doc sigue borrado (estado intacto)
+                # add() valida el vector: si lo rechaza, el doc sigue borrado
+                # (estado intacto). add() revive el id en su posición original
+                # (audit r1-04); el discard de abajo queda por si acaso.
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
@@ -872,57 +1018,18 @@ class SimpleVectorDB:
                 if self._use_lsh and self.lsh is not None:
                     try:
                         pos = self._lsh_id_map.index(id)
-                        self.lsh.vectors[pos] = vec
+                        # Las filas de lsh.vectors están normalizadas (index()):
+                        # guardar el vector crudo dejaba la fila fuera de escala y
+                        # con buckets LSH viejos -> se reindexa (audit r1-08).
+                        self.lsh.vectors[pos] = normalize_sphere(vec)
+                        self.lsh.index(self.lsh.vectors)
                     except ValueError:
                         logger.warning("update(vector): %s no esta en el indice LSH", id)
                 elif not self._use_lsh and id in self._splat_id_order:
                     store = self.engine.m2m.splats
                     pos = self._splat_id_order.index(id)
                     if 0 <= pos < store.n_active:
-                        # Misma normalizacion y mutacion in-place que add_splats
-                        # (normalize_sphere) + reconstruir el router (los coarse
-                        # centroids quedan viejos si no).
-                        store.mu[pos] = normalize_sphere(vec)
-                        store.alpha[pos] = store.config.init_alpha
-                        store.kappa[pos] = store.config.init_kappa
-                        store._m_sq_dirty = True
-                        store._cuda_dirty = True
-                        # Reasignacion quirurgica al cluster correcto (O(k·d)):
-                        # sacar del cluster viejo, asignar al centroid mas
-                        # cercano del mu nuevo, sin re-entrenar KMeans.
-                        eng = store.engine
-                        # engine.embeddings es la copia del store con la que rankean
-                        # HRM2Engine.query (lod 0/1) y query_batch (audit r1-24).
-                        if getattr(eng, "embeddings", None) is not None and pos < len(eng.embeddings):
-                            eng.embeddings[pos] = store.mu[pos]
-                        assert eng.coarse_assignments is not None
-                        assert eng.coarse_model is not None
-                        old_cid = int(eng.coarse_assignments[pos])
-                        cent = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
-                        new_cid = int(np.argmin(((cent - store.mu[pos]) ** 2).sum(axis=1)))
-                        eng.coarse_assignments[pos] = new_cid
-                        if new_cid != old_cid:
-                            idx_old = eng.coarse_cluster_indices[old_cid]
-                            keep = idx_old != pos
-                            eng.coarse_cluster_indices[old_cid] = idx_old[keep]
-                            eng.coarse_cluster_embeddings[old_cid] = (
-                                eng.coarse_cluster_embeddings[old_cid][keep]
-                            )
-                            eng._cluster_masks[old_cid][pos] = False
-                            eng.coarse_cluster_indices[new_cid] = np.append(
-                                eng.coarse_cluster_indices[new_cid], pos
-                            )
-                            eng.coarse_cluster_embeddings[new_cid] = np.vstack(
-                                [eng.coarse_cluster_embeddings[new_cid], store.mu[pos][np.newaxis, :]]
-                            )
-                            eng._cluster_masks[new_cid][pos] = True
-                        else:
-                            # Sin cambio de cluster: refrescar la fila que ya existe
-                            # (misma causa raíz que r1-24: copia derivada del vector viejo).
-                            row = np.flatnonzero(eng.coarse_cluster_indices[old_cid] == pos)
-                            cemb = eng.coarse_cluster_embeddings.get(old_cid)
-                            if row.size == 1 and cemb is not None and row[0] < len(cemb):
-                                cemb[row[0]] = store.mu[pos]
+                        self._write_splat_at(pos, vec)
 
                 # Calcular delta de energía si EBM habilitado
                 if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
@@ -948,6 +1055,77 @@ class SimpleVectorDB:
 
         return UpdateResult(success=True, energy_delta=energy_delta)
 
+    def _remove_splats(self, doc_ids: set) -> set:
+        """Saca del índice los splats de ``doc_ids`` (audit r1-06). Lock tomado.
+
+        alpha=0 + SplatStore.compact() (misma definición de "muerto" que usa
+        compact) y reconstrucción completa del router HRM2 (build_index con
+        retrain: tras compactar, las posiciones cambiaron y el attach
+        incremental asumiría el n viejo). ``_splat_id_order`` se reconstruye con
+        la misma máscara, así sigue alineado con n_active y libera capacidad de
+        max_splats. Devuelve los ids OTROS que compact() arrastró (alpha < 0.01
+        o mu no finito) para que el llamador les quite sus dicts.
+        """
+        store = self.engine.m2m.splats
+        order = self._splat_id_order
+        n = store.n_active
+        positions = []
+        for doc_id in doc_ids:
+            try:
+                positions.append(order.index(doc_id))
+            except ValueError:
+                continue
+        if not positions:
+            return set()
+        for p in positions:
+            store.alpha[p] = 0.0
+        if len(order) != n:
+            # Estado ya inconsistente (p. ej. restaurado sin índice): no se
+            # puede compactar sin saber qué posición es qué. Se marca muerto y
+            # se documenta; el próximo add() con build_index lo normaliza.
+            logger.warning(
+                "hard delete: _splat_id_order (%d) != n_active (%d); los splats se marcan "
+                "muertos (alpha=0) pero no se compactan ni se libera capacidad",
+                len(order),
+                n,
+            )
+            for p in positions:
+                order[p] = None
+            store._m_sq_dirty = True
+            return set()
+        keep = (store.alpha[:n] >= 0.01) & np.all(np.isfinite(store.mu[:n]), axis=1)
+        extra = {order[i] for i in np.flatnonzero(~keep)} - set(doc_ids)
+        if extra:
+            logger.warning(
+                "hard delete: compact() también retiró %d splat(s) ya muertos: %s",
+                len(extra),
+                sorted(str(d) for d in extra)[:20],
+            )
+        removed = store.compact()
+        if removed:
+            self._splat_id_order = [order[i] for i in np.flatnonzero(keep)]
+            store.build_index(retrain=True)
+            self._update_ebm_splats()
+        return extra
+
+    def _lsh_remove(self, doc_ids: set) -> None:
+        """Saca filas del índice LSH (modo LSH, audit r1-06). Lock tomado."""
+        if self.lsh is None or self.lsh.vectors is None:
+            return
+        id_map = list(self._lsh_id_map)
+        positions = sorted((id_map.index(d) for d in doc_ids if d in id_map), reverse=True)
+        if not positions:
+            return
+        for p in positions:
+            id_map.pop(p)
+        self._lsh_id_map = id_map
+        self._splat_id_order = list(id_map)
+        rows = np.delete(self.lsh.vectors, positions, axis=0)
+        if len(rows):
+            self.lsh.index(rows)
+        else:
+            self.lsh.vectors = np.empty((0, self.latent_dim), dtype=np.float32)
+
     def delete(
         self,
         id: Optional[str] = None,
@@ -959,64 +1137,83 @@ class SimpleVectorDB:
         Elimina documentos del índice.
 
         Args:
-            id: ID único a eliminar
-            ids: Lista de IDs a eliminar
+            id: ID único a eliminar (se acepta 0 y ""; antes eran no-op, audit r1-21)
+            ids: Lista o np.ndarray de IDs a eliminar
             filter: Filtro de metadata para eliminar por condición
-            hard: Si True, eliminación permanente. Si False, soft-delete.
+            hard: Si True, eliminación permanente: además de los dicts, el splat
+                sale del índice (compact + reconstrucción HRM2, O(n) por llamada;
+                en modo LSH se reindexa sin esas filas) y se libera capacidad de
+                max_splats (audit r1-06).
 
         Returns:
-            DeleteResult con conteo y energía liberada.
+            DeleteResult: ``deleted`` cuenta sólo ids que pasan de activo a
+            borrado (soft) o que se borran de verdad (hard); borrar dos veces
+            cuenta 1, 0 (audit r1-21).
         """
-        # Resolver targets
+        # Resolver targets (isinstance: id=0 e ids=np.ndarray son válidos)
         to_delete = set()
-        if id:
+        if id is not None:
             to_delete.add(id)
-        if ids:
-            to_delete.update(ids)
-        if filter and self.storage:
-            filtered_ids = self.storage.filter_by_metadata(filter)
-            to_delete.update(filtered_ids)
-        elif filter:
-            # Filtrar en memoria
-            for doc_id, meta in self._metadata.items():
-                if doc_id not in self._deleted and self._match_filter(meta, filter):
-                    to_delete.add(doc_id)
+        if ids is not None:
+            to_delete.update(ids.tolist() if isinstance(ids, np.ndarray) else ids)
 
-        if not to_delete:
+        if not to_delete and not filter:
             return DeleteResult(deleted=0, energy_freed=0.0)
 
         energy_freed = 0.0
         deleted_count = 0
-        storage_ops = []  # defer storage I/O outside lock
+        storage_ops = []
+        hard_ids: set = set()
+        soft_new: set = set()
 
         with self._rw_lock:
+            if filter and self.storage:
+                to_delete.update(self.storage.filter_by_metadata(filter))
+            elif filter:
+                # Filtrar en memoria
+                for doc_id, meta in self._metadata.items():
+                    if doc_id not in self._deleted and self._match_filter(meta, filter):
+                        to_delete.add(doc_id)
+
             for doc_id in to_delete:
-                if doc_id in self._vectors:
-                    # Calcular energía liberada si EBM habilitado
-                    if self.ebm_enabled and self._ebm_energy is not None:
-                        vec = self._vectors.get(doc_id)
-                        if vec is not None:
-                            energy_freed += float(self._ebm_energy.energy(vec))
-
-                    if hard:
-                        self._vectors.pop(doc_id, None)
-                        self._metadata.pop(doc_id, None)
-                        self._documents.pop(doc_id, None)
-                        self._deleted.discard(doc_id)
-                        storage_ops.append(("hard", doc_id))
-                    else:
-                        self._deleted.add(doc_id)
-                        storage_ops.append(("soft", doc_id))
-
-                    deleted_count += 1
-
-        # Storage I/O outside lock
-        if self.storage:
-            for op, doc_id in storage_ops:
-                if op == "hard":
-                    self.storage.hard_delete(doc_id)
+                if doc_id not in self._vectors:
+                    continue
+                if hard:
+                    hard_ids.add(doc_id)
+                elif doc_id in self._deleted:
+                    continue  # ya borrado: no cuenta ni se re-persiste (audit r1-21)
                 else:
-                    self.storage.soft_delete(doc_id)
+                    soft_new.add(doc_id)
+                # Calcular energía liberada si EBM habilitado
+                if self.ebm_enabled and self._ebm_energy is not None:
+                    vec = self._vectors.get(doc_id)
+                    if vec is not None:
+                        energy_freed += float(self._ebm_energy.energy(vec))
+                storage_ops.append(("hard" if hard else "soft", doc_id))
+                deleted_count += 1
+
+            if soft_new:
+                self._deleted = self._deleted | soft_new
+            if hard_ids:
+                # El splat sale del índice; compact() puede arrastrar otros ya muertos.
+                if self._use_lsh and self.lsh is not None:
+                    gone = hard_ids
+                    self._lsh_remove(hard_ids)
+                else:
+                    gone = hard_ids | self._remove_splats(hard_ids)
+                # Publicación copy-on-write (lectores iterando los dicts viejos)
+                self._vectors = {k: v for k, v in self._vectors.items() if k not in gone}
+                self._metadata = {k: v for k, v in self._metadata.items() if k not in gone}
+                self._documents = {k: v for k, v in self._documents.items() if k not in gone}
+                self._deleted = self._deleted - gone
+
+            # Storage I/O (dentro del lock: serializado con add/update)
+            if self.storage:
+                for op, doc_id in storage_ops:
+                    if op == "hard":
+                        self.storage.hard_delete(doc_id)
+                    else:
+                        self.storage.soft_delete(doc_id)
 
         return DeleteResult(deleted=deleted_count, energy_freed=energy_freed)
 
