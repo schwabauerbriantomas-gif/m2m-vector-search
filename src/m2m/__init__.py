@@ -1324,17 +1324,23 @@ class SimpleVectorDB:
     ) -> Any:
         """Búsqueda por lotes: amortiza todo el overhead per-query de Python.
 
-        Estrategia (CPU):
-          1. Routing numpy de candidatos por cluster (HRM2) para TODO el lote.
-          2. UNA pasada BLAS de distancias contra la unión de candidatos.
-          3. top-k + construcción de DocResult (o índices globales).
+        Estrategia (CPU, modo HRM2):
+          1. Routing por cluster (HRM2) para TODO el lote.
+          2. Por CADA query, distancias SOLO contra las filas de sus n_probe clusters
+             sondeados + top-k (candidatos POR QUERY, misma semántica que search()
+             single; nunca la unión del lote) [audit r4-07, r1-12].
+          3. Construcción de DocResult (o índices globales).
 
-        Con n<=3000 la unión de candidatos es todo el dataset y esto degenera
-        en exact search batched — también correcto y rápido.
+        Con n<=3000 no hay poda y esto degenera en exact search batched — también
+        correcto y rápido. Las posiciones de docs borrados (soft o hard) se excluyen
+        del ranking y se rellena desde más candidatos propios mientras haya activos
+        [audit r1-05].
 
         Returns:
-            include_metadata=False -> np.ndarray [B, k] de índices globales (-1 si
-            falta). include_metadata=True -> List[List[DocResult]].
+            include_metadata=False -> np.ndarray [B, k] de posiciones (-1 si falta):
+                índice en _splat_id_order (modo HRM2) o en _lsh_id_map (modo LSH).
+            include_metadata=True -> List[List[DocResult]].
+            (B, 0) / listas vacías si la DB no tiene documentos activos.
         """
         queries = np.asarray(queries, dtype=np.float32)
         if queries.ndim == 1:
@@ -1345,79 +1351,60 @@ class SimpleVectorDB:
             raise ValueError(
                 f"queries dim mismatch: expected {self.latent_dim}, got {queries.shape[1]}"
             )
+        if not isinstance(k, (int, np.integer)):
+            raise TypeError(f"k must be an integer, got {type(k).__name__} ({k!r})")
+        k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
 
-        active = [d for d in self._vectors if d not in self._deleted]
         B = len(queries)
-        if not active or B == 0:
-            return np.full((B, 0), -1, dtype=np.int64) if not include_metadata else [[] for _ in range(B)]
+        if B == 0:
+            return (
+                np.full((B, 0), -1, dtype=np.int64)
+                if not include_metadata
+                else [[] for _ in range(B)]
+            )
 
         # BUG 1 fix (T2): en modo LSH los vectores viven en el indice LSH
         # (n_active=0 en splats), por lo que el path HRM2 de abajo devolvia
         # -1/[] para toda query. Routear al LSH igual que search() single.
         if self._use_lsh and self.lsh is not None:
-            return self._search_batch_lsh(queries, k=k, include_metadata=include_metadata)
+            out_idx, rows = self._lsh_batch_topk(queries, k=k, include_metadata=include_metadata)
+            return rows if include_metadata else out_idx
 
         store = self.engine.m2m.splats
         n = store.n_active
-        index_data = store.mu[:n]
-        n_probe = int(getattr(store.engine, "n_probe", 5) or 5)
+        alive = self._batch_alive_mask(n)
+        if n == 0 or (alive is not None and not alive.any()):
+            return (
+                np.full((B, 0), -1, dtype=np.int64)
+                if not include_metadata
+                else [[] for _ in range(B)]
+            )
 
-        if n > 3000 and store.engine.coarse_model is not None:
-            centroids = getattr(store.engine.coarse_model, "centroids_", None)
-            assignments = store.engine.coarse_assignments
-            assert centroids is not None and assignments is not None
-            diff_c = queries[:, None, :] - centroids[None, :, :]
-            cdist = np.sqrt(np.einsum("bkc,bkc->bk", diff_c, diff_c))
-            probe = np.argpartition(cdist, n_probe - 1, axis=1)[:, :n_probe]
-            # Puntos cuyo cluster esta en el set probe del query: [B, n] bool
-            cand_union = np.isin(assignments[np.newaxis, :], probe)
-        else:
-            cand_union = np.ones((B, n), dtype=bool)
-
-        # One BLAS pass over the union of candidates (deduped)
-        any_cand = np.atleast_1d(cand_union.any(axis=0)) if cand_union.ndim else cand_union
-        cand_idx = np.where(any_cand)[0]
-        m_sq = store._m_sq_cache
-        if m_sq is None or len(m_sq) != n:
-            m_sq = np.einsum("ij,ij->i", index_data, index_data)
-        d2 = (
-            m_sq[cand_idx][None, :]
-            - 2.0 * (queries @ index_data[cand_idx].T)
-        )
-        d2 += np.einsum("ij,ij->i", queries, queries)[:, None]
-        np.maximum(d2, 0.0, out=d2)
-
-        k_eff = min(k, len(cand_idx))
-        out_idx = np.full((B, k), -1, dtype=np.int64)
-        part = np.argpartition(d2, k_eff - 1, axis=1)[:, :k_eff]
-        part_sorted = np.take_along_axis(
-            part, np.argsort(np.take_along_axis(d2, part, axis=1), axis=1), axis=1
-        )
-        global_top = cand_idx[part_sorted]
-        out_idx[:, :k_eff] = global_top
+        out_idx, out_d2 = self._batch_topk_per_query(queries, k, allowed=alive)
 
         if not include_metadata:
             return out_idx
 
         results: List[List[DocResult]] = []
+        order = self._splat_id_order
         for i in range(B):
             row: List[DocResult] = []
-            for j in range(k_eff):
-                s_idx = int(global_top[i, j])
-                if s_idx < 0 or s_idx >= len(self._splat_id_order):
+            for j in range(k):
+                s_idx = int(out_idx[i, j])
+                if s_idx < 0 or s_idx >= len(order):
                     continue
-                doc_id = self._splat_id_order[s_idx]
+                doc_id = order[s_idx]
                 if doc_id in self._deleted or doc_id not in self._vectors:
-                    continue
+                    continue  # defensa: la máscara viva ya los excluyó del ranking
                 row.append(
                     DocResult(
                         id=doc_id,
-                        score=float(-np.sqrt(d2[i, part_sorted[i, j]])),
+                        score=float(-np.sqrt(out_d2[i, j])),
                         vector=None,
-                        metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
-                        document=(self._documents.get(doc_id) if include_metadata else None),
+                        metadata=self._metadata.get(doc_id, {}),
+                        document=self._documents.get(doc_id),
                         energy=None,
                         confidence=None,
                     )
@@ -1433,13 +1420,23 @@ class SimpleVectorDB:
     ) -> np.ndarray:
         """Búsqueda por lotes con PRE-filtro (ACORN-lite, H8).
 
-        El filtro corre sobre la UNION de candidatos del indice (vectorizado,
-        mask por splat index) ANTES del top-k: sin filtro, el top-k del indice
-        puede no contener ni un solo doc que pase el filtro (post-filter media
-        recall 0.26 con selectividad 25%; medido en audit).
-        filter_fn: callable(int splat_index) -> bool. Vectorizado via np where:
-        se evalúa sobre todos los splats una vez (no por query) y se aplica
-        como mask AND cand_union.
+        El filtro corre ANTES del top-k: sin filtro, el top-k del índice puede no
+        contener ni un solo doc que pase el filtro (post-filter media recall 0.26 con
+        selectividad 25%; medido en audit). filter_fn: callable(int posicion) -> bool,
+        evaluado una vez por posición y aplicado como máscara de candidatos.
+
+        Candidatos POR QUERY [audit r4-07, r1-12]: cada query se puntúa solo contra las
+        filas que pasan el filtro dentro de SUS clusters sondeados; si así quedan menos
+        de 1.5*k docs permitidos, ESA query expande SUS probes siguiendo SU propio orden
+        de clusters hasta cubrir el objetivo o agotar los clusters (antes la decisión se
+        tomaba con la cobertura de la UNIÓN del lote y el orden de clusters de la
+        query 0). Las filas que no pasan el filtro (ni las de docs borrados) entran al
+        ranking, así que no hace falta sentinel [audit r1-22: BIG=1e9 no era "grande"
+        frente a ||q||^2 > 1e9 y devolvía docs que violaban el filtro].
+
+        Returns:
+            np.ndarray [B, k] de posiciones (-1 si falta); (B, 0) si la DB no tiene
+            documentos activos. Mismo espacio de posiciones que search_batch().
         """
         queries = np.asarray(queries, dtype=np.float32)
         if queries.ndim == 1:
@@ -1450,74 +1447,190 @@ class SimpleVectorDB:
             raise ValueError(
                 f"queries dim mismatch: expected {self.latent_dim}, got {queries.shape[1]}"
             )
+        if not isinstance(k, (int, np.integer)):
+            raise TypeError(f"k must be an integer, got {type(k).__name__} ({k!r})")
+        k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
         if filter_fn is None:
             return self.search_batch(queries, k=k, include_metadata=False)
+        if self._use_lsh and self.lsh is not None:
+            # Modo LSH: los vectores viven en el indice LSH (n_active=0 en splats); sin
+            # esta rama search_batch_filtered devolvia todo -1 [audit r1-07].
+            return self._lsh_batch_topk(queries, k=k, filter_fn=filter_fn)[0]
 
+        B = len(queries)
         store = self.engine.m2m.splats
         n = store.n_active
+        alive = self._batch_alive_mask(n)
+        if n == 0 or (alive is not None and not alive.any()):
+            return np.full((B, 0), -1, dtype=np.int64)
+
+        allowed = np.fromiter((bool(filter_fn(i)) for i in range(n)), dtype=bool, count=n)
+        if alive is not None:
+            allowed &= alive
+        if not allowed.any():
+            return np.full((B, k), -1, dtype=np.int64)
+        return self._batch_topk_per_query(queries, k, allowed=allowed, expand=True)[0]
+
+    def _batch_alive_mask(
+        self, n: int, id_map: Optional[List[Any]] = None
+    ) -> Optional[np.ndarray]:
+        """Máscara [n] de posiciones VIVAS: su id sigue en _vectors y no está
+        soft-deleted [audit r1-05, parte batch]. `id_map` es la lista posición -> id
+        (_splat_id_order en modo HRM2, _lsh_id_map en modo LSH); posiciones fuera de
+        rango cuentan como muertas. Devuelve None cuando todas lo están (caso común:
+        nada borrado), para no pagar O(n) lookups por llamada."""
+        if id_map is None:
+            id_map = self._splat_id_order
+        if not self._deleted and len(self._vectors) == n and len(id_map) >= n:
+            return None
+        alive = np.zeros(n, dtype=bool)
+        vectors, deleted = self._vectors, self._deleted
+        for pos in range(min(n, len(id_map))):
+            doc_id = id_map[pos]
+            if doc_id in vectors and doc_id not in deleted:
+                alive[pos] = True
+        return alive
+
+    def _batch_topk_per_query(
+        self,
+        queries: np.ndarray,
+        k: int,
+        allowed: Optional[np.ndarray] = None,
+        expand: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Top-k POR QUERY en modo HRM2: candidatos = filas de los clusters sondeados
+        por CADA query (los mismos que usa find_neighbors), nunca la unión del lote
+        [audit r4-07, r1-12].
+
+        allowed: máscara [n] de posiciones admitidas (filtro / docs vivos); el resto se
+        saca del conjunto de candidatos antes de puntuar (sin sentinel).
+        expand (ACORN-lite por query, [audit r4-07]): si tras aplicar `allowed` la query
+        tiene menos de 1.5*k candidatos, agrega clusters en SU propio orden de cercanía
+        hasta cubrir el objetivo o agotar los clusters.
+
+        Devuelve (out_idx [B, k] de posiciones globales con -1 si falta, out_d2 [B, k]
+        con la distancia^2 de cada posición devuelta, inf en el padding).
+        """
+        store = self.engine.m2m.splats
+        eng = store.engine
+        n = store.n_active
         index_data = store.mu[:n]
-        n_probe = int(getattr(store.engine, "n_probe", 5) or 5)
         B = len(queries)
-
-        allowed = np.array([bool(filter_fn(i)) for i in range(n)], dtype=bool)
-
-        if n > 3000 and store.engine.coarse_model is not None:
-            centroids = getattr(store.engine.coarse_model, "centroids_", None)
-            assignments = store.engine.coarse_assignments
-            assert centroids is not None and assignments is not None
-            diff_c = queries[:, None, :] - centroids[None, :, :]
-            cdist = np.sqrt(np.einsum("bkc,bkc->bk", diff_c, diff_c))
-            probe = np.argpartition(cdist, n_probe - 1, axis=1)[:, :n_probe]
-            cand_union = np.isin(assignments[np.newaxis, :], probe)
-        else:
-            cand_union = np.ones((B, n), dtype=bool)
-
-        # ACORN-lite: si la union de candidatos deja pocos docs que pasan el
-        # filtro, expandir probes hasta que la cobertura llegue a un objetivo
-        # o se agoten los clusters (no silenciar resultados).
-        if n > 3000 and store.engine.coarse_model is not None:
-            covered = (cand_union & allowed).sum(axis=1)
-            need = np.maximum(1, int(k * 1.5))
-            poor = covered < need
-            if np.any(poor):
-                assignments = store.engine.coarse_assignments
-                centroids = np.asarray(store.engine.coarse_model.centroids_, dtype=np.float32)
-                diff_c = queries[:, None, :] - centroids[None, :, :]
-                cdist = np.sqrt(np.einsum("bkc,bkc->bk", diff_c, diff_c))
-                order = np.argsort(cdist, axis=1)
-                for b in np.where(poor)[0]:
-                    for extra in range(n_probe, cdist.shape[1]):
-                        cand_union[b] |= assignments == order[b, extra]
-                        if (cand_union[b] & allowed).sum() >= need:
-                            break
-
-        any_cand = np.atleast_1d(cand_union.any(axis=0)) if cand_union.ndim else cand_union
-        cand_idx = np.where(any_cand)[0]
+        n_probe = int(getattr(eng, "n_probe", 5) or 5)
         m_sq = store._m_sq_cache
         if m_sq is None or len(m_sq) != n:
             m_sq = np.einsum("ij,ij->i", index_data, index_data)
-        d2 = (
-            m_sq[cand_idx][None, :]
-            - 2.0 * (queries @ index_data[cand_idx].T)
-        )
-        d2 += np.einsum("ij,ij->i", queries, queries)[:, None]
-        np.maximum(d2, 0.0, out=d2)
+        # ||q||^2 es constante por fila: no altera el orden, se suma solo al top-k.
+        q_sq = np.einsum("ij,ij->i", queries, queries)
 
-        allowed_c = allowed[cand_idx]
-        BIG = np.float32(1e9)
-        d2 = np.where(allowed_c[None, :], d2, BIG)
+        use_hrm2 = n > 3000 and eng.coarse_model is not None
+        order = None
+        cluster_rows = None
+        cov = None
+        if use_hrm2:
+            centroids = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
+            diff_c = queries[:, None, :] - centroids[None, :, :]
+            cdist = np.einsum("bkc,bkc->bk", diff_c, diff_c)  # distancia^2: mismo orden
+            n_probe = min(n_probe, cdist.shape[1])
+            order = np.argsort(cdist, axis=1)  # [B, n_coarse] orden completo (para expandir)
+            probe = order[:, :n_probe]
+            cluster_rows = eng.coarse_cluster_indices
+            if expand:
+                # docs admitidos por cluster: permite decidir la expansion por query
+                # con un cumsum en vez de re-contar cluster a cluster.
+                cov = np.zeros(cdist.shape[1], dtype=np.int64)
+                for c, rows_c in cluster_rows.items():
+                    cov[c] = int(allowed[rows_c].sum())
+        need = max(1, int(k * 1.5))
+
         out_idx = np.full((B, k), -1, dtype=np.int64)
+        out_d2 = np.full((B, k), np.inf, dtype=np.float32)
         for i in range(B):
-            n_ok = int(allowed_c.sum())
-            if n_ok == 0:
-                continue
-            k_eff = min(k, n_ok)
-            part = np.argpartition(d2[i], k_eff - 1)[:k_eff]
-            part = part[np.argsort(d2[i][part])]
-            out_idx[i, :k_eff] = cand_idx[part]
-        return out_idx
+            cand = None  # None = todas las filas (sin poda)
+            if use_hrm2:
+                lists = []
+                for c in probe[i]:
+                    rows_c = cluster_rows.get(int(c))
+                    if rows_c is not None and len(rows_c) > 0:
+                        lists.append(rows_c)
+                if not lists:
+                    continue
+                if expand:
+                    covered = int(cov[probe[i]].sum())
+                    if covered < need:
+                        rest = order[i, n_probe:]
+                        hits = cov[rest]
+                        if hits.any():
+                            m = int(np.searchsorted(np.cumsum(hits), need - covered, side="left"))
+                            for c in rest[: m + 1]:
+                                rows_c = cluster_rows.get(int(c))
+                                if rows_c is not None and len(rows_c) > 0:
+                                    lists.append(rows_c)
+                cand = lists[0] if len(lists) == 1 else np.concatenate(lists)
+            if allowed is not None:
+                cand = np.flatnonzero(allowed) if cand is None else cand[allowed[cand]]
+                if len(cand) == 0:
+                    continue
+            if cand is None:
+                d2 = m_sq - 2.0 * (index_data @ queries[i])
+                k_eff = min(k, n)
+            else:
+                d2 = m_sq[cand] - 2.0 * (index_data[cand] @ queries[i])
+                k_eff = min(k, len(cand))
+            part = np.argpartition(d2, k_eff - 1)[:k_eff]
+            part = part[np.argsort(d2[part])]
+            out_d2[i, :k_eff] = np.maximum(d2[part] + q_sq[i], 0.0)
+            out_idx[i, :k_eff] = part if cand is None else cand[part]
+        return out_idx, out_d2
+
+    def _lsh_batch_topk(
+        self,
+        queries: np.ndarray,
+        k: int,
+        filter_fn=None,
+        include_metadata: bool = False,
+    ) -> Tuple[np.ndarray, Any]:
+        """Top-k POR QUERY en modo LSH; las posiciones indexan _lsh_id_map [audit r1-07].
+
+        Candidatos = todos los que sondea el LSH para la query (lsh.query_candidates,
+        sin truncar a k), para que el filtro y la exclusión de docs borrados puedan
+        rellenar hasta k. Sin filtro y sin borrados devuelve exactamente lo mismo que
+        search() single (mismo sondeo, mismo RNG pineado).
+        Devuelve (out_idx [B, k] con -1 si falta, rows List[List[DocResult]] o None)."""
+        id_map = self._lsh_id_map
+        B = len(queries)
+        out_idx = np.full((B, k), -1, dtype=np.int64)
+        rows: List[List[DocResult]] = (
+            [[] for _ in range(B)] if include_metadata else None
+        )
+        alive = self._batch_alive_mask(len(id_map), id_map=id_map)
+        if alive is not None and not alive.any():
+            return np.full((B, 0), -1, dtype=np.int64), rows  # sin activos: (B, 0)
+        ok = alive
+        if filter_fn is not None:
+            allowed = np.fromiter(
+                (bool(filter_fn(i)) for i in range(len(id_map))), dtype=bool, count=len(id_map)
+            )
+            ok = allowed if ok is None else (allowed & ok)
+        for i in range(B):
+            state = np.random.get_state()
+            np.random.seed(0)  # mismo pineado que _lsh_query_deterministic (fallback RNG)
+            try:
+                idx, dist = self.lsh.query_candidates(queries[i], k=k)
+            finally:
+                np.random.set_state(state)
+            if ok is not None and len(idx):
+                keep = ok[idx]
+                idx, dist = idx[keep], dist[keep]
+            m = min(k, len(idx))
+            out_idx[i, :m] = idx[:m]
+            if include_metadata:
+                rows[i] = self._doc_results_from_lsh(
+                    idx[:m], dist[:m], k=k, include_metadata=True
+                )
+        return out_idx, rows
 
     def search_with_energy(self, query: np.ndarray, k: int = 10) -> SearchResult:
         """
