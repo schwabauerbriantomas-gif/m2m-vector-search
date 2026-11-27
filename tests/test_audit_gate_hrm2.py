@@ -430,3 +430,51 @@ def test_lod01_returns_nearest_within_probed_clusters(lod):
     assert rec >= (0.9 if lod == 0 else 0.4), f"lod={lod} recall@10 {rec:.3f}"
 
 
+# ===========================================================================
+# Criterio 6 (r2-20): dim > 1024 -> ValueError claro antes de tocar el shader
+# ===========================================================================
+
+def _stub_no_gpu(monkeypatch, boom=None):
+    def _stop(*a, **k):
+        if boom:
+            raise boom
+        raise RuntimeError("stub: init Vulkan alcanzado (guardia de dim pasada)")
+
+    monkeypatch.setattr(gvi, "subprocess", SimpleNamespace(run=_stop))
+    monkeypatch.setattr(gvi.GPUVectorIndex, "_create_instance", _stop)
+    monkeypatch.setattr(gvi.GPUVectorIndex, "_get_physical_device", _stop)
+    return _stop
+
+
+@pytest.mark.parametrize("dim", [1025, 3072])
+def test_gpu_index_rejects_dim_above_1024_before_touching_shader(dim, monkeypatch):
+    # Si la guardia no existe, el primer paso es compilar/cargar el shader
+    # (subprocess.run / Vulkan): el stub lo detecta con AssertionError.
+    _stub_no_gpu(monkeypatch, boom=AssertionError("shader/Vulkan tocado antes de la guardia"))
+    with pytest.raises(ValueError, match="1024") as ei:
+        gvi.GPUVectorIndex(np.zeros((4, dim), dtype=np.float32))
+    assert str(dim) in str(ei.value)
+
+
+def test_gpu_index_dim_1024_passes_guard(monkeypatch):
+    _stub_no_gpu(monkeypatch)
+    with pytest.raises(RuntimeError, match="guardia de dim pasada"):
+        gvi.GPUVectorIndex(np.zeros((4, 1024), dtype=np.float32))
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not gvi._has_vulkan(), reason="sin backend Vulkan en esta máquina")
+def test_vulkan_parity_vs_numpy():
+    """Paridad numérica CPU-GPU del path Vulkan (assert_allclose atol 1e-5).
+    NO ejecutado en esta máquina (sin GPU): requiere Vulkan + glslc."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((5000, 64)).astype(np.float32)
+    Q = rng.standard_normal((16, 64)).astype(np.float32)
+    idx = gvi.GPUVectorIndex(X, max_batch_size=16)
+    ids, dists = idx.batch_search(Q, k=10)
+    assert ids.shape == (16, 10) and dists.shape == (16, 10)
+    for b in range(len(Q)):
+        d_all = np.linalg.norm(X - Q[b], axis=1)
+        np.testing.assert_allclose(dists[b], np.sort(d_all)[:10], atol=1e-5)
+        np.testing.assert_allclose(dists[b], d_all[ids[b]], atol=1e-5)
+        assert np.all(np.diff(dists[b]) >= 0)
