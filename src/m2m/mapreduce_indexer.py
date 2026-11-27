@@ -358,6 +358,7 @@ def parallel_index(
 
     reduce_time = time.time() - reduce_start
     engine._is_indexed = True
+    engine.coarse_cluster_radii = None  # [P17] índice nuevo: radios sin calcular
 
     # Update stats
     engine._stats.n_splats = n_splats

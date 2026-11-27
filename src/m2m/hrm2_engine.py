@@ -203,6 +203,11 @@ class HRM2Engine:
         # Fast caching
         self.coarse_cluster_indices: Dict[int, np.ndarray] = {}
         self.coarse_cluster_embeddings: Dict[int, np.ndarray] = {}
+        # [P17] radio por cluster: r_c = max_x ||x - centroide_c|| sobre las filas
+        # asignadas a c. Cota superior para podar clusters en la búsqueda CON
+        # filtro (dist(q,x) >= dist(q,c) - r_c). None = inválido: se recalcula en
+        # una pasada en la primera búsqueda con filtro (compute_cluster_radii).
+        self.coarse_cluster_radii: Optional[Dict[int, float]] = None
 
         # Encoder
         self.encoder = FullEmbeddingBuilder()
@@ -366,6 +371,7 @@ class HRM2Engine:
         self._fine_built = False
         self.coarse_cluster_indices = {}
         self.coarse_cluster_embeddings = {}
+        self.coarse_cluster_radii = None  # [P17] índice nuevo: radios sin calcular
 
         for coarse_id in range(n_coarse_effective):
             mask = self.coarse_assignments == coarse_id
@@ -852,6 +858,56 @@ class HRM2Engine:
         """Get engine statistics."""
         return self._stats
 
+    # --- [P17] radios por cluster: cota de poda para la búsqueda con filtro ---
+    def invalidate_cluster_radii(self) -> None:
+        """Invalida el cache de radios: μ o el índice cambiaron por fuera de los
+        caminos incrementales (drift Hebbiano, compact, rebuild). La próxima
+        búsqueda con filtro lo recalcula en una pasada."""
+        self.coarse_cluster_radii = None
+
+    def compute_cluster_radii(self, rows: np.ndarray) -> Dict[int, float]:
+        """Una pasada: ``r_c = max_x ||x - centroide_c||`` sobre las filas de
+        ``coarse_cluster_indices[c]`` leídas de ``rows`` (el MISMO array con el que
+        se puntúan los candidatos). Cota superior por construcción. Filas no
+        finitas (splat muerto) dejan ``r_c = inf``: ese cluster nunca se poda."""
+        cent = np.asarray(self.coarse_model.centroids_, dtype=np.float32)
+        radii: Dict[int, float] = {}
+        for c, idx in self.coarse_cluster_indices.items():
+            if len(idx) == 0:
+                radii[c] = 0.0
+                continue
+            diff = np.asarray(rows[idx], dtype=np.float32) - cent[c]
+            d = np.sqrt(np.maximum(np.einsum("ij,ij->i", diff, diff), 0.0))
+            d = d[np.isfinite(d)]
+            if d.size < len(idx):
+                radii[c] = float("inf")
+            else:
+                # margen float32 mínimo: sigue siendo cota, nunca se achica
+                radii[c] = float(d.max()) * (1.0 + 1e-6) + 1e-6
+        self.coarse_cluster_radii = radii
+        return radii
+
+    def bump_cluster_radius(self, cid: int, row: np.ndarray) -> None:
+        """Mantiene la cota tras AGREGAR o REESCRIBIR filas del cluster ``cid``:
+        ``r_c = max(r_c, max_row ||row - centroide_c||)``. Quitar filas sólo puede
+        achicar la distancia máxima: no hace falta tocar nada. No-op con el cache
+        invalidado (se recalcula entero cuando haga falta)."""
+        radii = getattr(self, "coarse_cluster_radii", None)
+        if radii is None or self.coarse_model is None:
+            return
+        cent = np.asarray(self.coarse_model.centroids_, dtype=np.float32)
+        cid = int(cid)
+        if cid >= len(cent):
+            return
+        diff = np.asarray(row, dtype=np.float32) - cent[cid]
+        if diff.ndim == 1:
+            d2 = float(np.dot(diff, diff))
+        else:
+            d2 = float(np.einsum("ij,ij->i", diff, diff).max())
+        d = float(np.sqrt(d2)) if np.isfinite(d2) else float("inf")
+        d = d * (1.0 + 1e-6) + 1e-6
+        radii[cid] = max(float(radii.get(cid, 0.0)), d)
+
     def clear(self) -> None:
         """Clear all data."""
         self.splats = []
@@ -864,6 +920,7 @@ class HRM2Engine:
         self.coarse_cluster_embeddings = {}
         self._cluster_masks = {}
         self._is_indexed = False
+        self.coarse_cluster_radii = None  # [P17]
         self._stats = HRM2Stats()
         self._silhouette_score = None
         self._calinski_harabasz = None
