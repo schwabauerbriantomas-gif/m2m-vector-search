@@ -5,6 +5,7 @@
 # Requerido antes de arrancar (compose falla si falta o está vacía):
 #   export M2M_API_KEY=...             # clave de los edges (header X-API-Key o Bearer)
 #   export M2M_COORDINATOR_API_KEY=...  # clave del coordinator (/register /heartbeat /route /search)
+#   export M2M_EDGE_API_KEY=...        # la misma M2M_API_KEY de los edges (el coordinator la reenvía)
 # o copiá deploy/.env.example a deploy/.env. Generá claves con:
 #   python -c "import secrets; print(secrets.token_urlsafe(32))"
 #
@@ -14,11 +15,11 @@
 # registraban el edge en el coordinator ni cambiaban nada. El registro sigue siendo
 # explícito: POST /register en el coordinator (src/m2m/api/coordinator_api.py).
 #
-# Limitación conocida: el coordinator llama a los edges SIN reenviar clave
-# (fetch_edge_results en coordinator_api.py), así que con M2M_API_KEY en los edges,
-# POST /search al coordinator recibe 401 de cada edge y devuelve resultados vacíos
-# hasta que el coordinator reenvíe la clave. Mientras tanto, consultá los edges directo.
-
+# El coordinator reenvía a los edges la clave de ``M2M_EDGE_API_KEY`` (audit P15): con
+# M2M_API_KEY configurada en los edges es OBLIGATORIA, porque sin ella cada edge
+# responde 401 y el fan-out devuelve resultados vacíos.
+#
+#
 x-m2m-build: &m2m-build
   context: ..
   dockerfile: deploy/Dockerfile
@@ -32,8 +33,10 @@ services:
       - "127.0.0.1:8080:8000"
     environment:
       M2M_COORDINATOR_API_KEY: '${M2M_COORDINATOR_API_KEY:?M2M_COORDINATOR_API_KEY es requerida (clave del coordinator). Exportala o ponela en deploy/.env}'
+      M2M_EDGE_API_KEY: '${M2M_EDGE_API_KEY:?M2M_EDGE_API_KEY es requerida (clave que el coordinator reenvía a los edges: la misma M2M_API_KEY de los edges).}'
     command: ["uvicorn", "m2m.api.coordinator_api:app", "--host", "0.0.0.0", "--port", "8000"]
-    # El coordinator no tiene ninguna ruta GET: probe TCP.
+    # El coordinator expone GET /health (audit P15); se conserva la probe TCP, que no
+    # depende de la ruta de salud.
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=3).close()"]
       interval: 30s

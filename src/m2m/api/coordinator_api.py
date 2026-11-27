@@ -2,6 +2,7 @@ import asyncio
 
 # -- SECURITY: API Key for coordinator (C-01, P-09 fix) ---------------
 import os
+import hmac
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -44,11 +45,11 @@ def _validate_coordinator_key(request: Request) -> None:
         return
     auth = request.headers.get("Authorization", "")
     token = (
-        auth.replace("Bearer ", "")
-        if auth.startswith("Bearer ")
+        auth[7:]
+        if auth[:7].lower() == "bearer "
         else request.headers.get("X-API-Key", "")
     )
-    if token != _COORDINATOR_API_KEY:
+    if not hmac.compare_digest(token, _COORDINATOR_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 

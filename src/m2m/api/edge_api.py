@@ -376,7 +376,14 @@ def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
         if limit <= 0:
             return  # límite apagado
         if len(_rate_limit_store[client_ip]) >= limit:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            # Retry-After: segundos que faltan para que venza el pedido más viejo de la ventana.
+            oldest = min(_rate_limit_store[client_ip])
+            retry_after = max(1, int(np.ceil(_RATE_LIMIT_WINDOW - (now - oldest))))
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(retry_after)},
+            )
         _rate_limit_store[client_ip].append(now)
 
 
@@ -389,9 +396,12 @@ def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
 #   * ``/v1/admin/*`` (checkpoint, backup) EXIGEN key: sin key configurada
 #     responden 503 (fail closed) en vez de quedar abiertos.
 #   * GET/PUT/DELETE de un vector también validan (audit P15): antes, con clave
-#     configurada, se leía, sobreescribía y borraba sin ella. Siguen SIN validar
-#     (sólo lectura de nombres/contadores): ``GET /v1/collections``,
-#     ``GET /v1/collections/{name}`` y ``GET .../stats``.
+#     configurada, se leía, sobreescribía y borraba sin ella.
+#   * Los GET de solo lectura (``/v1/collections``, ``/v1/collections/{name}``,
+#     ``.../stats``, ``.../suggest``) validan desde el cierre del pase: dejaban
+#     abiertos los nombres, los contadores y el contenido de las colecciones.
+#   * Quedan abiertos a propósito, porque no devuelven datos: ``/health`` y
+#     ``/v1/health``.
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
@@ -510,8 +520,9 @@ def stats(request: Request):
 
 
 @app.get("/v1/collections")
-def list_collections():
+def list_collections(request: Request):
     """Lista todas las colecciones."""
+    _validate_api_key(request)
     return {"collections": _manager.list_names()}
 
 
@@ -528,8 +539,9 @@ def create_collection(req: CreateCollectionRequest, request: Request):
 
 
 @app.get("/v1/collections/{name}")
-def get_collection(name: str):
+def get_collection(request: Request, name: str):
     """Información de una colección."""
+    _validate_api_key(request)
     try:
         return _manager.info(name)
     except KeyError as e:
@@ -878,6 +890,7 @@ def explore(name: str, req: ExploreRequest, request: Request):
 @app.get("/v1/collections/{name}/suggest")
 def suggest_exploration(name: str, request: Request, n: int = 3):
     """Sugerencias de exploración (GET)."""
+    _validate_api_key(request)
     req = ExploreRequest()
     req.n_suggestions = n
     # El Request viaja a explore(): con key configurada validaba ``request=None``
@@ -891,8 +904,9 @@ def suggest_exploration(name: str, request: Request, n: int = 3):
 
 
 @app.get("/v1/collections/{name}/stats")
-def collection_stats(name: str):
+def collection_stats(request: Request, name: str):
     """Estadísticas de una colección."""
+    _validate_api_key(request)
     try:
         db = _manager.get(name)
     except KeyError as e:

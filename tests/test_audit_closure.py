@@ -708,3 +708,137 @@ def test_engine_search_is_not_monkey_patched():
     # search() en modo legacy devuelve la tupla (mu, alpha, kappa, ...): 2 vecinos.
     out = db.search(_unit(rng.standard_normal(8)), k=2)
     assert out[0].shape[1] == 2
+
+
+# ---------------------------------------------------------------------------
+# Cierre del orquestador (post-P15)
+#  14. Los GET de solo lectura (colecciones, stats, suggest) validan la key.
+#  15. El 429 lleva ``Retry-After``.
+#  16. La clave del coordinator se compara en tiempo constante y el esquema
+#      ``Bearer`` no distingue mayúsculas.
+#  17. El drift Hebbiano preserva la norma PROPIA del splat: en un store sin
+#      normalizar no encoge el splat reforzado contra sus vecinos.
+# ---------------------------------------------------------------------------
+
+
+class TestCollectionReadsValidateKey:
+    READ_PATHS = (
+        "/v1/collections",
+        "/v1/collections/c15",
+        "/v1/collections/c15/stats",
+        "/v1/collections/c15/suggest?n=1",
+    )
+
+    def test_reads_without_key_are_401(self, api_key):
+        _seed()
+        for path in self.READ_PATHS:
+            r = client.get(path)
+            assert r.status_code == 401, (path, r.status_code, r.text)
+
+    def test_reads_with_wrong_key_are_401(self, api_key):
+        _seed()
+        for path in self.READ_PATHS:
+            assert client.get(path, headers=WRONG).status_code == 401, path
+
+    def test_reads_with_key_succeed(self, api_key):
+        _seed()
+        for path in self.READ_PATHS:
+            r = client.get(path, headers=AUTH)
+            # /suggest responde 400 sin EBM, pero DESPUÉS de la autenticación
+            assert r.status_code != 401, (path, r.status_code, r.text)
+            if "suggest" not in path:
+                assert r.status_code == 200, (path, r.status_code, r.text)
+
+    def test_reads_stay_open_without_configured_key(self):
+        _seed()  # sin key configurada la API queda abierta (decisión documentada)
+        for path in self.READ_PATHS:
+            r = client.get(path)
+            assert r.status_code != 401, (path, r.status_code, r.text)
+            if "suggest" not in path:
+                assert r.status_code == 200, (path, r.status_code, r.text)
+
+    def test_health_stays_open_with_key(self, api_key):
+        assert client.get("/health").status_code == 200
+        assert client.get("/v1/health").status_code == 200
+
+
+class TestRateLimitRetryAfter:
+    def test_429_carries_retry_after_within_window(self, monkeypatch):
+        monkeypatch.setenv("M2M_RATE_LIMIT_PER_MIN", "2")
+        edge_api._check_rate_limit("ip-ra", now=1000.0)
+        edge_api._check_rate_limit("ip-ra", now=1030.0)
+        with pytest.raises(HTTPException) as ei:
+            edge_api._check_rate_limit("ip-ra", now=1040.0)
+        assert ei.value.status_code == 429
+        # vence el más viejo (1000.0) a los 1060.0: faltan 20 s
+        assert ei.value.headers["Retry-After"] == "20"
+
+    def test_endpoint_response_exposes_header(self, monkeypatch, api_key):
+        _seed()
+        monkeypatch.setenv("M2M_RATE_LIMIT_PER_MIN", "1")
+        edge_api._rate_limit_store.clear()
+        body = {"vector": V0, "k": 1}
+        first = client.post("/v1/collections/c15/search", json=body, headers=AUTH)
+        assert first.status_code == 200, first.text
+        r = client.post("/v1/collections/c15/search", json=body, headers=AUTH)
+        assert r.status_code == 429, r.text
+        assert 1 <= int(r.headers["Retry-After"]) <= 60
+
+
+class TestCoordinatorKeyComparison:
+    @staticmethod
+    def _req(headers):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(headers=headers)
+
+    def test_scheme_is_case_insensitive_and_wrong_key_is_401(self, monkeypatch):
+        monkeypatch.setattr(coordinator_api, "_COORDINATOR_API_KEY", "coord-secret")
+        check = coordinator_api._validate_coordinator_key
+        for good in ("bearer coord-secret", "BEARER coord-secret", "Bearer coord-secret"):
+            check(self._req({"Authorization": good}))  # no levanta
+        check(self._req({"X-API-Key": "coord-secret"}))
+        for bad in ({"Authorization": "Bearer nope"}, {"Authorization": "coord-secret"}, {}, {"X-API-Key": ""}):
+            with pytest.raises(HTTPException) as ei:
+                check(self._req(bad))
+            assert ei.value.status_code == 401
+
+
+class TestHebbianDriftKeepsSplatNorm:
+    @staticmethod
+    def _store(vectors):
+        from m2m import M2MConfig, SplatStore
+
+        store = SplatStore(M2MConfig(latent_dim=vectors.shape[1], max_splats=1000, knn_k=5))
+        store.add_splat(vectors)
+        store.build_index()
+        return store
+
+    def test_unnormalized_store_keeps_norm_and_rank(self):
+        from m2m import M2MConfig
+
+        rng = np.random.default_rng(0)
+        vectors = (2.0 * rng.standard_normal((50, 8))).astype(np.float32)
+        store = self._store(vectors)
+        norm0 = float(np.linalg.norm(store.mu[0]))
+        assert norm0 > 3.0, "el SplatStore crudo NO normaliza: es el caso que exponía el bug"
+        for _ in range(20):
+            store.feedback(query=vectors[0].copy(), relevant_ids=[0])
+        assert np.isclose(np.linalg.norm(store.mu[0]), norm0, rtol=1e-5)
+        mu, alpha, kappa, idx = store.find_neighbors(vectors[0], k=5)
+        assert int(np.asarray(idx).ravel()[0]) == 0, "el splat reforzado deja de ser el vecino exacto"
+        assert float(alpha[0, 0]) > M2MConfig(latent_dim=8).init_alpha
+
+    def test_normalized_store_stays_on_unit_sphere(self):
+        rng = np.random.default_rng(1)
+        vectors = rng.standard_normal((50, 8)).astype(np.float32)
+        vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+        store = self._store(vectors)
+        moved = vectors[0] + 0.05 * rng.standard_normal(8).astype(np.float32)
+        moved /= np.linalg.norm(moved)
+        for _ in range(50):
+            store.feedback(query=moved, relevant_ids=[0])
+        new_mu = store.mu[0]
+        assert np.isclose(np.linalg.norm(new_mu), 1.0, atol=1e-6)
+        # la dirección se acercó a la query (Hebbian) sin perder la norma
+        assert float(new_mu @ moved) > float(vectors[0] @ moved)
