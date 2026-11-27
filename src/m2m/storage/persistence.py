@@ -15,7 +15,10 @@ Arquitectura:
         landscape.npz  # Estado del paisaje energético
 """
 
+import hashlib
 import json
+import logging
+import os
 import pickle
 import sqlite3
 import threading
@@ -26,6 +29,18 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from .wal import WriteAheadLog
+
+logger = logging.getLogger(__name__)
+
+MANIFEST_NAME = "manifest"  # -> <storage_path>/index/manifest.idx
+
+
+class IndexTamperedError(RuntimeError, ValueError):
+    """Un storage firmado no verifica (HMAC o contenido alterado).
+
+    Hereda de ValueError para conservar el contrato previo de load_index()
+    (audit r3a-17) y de RuntimeError para el flujo save()/load().
+    """
 
 
 class _RestrictedUnpickler(pickle.Unpickler):
@@ -123,6 +138,10 @@ class M2MPersistence:
                 updated_at REAL
             )
         """)
+        # Bases viejas sin la columna `deleted`: agregarla (aditivo) para que el
+        # índice y las lecturas toleren el esquema anterior (audit r1-01).
+        if "deleted" not in self._document_columns(conn):
+            conn.execute("ALTER TABLE documents ADD COLUMN deleted INTEGER DEFAULT 0")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_deleted ON documents(deleted)")
         conn.commit()
         conn.close()
@@ -337,6 +356,141 @@ class M2MPersistence:
         finally:
             conn.close()
         return None
+
+    def _document_columns(self, conn: sqlite3.Connection) -> set:
+        """Columnas de la tabla documents (esquema viejo sin `deleted` incluido)."""
+        return {row[1] for row in conn.execute("PRAGMA table_info(documents)").fetchall()}
+
+    def get_all_documents(self, include_deleted: bool = True) -> List[Dict]:
+        """Todas las filas de metadata.db en orden ESTABLE (shard_idx, vector_idx).
+
+        Una sola conexión (get_metadata() abre una por doc) y un orden
+        reproducible: es el orden de inserción de add() —cada lote escribe su
+        propio shard y vector_idx es la posición dentro del lote—, que
+        SimpleVectorDB._restore_from_storage usa para alinear _splat_id_order
+        con las posiciones de splat (audit r1-01). En bases viejas sin la
+        columna `deleted` se reporta como False.
+
+        Returns:
+            Lista de dicts {id, shard_idx, vector_idx, metadata, document, deleted}.
+        """
+        conn = self._get_conn()
+        try:
+            has_deleted = "deleted" in self._document_columns(conn)
+            sql = "SELECT id, shard_idx, vector_idx, metadata, document"
+            sql += ", deleted" if has_deleted else ""
+            sql += " FROM documents"
+            if not include_deleted and has_deleted:
+                sql += " WHERE deleted=0"
+            sql += " ORDER BY shard_idx, vector_idx, rowid"
+            rows = conn.execute(sql).fetchall()
+        finally:
+            conn.close()
+        return [
+            {
+                "id": row[0],
+                "shard_idx": row[1],
+                "vector_idx": row[2],
+                "metadata": json.loads(row[3]) if row[3] else {},
+                "document": row[4],
+                "deleted": bool(row[5]) if has_deleted else False,
+            }
+            for row in rows
+        ]
+
+    def _storage_digest(self) -> Dict[str, Any]:
+        """Digest del contenido del storage: sha256 por shard + digest lógico de
+        metadata.db (filas ordenadas por id, independiente del layout físico de
+        SQLite). Base del manifiesto firmado (audit r3a-17)."""
+        files = {}
+        for shard_path in sorted((self.storage_path / "data" / "vectors").glob("*.npy")):
+            h = hashlib.sha256()
+            with open(str(shard_path), "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            files[f"data/vectors/{shard_path.name}"] = h.hexdigest()
+        conn = self._get_conn()
+        try:
+            has_deleted = "deleted" in self._document_columns(conn)
+            sql = "SELECT id, shard_idx, vector_idx, metadata, document"
+            sql += ", deleted" if has_deleted else ""
+            rows = conn.execute(sql + " FROM documents ORDER BY id").fetchall()
+        finally:
+            conn.close()
+        h = hashlib.sha256()
+        for row in rows:
+            canon = json.dumps(
+                [None if v is None else str(v) for v in row],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            h.update(canon.encode("utf-8"))
+            h.update(b"\n")
+        return {"version": 1, "files": files, "metadata": h.hexdigest()}
+
+    def write_manifest(self) -> Optional[str]:
+        """Firma el storage (shards + metadata) con HMAC-SHA256.
+
+        Escribe index/manifest.idx via save_index(); requiere M2M_HMAC_SECRET.
+        Sin secreto no escribe nada ni levanta (firma opt-in, audit r3a-17).
+
+        Returns:
+            Ruta del manifiesto escrito, o None si no hay secreto.
+        """
+        if not os.environ.get("M2M_HMAC_SECRET"):
+            return None
+        self.save_index(self._storage_digest(), name=MANIFEST_NAME)
+        return str(self.storage_path / "index" / f"{MANIFEST_NAME}.idx")
+
+    def verify_manifest(self) -> bool:
+        """Verifica la firma y el contenido del storage contra index/manifest.idx.
+
+        - Sin M2M_HMAC_SECRET: no-op silencioso (devuelve True).
+        - Con secreto y manifiesto: recomputa el digest y compara; un shard o
+          metadata alterado, o el manifiesto mismo, levanta IndexTamperedError
+          (RuntimeError).
+        - Con secreto pero SIN manifiesto (storage escrito sin firma): warning y
+          devuelve False; no bloquea la carga de bases preexistentes.
+        """
+        if not os.environ.get("M2M_HMAC_SECRET"):
+            return True
+        index_path = self.storage_path / "index" / f"{MANIFEST_NAME}.idx"
+        if not index_path.exists():
+            logger.warning(
+                "M2M_HMAC_SECRET is set but %s has no signed manifest "
+                "(index/%s.idx): skipping integrity verification",
+                self.storage_path,
+                MANIFEST_NAME,
+            )
+            return False
+        try:
+            expected = self.load_index(MANIFEST_NAME)
+        except ValueError as e:  # HMAC del manifiesto (load_index)
+            raise IndexTamperedError(str(e)) from e
+        if (
+            not isinstance(expected, dict)
+            or not isinstance(expected.get("files"), dict)
+            or "metadata" not in expected
+        ):
+            raise IndexTamperedError(f"Invalid signed manifest for {self.storage_path}")
+        actual = self._storage_digest()
+        exp_files, act_files = expected["files"], actual["files"]
+        problems = []
+        for rel in sorted(set(exp_files) | set(act_files)):
+            if rel not in act_files:
+                problems.append(f"{rel} (missing)")
+            elif rel not in exp_files:
+                problems.append(f"{rel} (not in manifest)")
+            elif exp_files[rel] != act_files[rel]:
+                problems.append(f"{rel} (content modified)")
+        if expected["metadata"] != actual["metadata"]:
+            problems.append("data/metadata/metadata.db (content modified)")
+        if problems:
+            raise IndexTamperedError(
+                f"Integrity verification failed for storage {self.storage_path}: "
+                f"possible tampering in {', '.join(problems)}"
+            )
+        return True
 
     def get_all_ids(self, include_deleted: bool = False) -> List[str]:
         """Obtiene todos los IDs almacenados."""

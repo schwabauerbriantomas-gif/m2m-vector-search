@@ -527,46 +527,163 @@ class SimpleVectorDB:
             self._ebm_exploration = EBMExploration(self._ebm_energy)
 
     def _restore_from_storage(self):
-        """Restore documents from persistence into memory dicts."""
+        """Restaura los documentos desde storage y RECONSTRUYE el índice.
+
+        Antes este método sólo repoblaba _vectors/_metadata/_documents: tras
+        save() + reopen quedaban n_active_splats=0 y _splat_id_order=[], así que
+        search()/search_batch() devolvían vacío sin error (audit r1-01). Ahora:
+
+        1. lee TODAS las filas de metadata.db (incl. soft-deleted) en orden
+           estable (shard_idx, vector_idx) = orden de inserción de add();
+        2. indexa los splats por la MISMA ruta que un add() del mismo tamaño
+           (engine.add_splats -> build_index con KMeans completo);
+        3. _splat_id_order queda alineado 1:1 con las posiciones de splat;
+        4. _deleted se restaura: un doc borrado antes del save() no reaparece;
+        5. si n_restored > max_splats: indexa los primeros max_splats en ese
+           orden y lo avisa con un warning (los demás siguen en storage);
+        6. con enable_lsh_fallback decide LSH igual que add() y reconstruye el
+           índice LSH.
+
+        Idempotente (load() lo reusa): resetea el estado en memoria y el engine.
+        Con M2M_HMAC_SECRET seteado verifica antes la firma del storage.
+        """
         if not self.storage:
             return
+        from .storage.persistence import IndexTamperedError
+
+        # Reset del estado en memoria + engine (idempotente)
+        self._vectors.clear()
+        self._metadata.clear()
+        self._documents.clear()
+        self._deleted.clear()
+        self._splat_id_order = []
+        self._lsh_id_map = []
+        self.lsh = None
+        self._use_lsh = False
+        self._lsh_decided = False
+        self._lsh_active_mode = False
+        store = self.engine.m2m.splats
+        store.n_active = 0
+        store._next_id = 0
+        store._last_trained_n = 0
+        store.engine.clear()
+        store._m_sq_dirty = True
+        store._cuda_dirty = True
         try:
-            doc_ids = self.storage.get_all_ids(include_deleted=False)
-            if not doc_ids:
+            # r3a-17: sin secreto es no-op; con secreto levanta IndexTamperedError
+            self.storage.verify_manifest()
+            rows = self.storage.get_all_documents(include_deleted=True)
+            if not rows:
                 return
-            # Load shard vectors
-            shards = self.storage.list_shards()
-            shard_vectors = {}
-            for shard_name in shards:
-                vecs = self.storage.load_vectors(shard_name)
-                if vecs is not None:
-                    shard_vectors[shard_name] = vecs
-            # Restore each document
-            for doc_id in doc_ids:
-                meta = self.storage.get_metadata(doc_id)
-                if meta is None:
+            # shard_idx es 1-based y corresponde directo al nombre de archivo
+            # (1 -> shard_001, 2 -> shard_002, ...).
+            shards = {}
+            restored = []  # (doc_id, vector, metadata, document, deleted)
+            missing = 0
+            for row in rows:
+                shard_idx = row.get("shard_idx")
+                vector_idx = row.get("vector_idx")
+                if shard_idx is None or vector_idx is None:
+                    missing += 1
                     continue
-                shard_idx = meta.get("shard_idx", 0)
-                vector_idx = meta.get("vector_idx", 0)
-                # shard_idx es 1-based y corresponde directo al nombre de archivo
-                # (1 -> shard_001, 2 -> shard_002, ...). La fórmula anterior
-                # (shard_idx+1) mapeaba TODO al shard siguiente y con múltiples
-                # shards restauraba solo el último lote.
                 shard_name = f"shard_{max(1, int(shard_idx)):03d}"
-                if shard_name in shard_vectors and vector_idx < len(shard_vectors[shard_name]):
-                    self._vectors[doc_id] = shard_vectors[shard_name][vector_idx]
-                    self._metadata[doc_id] = meta.get("metadata", {})
-                    self._documents[doc_id] = meta.get("document", "")
-            if self._vectors:
-                import logging
-
-                logging.getLogger("m2m").info(
-                    f"Restored {len(self._vectors)} documents from storage"
+                if shard_name not in shards:
+                    shards[shard_name] = self.storage.load_vectors(shard_name)
+                vecs = shards[shard_name]
+                if vecs is None or not (0 <= int(vector_idx) < len(vecs)):
+                    missing += 1
+                    continue
+                restored.append(
+                    (
+                        row["id"],
+                        vecs[int(vector_idx)],
+                        row.get("metadata") or {},
+                        row.get("document"),
+                        bool(row.get("deleted")),
+                    )
                 )
-        except Exception as e:
-            import logging
+            n = len(restored)
+            if missing:
+                logger.warning(
+                    "Restore: %d fila(s) de metadata sin vector localizable "
+                    "(shard_idx/vector_idx inválidos); se ignoran",
+                    missing,
+                )
+            if n == 0:
+                return
+            vectors = np.ascontiguousarray(
+                np.stack([r[1] for r in restored]), dtype=np.float32
+            )
 
-            logging.getLogger("m2m").warning(f"Failed to restore from storage: {e}")
+            # LSH: misma decisión única que add() (primer lote con n>=3)
+            if self.enable_lsh_fallback and n >= 3:
+                self._lsh_decided = True
+                silhouette = self._compute_silhouette(vectors)
+                self._lsh_active_mode = silhouette < self.lsh_threshold
+            if self._lsh_active_mode and self.enable_lsh_fallback:
+                try:
+                    from .lsh_index import CrossPolytopeLSH, LSHConfig
+
+                    config = LSHConfig(
+                        dim=self.engine.config.latent_dim,
+                        n_tables=15,
+                        n_bits=18,
+                        n_probes=50,
+                        n_candidates=500,
+                    )
+                    self.lsh = CrossPolytopeLSH(config)
+                    self.lsh.index(vectors)
+                    self._use_lsh = True
+                    with self._rw_lock:
+                        for doc_id, vec, meta, doc, deleted in restored:
+                            self._vectors[doc_id] = np.array(vec, dtype=np.float32, copy=True)
+                            self._metadata[doc_id] = meta
+                            self._documents[doc_id] = doc
+                            if deleted:
+                                self._deleted.add(doc_id)
+                        self._lsh_id_map = [r[0] for r in restored]
+                        self._splat_id_order = [r[0] for r in restored]
+                    logger.info(
+                        "Restored %d documents from storage (LSH index rebuilt)", n
+                    )
+                    return
+                except ImportError as e:
+                    logger.warning("Could not load LSH module: %s.", e)
+                    self._lsh_active_mode = False
+                    self._use_lsh = False
+                    self.lsh = None
+
+            # Splats + IVF: misma ruta que add() (normaliza, add_splat, build_index)
+            n_added = self.engine.add_splats(vectors)
+            if n_added < n:
+                skipped = [r[0] for r in restored[n_added:]]
+                logger.warning(
+                    "Restore: max_splats=%d alcanzado: %d de %d documentos restaurados NO se "
+                    "indexan (siguen en storage; reabrir con max_splats mayor para "
+                    "recuperarlos). Primeros ids sin indexar: %s",
+                    self.max_splats,
+                    n - n_added,
+                    n,
+                    skipped[:20],
+                )
+            with self._rw_lock:
+                for doc_id, vec, meta, doc, deleted in restored[:n_added]:
+                    self._vectors[doc_id] = np.array(vec, dtype=np.float32, copy=True)
+                    self._metadata[doc_id] = meta
+                    self._documents[doc_id] = doc
+                    if deleted:
+                        self._deleted.add(doc_id)
+                self._splat_id_order = [r[0] for r in restored[:n_added]]
+            logger.info(
+                "Restored %d documents from storage (%d splats indexed, %d soft-deleted)",
+                n,
+                n_added,
+                len(self._deleted),
+            )
+        except IndexTamperedError:
+            raise  # firma inválida: no se carga nada (audit r3a-17)
+        except Exception as e:
+            logger.warning("Failed to restore from storage: %s: %s", type(e).__name__, e)
 
     def _compute_silhouette(self, vectors: np.ndarray, sample_size: int = 1000) -> float:
         try:
