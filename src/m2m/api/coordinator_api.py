@@ -3,7 +3,7 @@ import asyncio
 # -- SECURITY: API Key for coordinator (C-01, P-09 fix) ---------------
 import os
 from contextlib import asynccontextmanager
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -24,6 +24,19 @@ from ..cluster.protocol import (
 from ..cluster.router import ClusterRouter
 
 _COORDINATOR_API_KEY = os.environ.get("M2M_COORDINATOR_API_KEY")
+
+
+def _edge_api_key() -> Optional[str]:
+    """Clave que el coordinator reenvía a los edges: ``M2M_EDGE_API_KEY``.
+
+    Los edges validan ``M2M_API_KEY`` (header ``X-API-Key``). Sin esta variable el
+    fan-out de ``/search`` llega sin credencial y, con clave requerida en los
+    edges, cada edge responde 401 y el coordinator devuelve resultados vacíos
+    (audit P15). Es la clave de LOS EDGES, no la del coordinator: la de éste sólo
+    autentica al cliente y nunca se reenvía. Se lee en cada pedido (a diferencia
+    de ``M2M_COORDINATOR_API_KEY``, leída al importar).
+    """
+    return os.environ.get("M2M_EDGE_API_KEY") or None
 
 
 def _validate_coordinator_key(request: Request) -> None:
@@ -81,6 +94,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="M2M Coordinator Node", lifespan=lifespan)
 
 
+@app.get("/health")
+def health():
+    """Liveness del coordinator. No exige clave (la usan probes de compose/k8s)."""
+    return {"status": "ok"}
+
+
 @app.post("/register")
 async def register_edge(request: Request):
     """Register edge node with API key validation (P-09 fix)."""
@@ -126,8 +145,12 @@ async def fetch_edge_results(
 ) -> Tuple[str, List[Tuple[int, float]]]:
     """Helper to fetch search results from a single edge node asynchronously."""
     try:
+        edge_key = _edge_api_key()
         response = await http_client.post(
-            f"{edge_url}/search", json=request.model_dump(), timeout=5.0
+            f"{edge_url}/search",
+            json=request.model_dump(),
+            timeout=5.0,
+            headers={"X-API-Key": edge_key} if edge_key else {},
         )
         response.raise_for_status()
         data = response.json()
