@@ -175,6 +175,19 @@ class SplatStore:
                 eng.embeddings = np.vstack([eng.embeddings, new_points])
 
             masks = getattr(eng, "_cluster_masks", None)
+            if masks:
+                # r1-11: alinear TODAS las máscaras a n. Antes solo se extendían
+                # las de los clusters que recibieron puntos nuevos y las demás
+                # quedaban con longitud old_n: update() indexa
+                # _cluster_masks[cid][pos] (IndexError) y query_with_details
+                # hace embeddings[mask] con la máscara corta (IndexError).
+                for cid, prev_mask in list(masks.items()):
+                    if len(prev_mask) == old_n:
+                        masks[cid] = np.concatenate([prev_mask, new_assign == cid])
+                    elif len(prev_mask) != n:
+                        # Longitud inesperada (índice externo que no las mantuvo):
+                        # reconstruir desde los assignments ya extendidos.
+                        masks[cid] = np.asarray(eng.coarse_assignments == cid)
             for cid in np.unique(new_assign):
                 extra = np.where(new_assign == cid)[0] + old_n
                 prev_idx = eng.coarse_cluster_indices.get(cid)
@@ -187,8 +200,8 @@ class SplatStore:
                 assert prev_emb is not None, f"cluster {cid} sin embeddings precomputados"
                 new_emb = np.ascontiguousarray(eng.embeddings[extra])
                 eng.coarse_cluster_embeddings[cid] = np.vstack([prev_emb, new_emb])
-                if masks is not None and cid in masks:
-                    masks[cid] = np.concatenate([masks[cid], new_assign == cid])
+                if masks is not None and cid not in masks:
+                    masks[cid] = np.asarray(eng.coarse_assignments == cid)
             self._last_trained_n = n
 
         self._gpu_index_dirty = True
