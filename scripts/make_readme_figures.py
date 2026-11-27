@@ -58,11 +58,8 @@ UMBRAL_RECALL = 1.0  # el recall se anota solo donde es menor que esto
 T_VALOR = 8.5
 
 # Texto mandado por el dueno del pass que SI lleva cifras (no salen de los JSON).
-NOTA_RUIDO = ("Noise, stated honestly: between two runs of the same code most rows vary by about "
-              "±10%, but the large batches (B=1000, and B=200 on the 10k clustered dataset) varied "
-              "by up to 40%. Treat differences inside that band as noise.")
 LITERALES_DE_LAYOUT = frozenset({DPI})  # unicos enteros >= 100 permitidos en este archivo
-TEXTO_CON_CIFRAS_PERMITIDAS = {"NOTA_RUIDO", "_RE_SHA"}
+TEXTO_CON_CIFRAS_PERMITIDAS = {"TEXTO_EN", "_RE_SHA"}  # claves = textos de los JSON (con sus numeros), ver sin_cifras_nuevas
 _RE_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _RE_CIFRAS = re.compile(r"\d{3,}")
 _RE_SHA = re.compile(r"(?i)sha-?256")  # nombre de algoritmo, no una cifra
@@ -140,7 +137,7 @@ def cargar_todo():
     D = {}
     for clave, nombre, antes in (("bus", "bench_search", False), ("bus_antes", "bench_search", True),
                                  ("fil", "bench_filtered", False), ("idx", "bench_index_types", False),
-                                 ("sto", "bench_storage", False)):
+                                 ("sto", "bench_storage", False), ("ruido", "bench_noise", False)):
         doc, ruta = cargar(nombre, antes)
         if doc is None and not antes:
             raise SystemExit(f"falta {ruta}")
@@ -1155,6 +1152,23 @@ def leyenda_storage(H):
 LEYENDAS = (leyenda_hero, leyenda_qps, leyenda_filtered, leyenda_index, leyenda_storage)
 
 
+def nota_ruido(D):
+    """Seccion «Noise»: cada cifra sale de bench_noise.json (dos corridas archivadas de bench_search)."""
+    doc, ruta = D["ruido"]
+    s = doc["resumen"]
+    f = s["fila_delta_max"]
+    ds = f["dataset"]
+    c1, c2 = doc["corridas"]["run1"]["commit"], doc["corridas"]["run2"]["commit"]
+    return (f"Noise, stated honestly: `{os.path.relpath(ruta, ROOT)}` compares, row by row, the two archived runs of "
+            f"the search table (measurement commits `{c1[:7]}` and `{c2[:7]}`, same code behaviour on the measured "
+            f"paths). Of {s['filas_comparadas']} rows {s['filas_dentro_umbral']} stay within ±{s['umbral_pct']:g}% of QPS "
+            f"(median |Δ| {s['delta_abs_mediana_pct']:.1f}%, p90 {s['delta_abs_p90_pct']:.0f}%); the largest gap is "
+            f"{s['delta_max_abs_pct']:.0f}% (`{f['parametro']}` on {ds['kind']} {ds['n'] // MIL}k · d={ds['d']}: "
+            f"{fmt_qps(f['qps1'])} against {fmt_qps(f['qps2'])} QPS, same recall), and recall@10 was identical in "
+            f"{'every row' if s['recall_identico_en_todas'] else 'no row'}. Treat differences inside that band as noise; "
+            "the per-row deltas are in the JSON.")
+
+
 def benchmarks_md(D, manifest):
     bus, fil, idx, sto = D["bus"][0], D["fil"][0], D["idx"][0], D["sto"][0]
     bus_antes = D["bus_antes"][0]
@@ -1244,7 +1258,7 @@ def benchmarks_md(D, manifest):
             continue
         L += [f"### Table {i} — `{os.path.relpath(ruta, ROOT)}` ({titulo_tabla}; commit `{commit_corto_de(doc)}`, "
               f"sha256 `{sha256(ruta)}`)", "", tabla_md(doc), ""]
-    L += ["## Noise", "", NOTA_RUIDO, ""]
+    L += ["## Noise", "", nota_ruido(D), ""]
     L += ["## Appendix — verbatim `protocolo` recorded in each JSON", ""]
     for etiqueta, (doc, ruta) in (("bench_search (after)", D["bus"]), ("bench_search (before)", D["bus_antes"]),
                                   ("bench_filtered", D["fil"]), ("bench_index_types", D["idx"])):

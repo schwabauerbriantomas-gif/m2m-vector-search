@@ -259,7 +259,7 @@ Column names are the JSON keys and values are printed exactly as stored (no roun
 
 ## Noise
 
-Noise, stated honestly: between two runs of the same code most rows vary by about ±10%, but the large batches (B=1000, and B=200 on the 10k clustered dataset) varied by up to 40%. Treat differences inside that band as noise.
+Noise, stated honestly: `benchmarks/results/bench_noise.json` compares, row by row, the two archived runs of the search table (measurement commits `2109459` and `626e4ff`, same code behaviour on the measured paths). Of 45 rows 36 stay within ±10% of QPS (median |Δ| 4.1%, p90 16%); the largest gap is 42% (`search_batch B=200` on clustered 10k · d=384: 3,058 against 1,771 QPS, same recall), and recall@10 was identical in every row. Treat differences inside that band as noise; the per-row deltas are in the JSON.
 
 ## Appendix — verbatim `protocolo` recorded in each JSON
 

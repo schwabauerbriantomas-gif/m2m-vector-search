@@ -146,10 +146,16 @@ running. GPU execution is not exercised in CI (no GPU on the runners).
 
 ## Noise between runs
 
-Two runs of the search table on the same commit differ by up to 10.8 % in QPS
-(44 of 45 rows within ±10 %), while recall@10 was identical in every
-row. Large-batch rows move more: `search_batch` at B = 200 on clustered 10k × 384 read
-3,060 QPS in the first measurement pass and 1,770 in the final re-measurement
-(42 % apart, same recall). Read differences below ~10 % — and larger ones for
-big batches, up to about 40 % — as noise of this host unless they reproduce, and
-never call a winner on a gap that small.
+`bench/bench_noise.py` compares, row by row (same dataset and `parametro`), the two archived
+runs of the search table: `benchmarks/results/bench_search_run1_2109459.json` (measurement
+commit 2109459) and `bench_search.json` (measurement commit 626e4ff), which behave the same
+on the measured paths. The result is `benchmarks/results/bench_noise.json`. Of 45 rows, 36
+stay within ±10 % of QPS (median |Δ| 4.06 %, p90 16.0 %); the largest gap is 42.1 %, in
+`search_batch` at B = 200 on clustered 10k × 384 (3,060 against 1,770 QPS, same recall).
+The other rows outside the band are the batched linear scan at B = 1000 on 50k × 384
+(clustered −39.0 %, uniform −32.4 %), the single-query linear scan on clustered 10k × 64
+(−23.4 %), `search_batch` at B = 1000 on clustered 10k × 384 (−16.0 %), uniform 50k × 384
+(−16.0 %) and clustered 10k × 64 (−12.0 %), `search_batch` at B = 1 on clustered 10k × 64
+(+12.0 %) and `search_batch` at B = 200 on uniform 50k × 384 (−10.1 %). Recall@10 was
+identical in all 45 rows. Read differences below ~10 % — and larger ones for big batches and
+for the linear baselines, up to 42 % — as noise of this host unless they reproduce.
