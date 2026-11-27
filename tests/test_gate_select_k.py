@@ -22,7 +22,9 @@ import pytest
 from m2m.gate_modulus import (
     GateKSelection,
     SLOPE_FINO_UMBRAL,
+    _CACHE_ALGO,
     _classify_fine,
+    _data_fingerprint,
     gate_select_k,
 )
 from m2m.hrm2_engine import HRM2Engine
@@ -145,7 +147,7 @@ def _fake_X(n=64, d=8, seed=0):
     return r.normal(size=(n, d)).astype(np.float32)
 
 
-def _fake_verdict(tmp_path, N, D, jerarquico, knee, slope=-1.2, ic=(-1.5, -0.9)):
+def _fake_verdict(tmp_path, N, D, jerarquico, knee, X, slope=-1.2, ic=(-1.5, -0.9)):
     verdict = {
         "N": N, "D": D,
         "medianas": {16: 10.0, 22: 9.0},
@@ -159,15 +161,19 @@ def _fake_verdict(tmp_path, N, D, jerarquico, knee, slope=-1.2, ic=(-1.5, -0.9))
         "t_s": 0.1,
     }
     path = tmp_path / "verdict_cache.json"
+    # [audit r2-11] La clave del cache incorpora el fingerprint del contenido
+    # y la versión del algoritmo: un cache sin ellos (formato viejo) ya no se
+    # reusa, así que el veredicto inyectado debe declararlos.
     path.write_text(json.dumps({
         "target_docs_per_cluster": 25, "seed": 42, "verdict": verdict,
+        "fingerprint": _data_fingerprint(X), "algo": _CACHE_ALGO,
     }))
     return str(path)
 
 
 def test_selection_hierarchical_uses_operational_k(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=True,
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=True,
                           knee={"knee_K": 10, "slope_seg": -5.0})
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     # jerárquico: K operacional N//target aunque exista knee estructural
@@ -177,7 +183,7 @@ def test_selection_hierarchical_uses_operational_k(tmp_path):
 
 def test_selection_structural_knee_wins_on_mono(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=False,
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=False,
                           knee={"knee_K": 10, "slope_seg": -5.0})
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     assert sel.jerarquico is False
@@ -187,7 +193,7 @@ def test_selection_structural_knee_wins_on_mono(tmp_path):
 
 def test_selection_phantom_knee_discarded_on_mono(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=False,
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=False,
                           knee={"knee_K": 10, "slope_seg": -1.0})
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     assert sel.jerarquico is False
@@ -198,7 +204,7 @@ def test_selection_phantom_knee_discarded_on_mono(tmp_path):
 
 def test_selection_no_knee_operational_k(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], jerarquico=False, knee=None)
+    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=False, knee=None)
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     assert sel.jerarquico is False
     assert sel.k == len(X) // 25

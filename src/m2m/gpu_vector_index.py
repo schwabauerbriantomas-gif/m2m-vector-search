@@ -26,6 +26,12 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# [audit r2-20] shaders/moe_batch.comp declara `shared float shared_query[1024]`
+# y escribe shared_query[i] para i < push.dim SIN chequeo: con D > 1024 el
+# kernel escribe fuera de la memoria compartida (comportamiento indefinido /
+# device lost). Guardia en Python, antes de compilar/iniciar Vulkan.
+MAX_SHADER_DIM = 1024
+
 
 try:
     import vulkan as vk
@@ -97,6 +103,13 @@ class GPUVectorIndex:
         assert index_vectors.ndim == 2, "index_vectors must be [N, D]"
         self._n = index_vectors.shape[0]
         self._dim = index_vectors.shape[1]
+        # [audit r2-20] dim > 1024 -> ValueError claro ANTES de tocar el shader.
+        if not 1 <= self._dim <= MAX_SHADER_DIM:
+            raise ValueError(
+                f"GPUVectorIndex: dim={self._dim} fuera de rango [1, {MAX_SHADER_DIM}] — "
+                f"shaders/moe_batch.comp soporta hasta {MAX_SHADER_DIM} dimensiones "
+                f"(shared_query[{MAX_SHADER_DIM}]); reducí la dimensión o usá el índice CPU"
+            )
         self._max_batch = max_batch_size
         self._base_dir = os.path.dirname(os.path.abspath(__file__))
 
