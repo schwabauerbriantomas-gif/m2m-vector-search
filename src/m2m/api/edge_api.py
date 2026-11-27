@@ -345,6 +345,10 @@ def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
 #     <key>`` o ``X-API-Key: <key>``, comparados en tiempo constante.
 #   * ``/v1/admin/*`` (checkpoint, backup) EXIGEN key: sin key configurada
 #     responden 503 (fail closed) en vez de quedar abiertos.
+#   * GET/PUT/DELETE de un vector también validan (audit P15): antes, con clave
+#     configurada, se leía, sobreescribía y borraba sin ella. Siguen SIN validar
+#     (sólo lectura de nombres/contadores): ``GET /v1/collections``,
+#     ``GET /v1/collections/{name}`` y ``GET .../stats``.
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
@@ -579,8 +583,9 @@ def insert_vectors(
 
 
 @app.get("/v1/collections/{name}/vectors/{vector_id}")
-def get_vector(name: str, vector_id: str):
-    """Obtiene un vector por ID."""
+def get_vector(name: str, vector_id: str, request: Request):
+    """Obtiene un vector por ID (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)  # antes del lookup: sin clave no se filtra 401 vs 404
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -599,8 +604,12 @@ def get_vector(name: str, vector_id: str):
 
 
 @app.put("/v1/collections/{name}/vectors/{vector_id}")
-def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
-    """Actualiza un vector existente."""
+def update_vector(
+    name: str, vector_id: str, req: UpdateVectorRequest, request: Request
+):
+    """Actualiza un vector existente (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -630,8 +639,10 @@ def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
 
 
 @app.delete("/v1/collections/{name}/vectors/{vector_id}")
-def delete_vector(name: str, vector_id: str, hard: bool = False):
-    """Elimina un vector."""
+def delete_vector(name: str, vector_id: str, request: Request, hard: bool = False):
+    """Elimina un vector (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         db = _manager.get(name)
     except KeyError as e:
