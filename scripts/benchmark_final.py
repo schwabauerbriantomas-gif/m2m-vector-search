@@ -179,7 +179,7 @@ def main():
         gc.collect()
     
     # Save
-    out = Path(__file__).parent.parent / "benchmark_final.json"
+    out = Path(__file__).parent.parent / "bench/history/benchmark_final.json"
     data = {
         "metadata": {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),

@@ -116,7 +116,7 @@ if __name__ == "__main__":
     out["mem_binary_mb"] = round(bits_bytes / 1e6, 2)
     out["compression"] = round(data.nbytes / bits_bytes, 1)
 
-    with open(os.path.join(os.path.dirname(__file__), "h9_binary.json"), "w") as f:
+    with open(os.path.join(os.path.dirname(__file__), "bench/history/h9_binary.json"), "w") as f:
         json.dump(out, f, indent=2)
     for r in out["results"]:
         print(f"  {r['mode']:16s} recall@10={r['recall@10']:.4f}  QPS={r['qps']}")

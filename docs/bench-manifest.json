@@ -1,0 +1,74 @@
+{
+ "commit_after": "2109459c3",
+ "commit_before": "a74d9e41a",
+ "figuras": {
+  "docs/bench-filtered.png": {
+   "fuentes": [
+    {
+     "ruta": "benchmarks/results/bench_filtered.json",
+     "sha256": "9eface83bda3f7f3aa5c1eb9f39a7fc5a684c0a953b01858ad218a291486fe81"
+    },
+    {
+     "ruta": "benchmarks/results/before_a74d9e4/bench_filtered.json",
+     "sha256": "f88d4363946f28d14a8d7b73697074a767b22b48434616b01d4759d5e958917d"
+    }
+   ],
+   "pixeles": [
+    1556,
+    628
+   ],
+   "sha256_png": "16a5c045b1b9f88f5ff7b483d320745848117bf376628338651cf69b76d576b8",
+   "titulo": "Filtered search recall by filter and path"
+  },
+  "docs/bench-hero.png": {
+   "fuentes": [
+    {
+     "ruta": "benchmarks/results/bench_search.json",
+     "sha256": "2c413c3a06ae068880dda47dcd06b3b76d6a89ed403fd5da1fb0f4e6f546a496"
+    },
+    {
+     "ruta": "benchmarks/results/before_a74d9e4/bench_search.json",
+     "sha256": "cbf3a4dd1aa7c9f289af70d1ec529608fb16d0538919469e7e5009a3045ca620"
+    }
+   ],
+   "pixeles": [
+    1575,
+    627
+   ],
+   "sha256_png": "7ae439095519d49c9059ba5d20109e3cd48a29254c4248d7a80f4904ebd0b793",
+   "titulo": "Search throughput and recall (dot-plot + before/after)"
+  },
+  "docs/bench-qps.png": {
+   "fuentes": [
+    {
+     "ruta": "benchmarks/results/bench_search.json",
+     "sha256": "2c413c3a06ae068880dda47dcd06b3b76d6a89ed403fd5da1fb0f4e6f546a496"
+    }
+   ],
+   "pixeles": [
+    1532,
+    617
+   ],
+   "sha256_png": "55bf32c69336a617bfa4892aa18df6a374ab8edf3c5cbc0f787426c5e6300edb",
+   "titulo": "Batch throughput by batch size and index build time"
+  },
+  "docs/bench-storage.png": {
+   "fuentes": [
+    {
+     "ruta": "benchmarks/results/bench_storage.json",
+     "sha256": "84ca465ca93dc94063c2c837fe0be56d10e1b8de40326ec7003f4605ffa71cf7"
+    }
+   ],
+   "pixeles": [
+    1695,
+    659
+   ],
+   "sha256_png": "eaa9588b9fa1ceeecb3485868b38701c7727aa62418cde1a97f803e775c1ac7f",
+   "titulo": "Storage: arrays vs RSS, snapshot size, reopen time"
+  }
+ },
+ "generador": "scripts/make_readme_figures.py",
+ "matplotlib": "3.11.2",
+ "protocolo": "bench/_protocol.py",
+ "regenerar": "python scripts/make_readme_figures.py"
+}

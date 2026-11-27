@@ -127,7 +127,7 @@ def main():
         gc.collect()
 
     # Save
-    out = Path(__file__).parent.parent / "benchmark_supplement.json"
+    out = Path(__file__).parent.parent / "bench/history/benchmark_supplement.json"
     with open(out, "w") as f:
         json.dump([asdict(r) for r in results], f, indent=2)
     print(f"\nResults saved to {out}")

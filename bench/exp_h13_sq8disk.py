@@ -114,7 +114,7 @@ def main():
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
-    with open(os.path.join(HERE, "h13_sq8disk.json"), "w") as f:
+    with open(os.path.join(HERE, "bench/history/h13_sq8disk.json"), "w") as f:
         json.dump(results, f, indent=2)
 
 

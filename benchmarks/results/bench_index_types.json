@@ -1,0 +1,874 @@
+{
+ "tabla": "bench_index_types",
+ "protocolo": {
+  "k": 10,
+  "n_queries": 200,
+  "seed_datos": 42,
+  "seed_queries": 7,
+  "warmup": 1,
+  "min_reps": 5,
+  "max_reps": 200,
+  "min_tiempo_s": 1.0,
+  "dataset_clustered": "C = round(sqrt(n)) centros ~ N(0, I_d)*2; punto = centro + N(0, I_d); L2-normalizado, float32",
+  "dataset_uniform": "N(0, I_d) L2-normalizado, float32",
+  "queries": "mismo generador que el dataset, seed_queries, n_queries",
+  "gt": "fuerza bruta float64 (producto punto contra todas las filas, argpartition + orden); recall@10 = |top-10 interseccion GT| / |GT|",
+  "latencia": "ms por query: mediana / p5 / p95 sobre todas las queries de todas las repeticiones",
+  "qps": "queries_por_repeticion / tiempo de pared de la repeticion; mediana entre repeticiones (no es 1/latencia media)",
+  "batch": "una repeticion = una llamada con B queries; latencia por query = tiempo / B",
+  "rss": "pico de RSS del proceso muestreado cada 0.005 s (/proc/self/statm)",
+  "carga": "carga_cpu_sistema_pct = CPU ocupada del sistema (/proc/stat, todos los CPUs) durante la medicion; cpu_propio_pct = (utime+stime del proceso)/pared"
+ },
+ "meta": {
+  "commit": "2109459c3e6dded2d02d21b32af0a8d22cf272c7",
+  "commit_corto": "2109459c3",
+  "arbol": "wt_p9",
+  "src_sucio": false,
+  "m2m_file": "src/m2m/__init__.py",
+  "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+  "nproc": 8,
+  "cpu_count": 8,
+  "hilos": {
+   "OPENBLAS_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "MKL_NUM_THREADS": "1",
+   "NUMEXPR_NUM_THREADS": null
+  },
+  "python": "3.12.3",
+  "numpy": "2.5.5",
+  "plataforma": "Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "uptime_antes": "08:46:47 up 3 days, 12:11,  2 users,  load average: 0.64, 0.90, 1.17",
+  "loadavg_antes": "0.64 0.90 1.17 1/556 791816",
+  "uptime_despues": "08:49:09 up 3 days, 12:14,  2 users,  load average: 1.16, 1.00, 1.16",
+  "loadavg_despues": "1.16 1.00 1.16 1/544 791877"
+ },
+ "resultados": [
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hrm2 retrieve(q, k=10, lod=0)",
+   "n_repeticiones": 5,
+   "mediana": 1.5945,
+   "p5": 1.5108,
+   "p95": 1.9452,
+   "qps": 609.8,
+   "recall@10": 1.0,
+   "rss_pico_mb": 268.6,
+   "build_s": 2.393,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:46:50 up 3 days, 12:11,  2 users,  load average: 0.64, 0.90, 1.17",
+    "uptime_despues": "08:46:49 up 3 days, 12:11,  2 users,  load average: 0.67, 0.90, 1.17",
+    "carga_cpu_sistema_pct": 14.6,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "hrm2_lod",
+   "lod": 0
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hrm2 retrieve(q, k=10, lod=1)",
+   "n_repeticiones": 5,
+   "mediana": 1.6015,
+   "p5": 1.5082,
+   "p95": 1.9477,
+   "qps": 603.7,
+   "recall@10": 1.0,
+   "rss_pico_mb": 268.6,
+   "build_s": 2.393,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:46:49 up 3 days, 12:11,  2 users,  load average: 0.67, 0.90, 1.17",
+    "uptime_despues": "08:46:51 up 3 days, 12:11,  2 users,  load average: 0.67, 0.90, 1.17",
+    "carga_cpu_sistema_pct": 14.0,
+    "cpu_propio_pct": 94.9
+   },
+   "camino": "hrm2_lod",
+   "lod": 1
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hrm2 retrieve(q, k=10, lod=2)",
+   "n_repeticiones": 7,
+   "mediana": 0.6816,
+   "p5": 0.6007,
+   "p95": 1.017,
+   "qps": 1370.6,
+   "recall@10": 1.0,
+   "rss_pico_mb": 268.6,
+   "build_s": 2.393,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:46:52 up 3 days, 12:11,  2 users,  load average: 0.67, 0.90, 1.17",
+    "uptime_despues": "08:46:53 up 3 days, 12:11,  2 users,  load average: 0.70, 0.90, 1.17",
+    "carga_cpu_sistema_pct": 14.0,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "hrm2_lod",
+   "lod": 2
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 50000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hrm2 retrieve(q, k=10, lod=0)",
+   "n_repeticiones": 5,
+   "mediana": 6.6762,
+   "p5": 6.4808,
+   "p95": 8.1495,
+   "qps": 146.3,
+   "recall@10": 1.0,
+   "rss_pico_mb": 577.1,
+   "build_s": 14.847,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:47:10 up 3 days, 12:12,  2 users,  load average: 0.77, 0.91, 1.17",
+    "uptime_despues": "08:47:17 up 3 days, 12:12,  2 users,  load average: 0.79, 0.91, 1.17",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "hrm2_lod",
+   "lod": 0
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 50000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hrm2 retrieve(q, k=10, lod=1)",
+   "n_repeticiones": 5,
+   "mediana": 6.6337,
+   "p5": 6.4664,
+   "p95": 8.2971,
+   "qps": 145.9,
+   "recall@10": 1.0,
+   "rss_pico_mb": 577.1,
+   "build_s": 14.847,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:47:20 up 3 days, 12:12,  2 users,  load average: 0.80, 0.91, 1.17",
+    "uptime_despues": "08:47:24 up 3 days, 12:12,  2 users,  load average: 0.82, 0.92, 1.16",
+    "carga_cpu_sistema_pct": 13.9,
+    "cpu_propio_pct": 94.9
+   },
+   "camino": "hrm2_lod",
+   "lod": 1
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 50000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hrm2 retrieve(q, k=10, lod=2)",
+   "n_repeticiones": 5,
+   "mediana": 1.877,
+   "p5": 1.6767,
+   "p95": 2.336,
+   "qps": 519.2,
+   "recall@10": 1.0,
+   "rss_pico_mb": 577.1,
+   "build_s": 14.847,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:47:26 up 3 days, 12:12,  2 users,  load average: 0.83, 0.92, 1.16",
+    "uptime_despues": "08:47:27 up 3 days, 12:12,  2 users,  load average: 0.83, 0.92, 1.16",
+    "carga_cpu_sistema_pct": 14.0,
+    "cpu_propio_pct": 95.1
+   },
+   "camino": "hrm2_lod",
+   "lod": 2
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 2500,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "linear_batched B=200 (referencia)",
+   "n_repeticiones": 87,
+   "mediana": 0.0552,
+   "p5": 0.0544,
+   "p95": 0.0662,
+   "qps": 18114.6,
+   "recall@10": 1.0,
+   "rss_pico_mb": 263.3,
+   "build_s": null,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:47:28 up 3 days, 12:12,  2 users,  load average: 0.83, 0.92, 1.16",
+    "uptime_despues": "08:47:29 up 3 days, 12:12,  2 users,  load average: 0.83, 0.92, 1.16",
+    "carga_cpu_sistema_pct": 13.9,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "baseline"
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 2500,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "hnsw python (M=16, ef_construction=200, ef_search=50)",
+   "n_repeticiones": 5,
+   "mediana": 3.2005,
+   "p5": 2.4891,
+   "p95": 4.3503,
+   "qps": 303.4,
+   "recall@10": 1.0,
+   "rss_pico_mb": 263.3,
+   "build_s": 44.433,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:48:11 up 3 days, 12:13,  2 users,  load average: 0.97, 0.95, 1.16",
+    "uptime_despues": "08:48:14 up 3 days, 12:13,  2 users,  load average: 0.97, 0.95, 1.16",
+    "carga_cpu_sistema_pct": 13.9,
+    "cpu_propio_pct": 95.0
+   },
+   "camino": "hnsw"
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 2500,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "lsh cross-polytope (tables=15, bits=18, probes=50, cand=500)",
+   "n_repeticiones": 5,
+   "mediana": 7.9694,
+   "p5": 7.1836,
+   "p95": 9.4806,
+   "qps": 124.6,
+   "recall@10": 1.0,
+   "rss_pico_mb": 264.3,
+   "build_s": 0.646,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "08:48:18 up 3 days, 12:13,  2 users,  load average: 1.06, 0.96, 1.16",
+    "uptime_despues": "08:48:23 up 3 days, 12:13,  2 users,  load average: 1.05, 0.96, 1.16",
+    "carga_cpu_sistema_pct": 14.0,
+    "cpu_propio_pct": 95.8
+   },
+   "camino": "lsh"
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 2500,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "gate_select_k(X) target_docs_per_cluster=25",
+   "n_repeticiones": 1,
+   "mediana": 22531.2616,
+   "p5": 22531.2616,
+   "p95": 22531.2616,
+   "qps": null,
+   "recall@10": null,
+   "rss_pico_mb": null,
+   "build_s": null,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": null,
+    "uptime_despues": "08:48:48 up 3 days, 12:13,  2 users,  load average: 1.03, 0.97, 1.16",
+    "carga_cpu_sistema_pct": null,
+    "cpu_propio_pct": null
+   },
+   "qps_definicion": "no aplica (tiempo total del veredicto)",
+   "camino": "gate",
+   "veredicto": {
+    "k": 100,
+    "jerarquico": false,
+    "slope_fino": 4.85592,
+    "octava": "250->350",
+    "regla": "[inconclusivo: escalas finas perdidas por grafo de clústeres desconectado [16, 22, 30, 44] (veredicto.verdict.escalas)] corpus mono-escala: knee=88 descartado como fantasma (slope_seg -1.12 >= -3.0) -> K operacional = N//25 = 100",
+    "verdict": {
+     "N": 2500,
+     "D": 384,
+     "medianas": {
+      "56": 0.0,
+      "64": 0.0,
+      "88": 0.0,
+      "105": 0.0,
+      "125": 0.0,
+      "144": 0.0,
+      "175": 0.0,
+      "250": 0.0,
+      "350": 0.0
+     },
+     "octave_slopes": {
+      "56->64": 1.380433,
+      "64->88": 2.24397,
+      "88->105": -1.123548,
+      "105->125": 2.659841,
+      "125->144": 1.506379,
+      "144->175": 3.320615,
+      "175->250": 1.722007,
+      "250->350": 4.85592
+     },
+     "slope_octava_fina": {
+      "octava": "250->350",
+      "slope": 4.85592,
+      "IC95": [
+       2.853593,
+       6.268631
+      ]
+     },
+     "growth_fino_grueso": {
+      "par": [
+       350,
+       350
+      ],
+      "ratio": 1.0,
+      "IC95": [
+       0.530432,
+       1.873184
+      ]
+     },
+     "clasificacion": "inconclusivo",
+     "jerarquico": false,
+     "knee": {
+      "knee_K": 88,
+      "segmento": [
+       88,
+       105
+      ],
+      "slope_seg": -1.123548,
+      "slope_global": 1.76392
+     },
+     "degenerado": false,
+     "n_escalas_con_energia": 9,
+     "escalas": {
+      "evaluadas": "<lista len=13>",
+      "con_energia": [
+       56,
+       64,
+       88,
+       105,
+       125,
+       144,
+       175,
+       250,
+       350
+      ],
+      "detalle": {
+       "16": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 113
+       },
+       "22": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 112
+       },
+       "30": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 113
+       },
+       "44": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 112
+       },
+       "56": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 25,
+        "pares_descartados": 91
+       },
+       "64": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 39
+       },
+       "88": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 4
+       },
+       "105": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 4
+       },
+       "125": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 1
+       },
+       "144": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 1
+       },
+       "175": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "250": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "350": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       }
+      },
+      "descartadas": {
+       "16": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 113
+       },
+       "22": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 112
+       },
+       "30": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 113
+       },
+       "44": {
+        "estado": "descartada",
+        "motivo": "sin energía: ningún par (A,B) de clústeres con corte finito (grafo de clústeres desconectado: el kNN k=10 no conecta clústeres bien separados)",
+        "n_pares": 0,
+        "pares_descartados": 112
+       }
+      },
+      "omitidas_K_ge_N4": [],
+      "finas_perdidas": [
+       16,
+       22,
+       30,
+       44
+      ]
+     },
+     "dropped_scales": [
+      16,
+      22,
+      30,
+      44
+     ],
+     "clasificacion_sin_escalas_perdidas": "mono",
+     "regla": "corpus mono-escala o knee/artefacto: knee=88 slope_seg=-1.12 -> revisar bracket; codebook K ~ bracket del knee si es real | inconclusivo: 4 escalas finas perdidas por grafo de clústeres desconectado [16, 22, 30, 44] (clasificación sin esas pérdidas: 'mono')",
+     "t_s": 22.5,
+     "fingerprint": "38dd2564d84119a8cfbea5462cc87e4724050e3d",
+     "estabilidad_semilla": {
+      "evaluada": false,
+      "n_seeds": 1,
+      "semilla": 42,
+      "clasificaciones": {
+       "42": "inconclusivo"
+      },
+      "flip_rate": null,
+      "estable": null,
+      "nota": "no evaluada (stability_seeds=0): cerca del umbral la clasificación puede cambiar con la semilla"
+     }
+    },
+    "dropped_scales": [
+     16,
+     22,
+     30,
+     44
+    ]
+   },
+   "timeout_s": 90,
+   "carga_cpu_sistema_pct": null
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "uniform",
+    "n": 2500,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "gate_select_k(X) target_docs_per_cluster=25",
+   "n_repeticiones": 1,
+   "mediana": 22404.7031,
+   "p5": 22404.7031,
+   "p95": 22404.7031,
+   "qps": null,
+   "recall@10": null,
+   "rss_pico_mb": null,
+   "build_s": null,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": "1",
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": null,
+    "uptime_despues": "08:49:09 up 3 days, 12:14,  2 users,  load average: 1.16, 1.00, 1.16",
+    "carga_cpu_sistema_pct": null,
+    "cpu_propio_pct": null
+   },
+   "qps_definicion": "no aplica (tiempo total del veredicto)",
+   "camino": "gate",
+   "veredicto": {
+    "k": 100,
+    "jerarquico": false,
+    "slope_fino": -1.790441,
+    "octava": "250->350",
+    "regla": "corpus mono-escala: knee=125 descartado como fantasma (slope_seg 0.61 >= -3.0) -> K operacional = N//25 = 100",
+    "verdict": {
+     "N": 2500,
+     "D": 384,
+     "medianas": {
+      "16": 835.519038,
+      "22": 600.879604,
+      "30": 440.980824,
+      "44": 288.596094,
+      "56": 204.242064,
+      "64": 165.327295,
+      "88": 116.143574,
+      "105": 66.854062,
+      "125": 56.958923,
+      "144": 62.07934,
+      "175": 36.260294,
+      "250": 23.872235,
+      "350": 13.069516
+     },
+     "octave_slopes": {
+      "16->22": -1.035185,
+      "22->30": -0.997544,
+      "30->44": -1.107002,
+      "44->56": -1.433568,
+      "56->64": -1.582989,
+      "64->88": -1.108795,
+      "88->105": -3.127075,
+      "105->125": -0.918719,
+      "125->144": 0.608362,
+      "144->175": -2.757771,
+      "175->250": -1.171956,
+      "250->350": -1.790441
+     },
+     "slope_octava_fina": {
+      "octava": "250->350",
+      "slope": -1.790441,
+      "IC95": [
+       -2.88646,
+       0.135155
+      ]
+     },
+     "growth_fino_grueso": {
+      "par": [
+       350,
+       350
+      ],
+      "ratio": 1.0,
+      "IC95": [
+       0.582902,
+       1.697781
+      ]
+     },
+     "clasificacion": "inconclusivo",
+     "jerarquico": false,
+     "knee": {
+      "knee_K": 125,
+      "segmento": [
+       125,
+       144
+      ],
+      "slope_seg": 0.608362,
+      "slope_global": -1.29338
+     },
+     "degenerado": false,
+     "n_escalas_con_energia": 13,
+     "escalas": {
+      "evaluadas": "<lista len=13>",
+      "con_energia": "<lista len=13>",
+      "detalle": {
+       "16": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "22": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "30": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "44": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "56": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "64": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "88": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "105": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "125": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "144": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "175": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "250": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       },
+       "350": {
+        "estado": "ok",
+        "motivo": "",
+        "n_pares": 30,
+        "pares_descartados": 0
+       }
+      },
+      "descartadas": {},
+      "omitidas_K_ge_N4": [],
+      "finas_perdidas": []
+     },
+     "dropped_scales": [],
+     "clasificacion_sin_escalas_perdidas": "inconclusivo",
+     "regla": "corpus mono-escala o knee/artefacto: knee=125 slope_seg=0.61 -> revisar bracket; codebook K ~ bracket del knee si es real",
+     "t_s": 22.4,
+     "fingerprint": "aeb849385880cf9d6f2c77a7987d44d44d08df97",
+     "estabilidad_semilla": {
+      "evaluada": false,
+      "n_seeds": 1,
+      "semilla": 42,
+      "clasificaciones": {
+       "42": "inconclusivo"
+      },
+      "flip_rate": null,
+      "estable": null,
+      "nota": "no evaluada (stability_seeds=0): cerca del umbral la clasificación puede cambiar con la semilla"
+     }
+    },
+    "dropped_scales": []
+   },
+   "timeout_s": 90,
+   "carga_cpu_sistema_pct": null
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "sq8_disk modo=completo search_batch(k=10, oversample=2)",
+   "estado": "n/d",
+   "motivo": "FileNotFoundError: [Errno 2] No such file or directory: '/home/schwabauer/swarm_m2m_vs_fix/work/tmp_p9/p9_sq8_10000_completo_wt_p9-2109459c3/float32.npy'"
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "sq8_disk modo=espectral_auto search_batch(k=10, oversample=2)",
+   "estado": "n/d",
+   "motivo": "FileNotFoundError: [Errno 2] No such file or directory: '/home/schwabauer/swarm_m2m_vs_fix/work/tmp_p9/p9_sq8_10000_espectral_auto_wt_p9-2109459c3/float32.npy'"
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 50000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "sq8_disk modo=completo search_batch(k=10, oversample=2)",
+   "estado": "n/d",
+   "motivo": "FileNotFoundError: [Errno 2] No such file or directory: '/home/schwabauer/swarm_m2m_vs_fix/work/tmp_p9/p9_sq8_50000_completo_wt_p9-2109459c3/float32.npy'"
+  },
+  {
+   "tabla": "bench_index_types",
+   "commit": "2109459c3",
+   "dataset": {
+    "kind": "clustered",
+    "n": 50000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "sq8_disk modo=espectral_auto search_batch(k=10, oversample=2)",
+   "estado": "n/d",
+   "motivo": "FileNotFoundError: [Errno 2] No such file or directory: '/home/schwabauer/swarm_m2m_vs_fix/work/tmp_p9/p9_sq8_50000_espectral_auto_wt_p9-2109459c3/float32.npy'"
+  }
+ ],
+ "etiqueta": "re-corrido (el archivo fue pisado por corridas parciales)",
+ "bloques": "hrm2_lod,hnsw_lsh,gate",
+ "gate_timeout_s": 90,
+ "n_hnsw_lsh": 2500,
+ "n_gate": 2500,
+ "nota_sq8": "bloque sq8 corrido aparte (mismo commit y arbol) y fusionado; las 4 filas son n/d"
+}
