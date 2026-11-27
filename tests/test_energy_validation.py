@@ -1,12 +1,8 @@
 """Tests for energy functions in src/m2m/energy.py."""
 
-import os
-import sys
 from unittest.mock import MagicMock
 
 import numpy as np
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from m2m.energy import EnergyFunction
 

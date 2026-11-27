@@ -1,8 +1,3 @@
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import numpy as np
 
 from m2m.gpu_vector_index import GPUVectorIndex

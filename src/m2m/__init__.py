@@ -23,7 +23,9 @@ import json
 import logging
 import operator
 from collections import OrderedDict
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from dataclasses import dataclass
+from dataclasses import field as _dataclass_field
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -3133,10 +3135,6 @@ class SimpleVectorDB:
                 self._update_ebm_splats()
         return applied > 0
 
-
-from dataclasses import dataclass
-from dataclasses import field as _dataclass_field
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # sólo para anotaciones: ConsolidationDecision se importa dentro del método
     from .ebm.soc import ConsolidationDecision

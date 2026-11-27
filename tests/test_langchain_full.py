@@ -1,16 +1,13 @@
 """Full LangChain integration tests for M2M."""
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import pytest
 
 pytest.importorskip("langchain_core")
-from langchain_core.documents import Document
-from langchain_core.embeddings import Embeddings
+from langchain_core.documents import Document  # noqa: E402  (skip antes de importar)
+from langchain_core.embeddings import Embeddings  # noqa: E402  (skip antes de importar)
+
+from m2m import M2MConfig  # noqa: E402  (skip antes de importar)
+from m2m.integrations.langchain import M2MVectorStore  # noqa: E402  (skip antes de importar)
 
 
 class HashedNGramEmbeddings(Embeddings):
@@ -44,10 +41,6 @@ class HashedNGramEmbeddings(Embeddings):
 
     def embed_query(self, text):
         return self._embed(text)
-
-
-from m2m import M2MConfig
-from m2m.integrations.langchain import M2MVectorStore
 
 
 @pytest.fixture

@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
 from .config import M2MConfig
+
+logger = logging.getLogger(__name__)
 
 # audit r3a-09: el UserWarning de "backend pedido no disponible" se emite una
 # sola vez por backend y por proceso; el logger.warning sale en cada construcción.

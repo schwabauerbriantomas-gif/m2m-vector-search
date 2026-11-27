@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
+from sklearn.cluster import MiniBatchKMeans
 
 
 class _RestrictedUnpickler(pickle.Unpickler):
@@ -67,9 +68,6 @@ class _RestrictedUnpickler(pickle.Unpickler):
         if name in allowed:
             return super().find_class(module, name)
         raise pickle.UnpicklingError(f"Blocked unsafe class during unpickling: {module}.{name}")
-
-
-from sklearn.cluster import MiniBatchKMeans
 
 
 @dataclass
