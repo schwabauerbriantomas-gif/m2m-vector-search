@@ -77,6 +77,72 @@ def _ebm_fixture():
     return ebm, EnergyFunction(cfg), splats
 
 
+# ---------------------------------------------------------------------------
+# r1-13 — score = coseno en TODOS los caminos (+ alpha, distance)
+# ---------------------------------------------------------------------------
+
+
+def test_r1_13_score_is_cosine_not_constant_alpha():
+    # Antes: search(include_metadata=True) sin filtro devolvía score = alpha = 1.0
+    # para los 10 resultados (Quick Start imprimía 10x score=1.0000).
+    db, X = _random_db()
+    q = np.random.default_rng(1).standard_normal(16).astype(np.float32)
+    res = db.search(q, k=10, include_metadata=True)
+    assert len(res) == 10
+    _assert_cosine(q, res)
+    assert len({round(r.score, 6) for r in res}) > 1
+    scores = [r.score for r in res]
+    assert scores == sorted(scores, reverse=True)  # el orden del ranking es el del score
+    assert all(r.alpha == pytest.approx(1.0) for r in res)  # init_alpha: lo que era score
+
+
+def test_r1_13_score_parity_search_filter_energy_batch():
+    # Misma DB y query (norma != 1): ids y scores de search() con/sin filtro, con
+    # energía y search_batch(include_metadata=True) coinciden (tol 1e-5).
+    db, X = _random_db()
+    q = X[7] * 3.7 + 0.5
+    k = 10
+    a = db.search(q, k=k, include_metadata=True)
+    b = db.search(q, k=k, filter={"cat": {"$gte": 0}}, include_metadata=True)  # pasa todo
+    c = db.search(q, k=k, include_energy=True, include_metadata=True)
+    d = db.search_batch(q[None, :], k=k, include_metadata=True)[0]
+    ids = [r.id for r in a]
+    assert len(ids) == k
+    assert ids == [r.id for r in b] == [r.id for r in c] == [r.id for r in d]
+    for other in (b, c, d):
+        np.testing.assert_allclose([r.score for r in a], [r.score for r in other], atol=1e-5)
+        np.testing.assert_allclose([r.alpha for r in a], [r.alpha for r in other], atol=1e-5)
+        np.testing.assert_allclose([r.distance for r in a], [r.distance for r in other], atol=1e-5)
+    for rows in (a, b, c):
+        _assert_cosine(q, rows)
+    # search_batch(include_metadata=True) no devuelve `vector` (None, documentado en
+    # DocResult): el coseno del camino batch se verifica contra el μ del MISMO id en el
+    # camino single.
+    qn = _unit(np.asarray(q, dtype=np.float64))
+    mu_by_id = {r.id: r.vector for r in a}
+    for r in d:
+        assert r.vector is None
+        np.testing.assert_allclose(r.score, float(np.dot(qn, mu_by_id[r.id])), atol=1e-5)
+
+
+def test_r1_13_lsh_mode_score_is_cosine():
+    db, X = _random_db(n=200, d=16, seed=3, enable_lsh_fallback=True)
+    assert db._use_lsh, "el fixture debió activar el modo LSH (distribución uniforme)"
+    q = X[5] * 2.0
+    single = db.search(q, k=10, include_metadata=True)
+    batch = db.search_batch(q[None, :], k=10, include_metadata=True)[0]
+    flt = db.search(q, k=10, filter={"cat": {"$gte": 0}}, include_metadata=True)
+    for rows in (single, batch, flt):
+        assert len(rows) == 10
+        _assert_cosine(q, rows)
+    assert [r.id for r in single] == [r.id for r in batch] == [r.id for r in flt]
+    np.testing.assert_allclose([r.score for r in single], [r.score for r in batch], atol=1e-5)
+    np.testing.assert_allclose([r.score for r in single], [r.score for r in flt], atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# r2-15 — confidence acotada; una sola energía con la misma normalización
+# ---------------------------------------------------------------------------
 
 
 def test_r2_15_confidence_bounded_high_at_center_low_far():
@@ -180,6 +246,9 @@ def test_r2_15_energy_per_splat_matches_canonical():
     assert total <= float(per.min()) + 1e-9
 
 
+# ---------------------------------------------------------------------------
+# r2-17 — Boltzmann: T válida por chica que sea; T < 0 → ValueError; T = 0 sin lanzar
+# ---------------------------------------------------------------------------
 
 
 def _exploration_fixture(seed=1, kappa=1.0):

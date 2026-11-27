@@ -318,9 +318,12 @@ def test_filtered_path_ranks_and_scores_with_the_same_query():
     qn = q / (np.linalg.norm(q) + 1e-8)
     res = db.search(q, k=10, filter={"c": {"$gte": 0}}, include_metadata=True)
     assert len(res) == 10
+    # P7a [audit r1-13] (decisión del orquestador): `score` pasó de -dist a similitud
+    # coseno; la distancia L2 a la query normalizada ahora es el campo `distance`.
     for r in res:
-        assert abs(r.score + float(np.linalg.norm(r.vector - qn))) < 1e-5
-    d = [float(np.linalg.norm(r.vector - qn)) for r in res]
+        assert abs(r.distance - float(np.linalg.norm(r.vector - qn))) < 1e-5
+        assert abs(r.score - float(np.dot(qn, r.vector))) < 1e-5
+    d = [r.distance for r in res]
     assert d == sorted(d)  # el orden del ranking es el de la MISMA distancia que se reporta
 
 
