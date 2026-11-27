@@ -54,6 +54,12 @@ class OnlineUpdater:
 
     All hyperparameters are configurable. Updates are applied in-place
     to the numpy arrays in SplatStore.
+
+    μ vive en la esfera unidad (HRM2._normalize, búsqueda por coseno,
+    energy.py E_geom): el drift se re-proyecta tras cada paso [audit r2-14].
+    Antes ``μ += η_μ·(q − μ)`` sin normalizar: tras 500 feedbacks relevantes
+    ‖μ‖ caía de 1 a 0.073 y el splat quedaba ~equidistante de todas las
+    queries unitarias.
     """
 
     def __init__(
@@ -113,9 +119,18 @@ class OnlineUpdater:
             alpha[idx] = min(alpha[idx] + self.lr_alpha, self.alpha_max)
             kappa[idx] = min(kappa[idx] + self.lr_kappa, self.kappa_max)
 
-            # Drift μ slightly toward the query (Hebbian association)
+            # Drift μ slightly toward the query (Hebbian association) and
+            # re-project onto the unit sphere [audit r2-14]: the system assumes
+            # ‖μ‖ = 1 (cosine ranking, E_geom). Without the re-normalization the
+            # most-reinforced splat shrinks toward the origin (‖μ‖ 1 → 0.073
+            # after 500 relevant feedbacks) and loses all directional specificity.
             diff = event.query - mu[idx]
-            mu[idx] += self.lr_mu * diff
+            new_mu = mu[idx] + self.lr_mu * diff
+            new_norm = float(np.linalg.norm(new_mu))
+            if np.isfinite(new_norm) and new_norm >= 1e-6:
+                mu[idx] = new_mu / new_norm
+            # else: paso degenerado (query antipodal con lr_mu >= 0.5, o query no
+            # finita) -> se rechaza el drift y el splat queda intacto.
 
             self._stats.total_alpha_up += 1
             self._stats.total_kappa_up += 1
