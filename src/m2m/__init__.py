@@ -1567,52 +1567,57 @@ class SimpleVectorDB:
                 else [[] for _ in range(B)]
             )
 
-        # BUG 1 fix (T2): en modo LSH los vectores viven en el indice LSH
-        # (n_active=0 en splats), por lo que el path HRM2 de abajo devolvia
-        # -1/[] para toda query. Routear al LSH igual que search() single.
-        if self._use_lsh and self.lsh is not None:
-            out_idx, rows = self._lsh_batch_topk(queries, k=k, include_metadata=include_metadata)
-            return rows if include_metadata else out_idx
+        # Lectura bajo el mismo lock que los writers (audit r1-03): entre el
+        # enrutado por centroids y el armado de DocResult un writer puede
+        # retrainear/compactar y desalinear las posiciones (KMeans sin fitear,
+        # coarse_assignments de otra longitud).
+        with self._rw_lock:
+            # BUG 1 fix (T2): en modo LSH los vectores viven en el indice LSH
+            # (n_active=0 en splats), por lo que el path HRM2 de abajo devolvia
+            # -1/[] para toda query. Routear al LSH igual que search() single.
+            if self._use_lsh and self.lsh is not None:
+                out_idx, rows = self._lsh_batch_topk(queries, k=k, include_metadata=include_metadata)
+                return rows if include_metadata else out_idx
 
-        store = self.engine.m2m.splats
-        n = store.n_active
-        alive = self._batch_alive_mask(n)
-        if n == 0 or (alive is not None and not alive.any()):
-            return (
-                np.full((B, 0), -1, dtype=np.int64)
-                if not include_metadata
-                else [[] for _ in range(B)]
-            )
-
-        out_idx, out_d2 = self._batch_topk_per_query(queries, k, allowed=alive)
-
-        if not include_metadata:
-            return out_idx
-
-        results: List[List[DocResult]] = []
-        order = self._splat_id_order
-        for i in range(B):
-            row: List[DocResult] = []
-            for j in range(k):
-                s_idx = int(out_idx[i, j])
-                if s_idx < 0 or s_idx >= len(order):
-                    continue
-                doc_id = order[s_idx]
-                if doc_id in self._deleted or doc_id not in self._vectors:
-                    continue  # defensa: la máscara viva ya los excluyó del ranking
-                row.append(
-                    DocResult(
-                        id=doc_id,
-                        score=float(-np.sqrt(out_d2[i, j])),
-                        vector=None,
-                        metadata=self._metadata.get(doc_id, {}),
-                        document=self._documents.get(doc_id),
-                        energy=None,
-                        confidence=None,
-                    )
+            store = self.engine.m2m.splats
+            n = store.n_active
+            alive = self._batch_alive_mask(n)
+            if n == 0 or (alive is not None and not alive.any()):
+                return (
+                    np.full((B, 0), -1, dtype=np.int64)
+                    if not include_metadata
+                    else [[] for _ in range(B)]
                 )
-            results.append(row[:k])
-        return results
+
+            out_idx, out_d2 = self._batch_topk_per_query(queries, k, allowed=alive)
+
+            if not include_metadata:
+                return out_idx
+
+            results: List[List[DocResult]] = []
+            order = self._splat_id_order
+            for i in range(B):
+                row: List[DocResult] = []
+                for j in range(k):
+                    s_idx = int(out_idx[i, j])
+                    if s_idx < 0 or s_idx >= len(order):
+                        continue
+                    doc_id = order[s_idx]
+                    if doc_id in self._deleted or doc_id not in self._vectors:
+                        continue  # defensa: la máscara viva ya los excluyó del ranking
+                    row.append(
+                        DocResult(
+                            id=doc_id,
+                            score=float(-np.sqrt(out_d2[i, j])),
+                            vector=None,
+                            metadata=self._metadata.get(doc_id, {}),
+                            document=self._documents.get(doc_id),
+                            energy=None,
+                            confidence=None,
+                        )
+                    )
+                results.append(row[:k])
+            return results
 
     def search_batch_filtered(
         self,
@@ -1661,19 +1666,21 @@ class SimpleVectorDB:
             # esta rama search_batch_filtered devolvia todo -1 [audit r1-07].
             return self._lsh_batch_topk(queries, k=k, filter_fn=filter_fn)[0]
 
-        B = len(queries)
-        store = self.engine.m2m.splats
-        n = store.n_active
-        alive = self._batch_alive_mask(n)
-        if n == 0 or (alive is not None and not alive.any()):
-            return np.full((B, 0), -1, dtype=np.int64)
+        # Mismo lock que los writers (audit r1-03): ver search_batch().
+        with self._rw_lock:
+            B = len(queries)
+            store = self.engine.m2m.splats
+            n = store.n_active
+            alive = self._batch_alive_mask(n)
+            if n == 0 or (alive is not None and not alive.any()):
+                return np.full((B, 0), -1, dtype=np.int64)
 
-        allowed = np.fromiter((bool(filter_fn(i)) for i in range(n)), dtype=bool, count=n)
-        if alive is not None:
-            allowed &= alive
-        if not allowed.any():
-            return np.full((B, k), -1, dtype=np.int64)
-        return self._batch_topk_per_query(queries, k, allowed=allowed, expand=True)[0]
+            allowed = np.fromiter((bool(filter_fn(i)) for i in range(n)), dtype=bool, count=n)
+            if alive is not None:
+                allowed &= alive
+            if not allowed.any():
+                return np.full((B, k), -1, dtype=np.int64)
+            return self._batch_topk_per_query(queries, k, allowed=allowed, expand=True)[0]
 
     def _batch_alive_mask(
         self, n: int, id_map: Optional[List[Any]] = None
