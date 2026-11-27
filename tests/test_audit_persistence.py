@@ -269,3 +269,68 @@ class TestCriterio2SaveLoad:
             db.save(str(snap))
 
 
+# ---------------------------------------------------------------------------
+# Criterio 4 (r3a-17, opcional): índice firmado con HMAC
+# ---------------------------------------------------------------------------
+
+SECRET = "unit-test-secret-p4"
+
+
+class TestCriterio4HMAC:
+    def test_signed_storage_detects_tampered_shard_byte(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("M2M_HMAC_SECRET", SECRET)
+        st = tmp_path / "st"
+        db = _build(st)
+        db.save(str(st))
+        assert (st / "index" / "manifest.idx").exists()
+        db2 = _db(st)  # firma válida: carga sin ruido
+        assert _top(db2, X[11])[0] == "a11"
+        shard = sorted((st / "data" / "vectors").glob("*.npy"))[0]
+        raw = bytearray(shard.read_bytes())
+        raw[-1] ^= 0xFF
+        shard.write_bytes(bytes(raw))
+        with pytest.raises(RuntimeError, match="shard_001"):
+            _db(st)
+
+    def test_tampered_manifest_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("M2M_HMAC_SECRET", SECRET)
+        st = tmp_path / "st"
+        _build(st).save(str(st))
+        man = st / "index" / "manifest.idx"
+        raw = bytearray(man.read_bytes())
+        raw[40] ^= 0xFF
+        man.write_bytes(bytes(raw))
+        with pytest.raises(RuntimeError):
+            _db(st)
+
+    def test_tampered_metadata_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("M2M_HMAC_SECRET", SECRET)
+        st = tmp_path / "st"
+        _build(st).save(str(st))
+        conn = sqlite3.connect(st / "data" / "metadata" / "metadata.db")
+        conn.execute("UPDATE documents SET document='tampered' WHERE id='a0'")
+        conn.commit()
+        conn.close()
+        with pytest.raises(RuntimeError, match="metadata"):
+            _db(st)
+
+    def test_no_secret_no_manifest_no_noise(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.delenv("M2M_HMAC_SECRET", raising=False)
+        st = tmp_path / "st"
+        with caplog.at_level(logging.WARNING, logger="m2m"):
+            db = _build(st)
+            db.save(str(st))
+            db2 = _db(st)
+        assert not (st / "index" / "manifest.idx").exists()
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert _top(db2, X[11])[0] == "a11"
+
+    def test_secret_set_on_unsigned_storage_warns_but_loads(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.delenv("M2M_HMAC_SECRET", raising=False)
+        st = tmp_path / "st"
+        _build(st).save(str(st))
+        monkeypatch.setenv("M2M_HMAC_SECRET", SECRET)
+        with caplog.at_level(logging.WARNING, logger="m2m"):
+            db2 = _db(st)
+        assert any("manifest" in r.getMessage() for r in caplog.records)
+        assert _top(db2, X[11])[0] == "a11"

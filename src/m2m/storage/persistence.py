@@ -620,7 +620,9 @@ class M2MPersistence:
             sig, data = raw[:32], raw[32:]
             expected_sig = hmac.new(secret.encode(), data, hashlib.sha256).digest()
             if not hmac.compare_digest(sig, expected_sig):
-                raise ValueError(f"HMAC verification failed for index {name}. Possible tampering.")
+                raise IndexTamperedError(
+                    f"HMAC verification failed for index {name}. Possible tampering."
+                )
             import io
             return _RestrictedUnpickler(io.BytesIO(data)).load()
         return None
