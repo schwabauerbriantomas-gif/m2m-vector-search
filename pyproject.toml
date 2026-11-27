@@ -37,12 +37,17 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Database",
+    "Topic :: Database :: Database Engines/Servers",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Indexing",
+    "Typing :: Typed",
 ]
 # runtime mínimo: lo que importa `src/m2m` por defecto (verificado con un venv limpio:
 # `import m2m` carga numpy, scipy y sklearn). scipy es import directo de m2m.gate_modulus.
