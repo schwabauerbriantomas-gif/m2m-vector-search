@@ -32,9 +32,10 @@ your own reverse proxy, authenticator and disk encryption.
 - `deploy/docker-compose.yml` publishes the coordinator on `127.0.0.1:8080` and the
   edges on `127.0.0.1:8081-8083`, and fails if a key is missing.
 
-<!-- P10b: verificar P15 -->
-- Known gap: the root `docker-compose.yml` publishes `8080:8080` on all interfaces
-  without a key. Do not use it as-is on a shared host.
+- The root `docker-compose.yml` publishes the edge on `127.0.0.1:8080` only and passes
+  `M2M_API_KEY` and `M2M_RATE_LIMIT_PER_MIN` to the container when they are set [P15;
+  `tests/test_audit_closure.py`]. It was not validated with `docker compose` (not available
+  on the machine that produced it): run `docker compose config` before relying on it.
 
 ## Authentication
 
@@ -53,37 +54,37 @@ Keys are compared with `hmac.compare_digest` (constant time).
 | `POST /v1/collections/{name}/search`, `/query`, `/energy`, `/explore`, `GET .../suggest` | required (`401`) |
 | `POST /v1/admin/checkpoint`, `POST /v1/admin/backup` | **always**: `401` with a wrong key, `503` when no key is configured (fail closed) |
 | `POST /ingest`, `POST /search` (legacy) | required (`401`) |
-| `GET /v1/collections`, `GET /v1/collections/{name}`, `GET .../stats` | not validated in 2.4.0 |
-| `GET`/`PUT`/`DELETE /v1/collections/{name}/vectors/{vector_id}` | not validated in 2.4.0 |
+| `GET /v1/collections`, `GET /v1/collections/{name}`, `GET .../stats` | required (`401`) |
+| `GET`/`PUT`/`DELETE /v1/collections/{name}/vectors/{vector_id}` | required (`401`, answered before the collection lookup) |
 
-<!-- P10b: verificar P15 -->
-The last two rows are a known gap scheduled for the next change: with a key
-configured, those endpoints can still read, overwrite and delete vectors. Until
-then, do not expose an edge API to an untrusted network, even with a key.
+Every endpoint validates the key when one is configured; only the two `/health` paths stay
+open [P15; `tests/test_audit_closure.py`]. The vector `GET`/`PUT`/`DELETE` endpoints answer
+`401` before they look the collection up, so a wrong key does not reveal whether a
+collection exists.
 
 The coordinator API (`/register`, `/heartbeat`, `/route`, `/search`) checks
 `M2M_COORDINATOR_API_KEY` (same headers) on every request. The variable is read once,
 when the module is imported.
 
-<!-- P10b: verificar P15 -->
-Known gap: the coordinator does not forward any key to the edges when it fans a
-search out, so edges configured with `M2M_API_KEY` reject the coordinator's requests
-and `POST /search` on the coordinator returns empty results. The coordinator has no
-`GET /health` endpoint.
+On a fan-out the coordinator sends `M2M_EDGE_API_KEY` to each edge; set it to the edges'
+`M2M_API_KEY`, otherwise every edge answers `401` and `POST /search` returns empty results.
+The coordinator's own key is never forwarded to the edges. `GET /health` on the
+coordinator answers without a key [P15; `tests/test_audit_closure.py`].
 
 ## Request limits
 
 - **Body size**: requests larger than `M2M_MAX_BODY_BYTES` (default 32 MiB) are
   rejected with `413` before the body is read.
 - **Vectors per insert**: at most `100_000` vectors per request (`422` above that,
-  checked before the arrays are validated). <!-- verificar: cite the test in P10b -->
+  checked before the arrays are validated; `tests/test_audit_api_storage.py`).
 - **Validation**: vectors with `NaN`, `Inf` or norm below `1e-6` are rejected with
   `400`; the same for unknown metadata-filter operators, duplicate ids in a batch
   and non-integer `k`.
-- **Rate limiting**: the edge API contains a per-IP limiter with a nominal cap of
-  100 requests per minute, but **it never records requests, so it never fires**.
-  Do not rely on it. A real limiter, opt-in through `M2M_RATE_LIMIT_PER_MIN`
-  (absent or `0` = off), is scheduled. <!-- P10b: verificar P15 -->
+- **Rate limiting (opt-in)**: `M2M_RATE_LIMIT_PER_MIN` sets a per-client-IP limit over a
+  sliding 60 s window; absent, empty, `0` or negative means off, which is the default.
+  Above the limit the edge answers `429` with a `Retry-After` header, and rejected
+  requests are not counted. With the limit off, `429` is never returned [P15;
+  `tests/test_audit_closure.py`].
 - **CORS**: origins come from `M2M_CORS_ORIGINS` (comma-separated). The default `*`
   is open; with the wildcard, credentials are not allowed. The coordinator API has
   no CORS middleware.
@@ -112,8 +113,10 @@ and `POST /search` on the coordinator returns empty results. The coordinator has
   `..`, absolute paths and symlinks resolving outside it raise `ValueError`.
 - `Collection.storage_path` is supplied by the client in `CreateCollectionRequest`:
   in a multi-tenant deployment, validate it or restrict it to a designated root.
-- <!-- P10b: verificar P15 --> `M2MPersistence.restore(backup_path)` does not validate
-  `..` in 2.4.0. It is not exposed over HTTP; do not call it with untrusted paths.
+- `M2MPersistence.restore(backup_path)` validates its source **before** removing
+  anything: `..` raises `ValueError`, a missing source `FileNotFoundError`, a file
+  `NotADirectoryError`, and a source equal to, inside or above the storage (symlinks
+  resolved) `ValueError`. It is not exposed over HTTP [P15; `tests/test_audit_closure.py`].
 
 ## Container and Kubernetes hardening
 

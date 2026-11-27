@@ -10,20 +10,10 @@ code base; each one has a regression test under `tests/test_audit_*.py`.
 
 ## [Unreleased]
 
-<!-- P10b: verificar P15 -->
-The items below are contracted work that is **not implemented yet**. They will be
-listed under a released version only once they land.
+Nothing pending. The entries that used to be listed here landed before the release and
+are part of 2.4.0 — the version below, which is not published yet (it lives on `main`,
+not on PyPI).
 
-- Edge API: `PUT`/`DELETE`/`GET /v1/collections/{name}/vectors/{id}` must validate
-  `M2M_API_KEY` when one is configured (today they stay open).
-- Edge API: a real, opt-in rate limit via `M2M_RATE_LIMIT_PER_MIN`
-  (absent or `0` = off). The current limiter never records requests.
-- Coordinator: forward the configured key to the edges on fan-out and expose
-  `GET /health`.
-- Root `docker-compose.yml`: do not publish port 8080 without an API key.
-- `SimpleVectorDB.feedback(query, relevant_ids=..., irrelevant_ids=...)` and
-  `AdvancedVectorDB.maybe_consolidate()`.
-- `restore()` must reject `..` in the backup path.
 
 ## [2.4.0] - Unreleased
 
@@ -34,18 +24,24 @@ It is **not published on PyPI yet**: the `publish` workflow runs on
 ### Note on the entries below
 
 This release is the result of a full audit of the code, its claims and its
-benchmarks (2026-11). Roughly 95 commits fix the behaviour of the engine, the
+benchmarks (2026-11). 99 commits (merges excluded) fix the behaviour of the engine, the
 persistence layer and the HTTP API; the documentation was rewritten to describe
 what the code does. Every behavioural change listed here cites the audit id of
-the finding it closes, and each has a regression test.
+the finding it closes, and each has a regression test. Entries of the versions before
+2.4.0 are not reproduced here: they quoted benchmark figures the audit could not
+sustain and remain in the git history of the README.
 
-**No benchmark figures are quoted in this entry.** The figures that used to live
-in the README were measured before these fixes and with a methodology the audit
-found flawed (for example `search_batch` scoring the union of the batch instead
-of each query's own candidates). They are being re-measured and will be added to
-`docs/PERFORMANCE.md` and the README in a follow-up change.
-
-<!-- P10b: cifras -->
+**Benchmark figures.** The figures that used to live in the README were measured
+before these fixes and with a methodology the audit found flawed (for example
+`search_batch` scoring the union of the batch instead of each query's own candidates);
+they were dropped. The tables were re-measured on the final code with a fixed protocol
+and live in `docs/BENCHMARKS.md`, with the headline numbers in the README and
+`docs/PERFORMANCE.md` (`benchmarks/results/*.json`, the run on the commit before the
+audit in `before_a74d9e4/`). In one line: a single query on clustered data is
+1.99× / 3.39× a NumPy linear scan at 10k / 50k and 1.5× /
+2.13× the commit before the audit; in batches (B = 200) the linear scan is as
+fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
+0.093.
 
 ### Changed (breaking or contract-level)
 
@@ -75,6 +71,12 @@ of each query's own candidates). They are being re-measured and will be added to
 - `search()` and `search_batch()` no longer return soft-deleted or hard-deleted
   documents; `search()` backfills from further candidates while active
   documents remain [audit r1-05, r1-06].
+- With a metadata filter the top-k is **exact** in IVF/HRM2 mode: a cluster is skipped
+  only when the bound `(dist(q, c) - r_c)**2 >= d2_k` proves it cannot hold a top-k
+  document; the per-cluster radii are maintained by `add`/`update` and invalidated on
+  rebuild, compaction, feedback drift and MapReduce. Recall@10 is 1.0 on the four
+  benchmark filters (before: 0.458–1.000); the unfiltered path
+  returns the same ids as before [P17-1; `tests/test_p17_exact_filter.py`].
 
 **Metadata filters (fail closed)**
 
@@ -93,6 +95,9 @@ of each query's own candidates). They are being re-measured and will be added to
   raises `ValueError`. Filter masks are cached (LRU, at most 32 entries) per
   canonical filter and metadata version; every write invalidates them
   [audit P13].
+- In LSH mode `_doc_results_from_lsh` evaluates the filter against the real metadata
+  also with `include_metadata=False`; it evaluated `{}` and returned an empty list
+  [audit P15; `tests/test_audit_closure.py`].
 
 **Writes**
 
@@ -114,6 +119,19 @@ of each query's own candidates). They are being re-measured and will be added to
 - `update(vector=...)` keeps `engine.embeddings`, the coarse cluster
   embeddings and the persisted copy in sync; the vector is persisted in place
   through `M2MPersistence.update_vector` [audit r1-24, r1-09].
+- `SimpleVectorDB.feedback(query, relevant_ids=..., irrelevant_ids=...) ->
+  FeedbackResult`: Hebbian update by **document id** under the write lock (relevant ids:
+  `α`, `κ` up and `μ` towards the query; irrelevant ids: `α`, `κ` down). Unknown or
+  soft-deleted ids are reported in `unknown_ids` and not applied; the HRM2 index is kept
+  in sync so `search()` sees the drift. `FeedbackResult` is exported [audit r3a-08, P15;
+  `tests/test_audit_learning_soc.py`].
+- The Hebbian drift re-projects `μ` onto the sphere and rejects a degenerate step:
+  after 500 relevant feedbacks `‖μ‖` stays at 1.0000 (it had decayed to 0.073)
+  [audit r2-14; `tests/test_audit_learning_soc.py`].
+- The learned state (`α`, `κ`, `μ`) survives `save()` + reopen for `AdvancedVectorDB`
+  and `SimpleVectorDB`, and is rewritten by `update(vector=)` and `delete(hard=True)`
+  (`energy/landscape.npz`) [audit r3a-07, P15; `tests/test_audit_learning_soc.py`,
+  `tests/test_audit_closure.py`].
 
 **Persistence**
 
@@ -143,6 +161,11 @@ of each query's own candidates). They are being re-measured and will be added to
   (`M2MPersistence.save_metadata_many()` is also public) [audit r3a-17].
 - `SplatStore.reset()` returns the store to its just-constructed state
   [audit r3a-17].
+- `M2MPersistence.restore(backup_path)` validates its source **before** removing the
+  storage: `..` → `ValueError`, missing → `FileNotFoundError`, not a directory →
+  `NotADirectoryError`, source overlapping the storage (symlinks resolved) →
+  `ValueError`. It used to delete the storage first [audit P15;
+  `tests/test_audit_closure.py`].
 
 **Index lifecycle, gate and HRM2**
 
@@ -165,6 +188,25 @@ of each query's own candidates). They are being re-measured and will be added to
   `HRM2Engine.__init__` and exported from the package [audit r2-18, r3a-10].
 - `GPUVectorIndex` raises `ValueError` for `dim > 1024` before compiling
   shaders or starting Vulkan [audit r2-20].
+- `HNSWIndex`: `_search_layer` returns candidates closest-first and `_insert` enters
+  the next layer from the closest candidate [audit r2-07]; the default level multiplier
+  is `1/ln(M)` as in the paper (fraction of nodes above layer 0 0.488-0.499 → 0.054-0.057,
+  build CPU -31% a -48%) [audit r2-09]. On uniform data the multiplier costs about
+  0.8 recall@10 points on average over 5 level seeds (0.265 against
+  0.274 at `ef_search=32`, 0.417 against 0.425 at 64) — a cost, not
+  an improvement. HNSW and LSH stay experimental and are slower than a linear scan
+  (N = 2500: 302 and 123 QPS against 18,000) [audit r2-08;
+  `tests/test_audit_hnsw_lsh.py`].
+- `CrossPolytopeLSH` uses `np.random.default_rng(seed)` and a deterministic query
+  fallback instead of seeding NumPy's global RNG [audit r2-04], and warns with
+  `UserWarning` that the mode is experimental: with the defaults its recall on uniform
+  data stays low [audit r2-03; `tests/test_audit_hnsw_lsh.py`].
+- SOC engine of `AdvancedVectorDB`: the criticality index is computed over the real
+  clusters of the store (11 clusters at N = 120; SUPERCRITICAL is reachable:
+  0.905 where the previous metric topped at 0.5649); `relax()` no longer
+  raises the free energy (F 14.431 → 13.351) nor moves `μ`; `trigger_avalanche()` and
+  `relax()` write to the real `SplatStore` and survive `save()` + reopen [audit r2-16,
+  r3a-07; `tests/test_audit_learning_soc.py`].
 
 **SQ8 disk index**
 
@@ -176,6 +218,17 @@ of each query's own candidates). They are being re-measured and will be added to
   oversample default is 50 with `r < dim`. The phase trades RAM for
   rescoring work; it is not a speed-up. Dumps built with the old knee detection
   are still truncated when loaded and must be rebuilt [audit r2-01, r2-02].
+- `SQ8DiskStore.load(dump_dir, float_path=None)` restores the `float32` source of a
+  dump built by `build_from_float_npy()`: the path is recorded in `float_source.json`
+  when the dump is built; when it cannot be resolved the call raises
+  `FileNotFoundError` naming the missing file and the `float_path=` remedy, and a
+  source with a different number of rows raises `ValueError` [P17-2;
+  `tests/test_sq8_disk_load.py`].
+- `SQ8DiskStore.search_batch()` rejects queries with `NaN`/`Inf` (`ValueError`)
+  before searching [audit P15; `tests/test_audit_closure.py`].
+- On disk the index takes 3.7 MB per 10k vectors of 384 dimensions in full
+  mode and 1.2 MB in spectral mode, both with recall@10 = 1.000 at the
+  default oversampling (`benchmarks/results/bench_index_types.json`).
 
 **Package, API surface and defaults**
 
@@ -221,7 +274,12 @@ of each query's own candidates). They are being re-measured and will be added to
   configured (fail closed), `/v1/stats` no longer omits collections, and
   `checkpoint`/`backup` return the real error instead of a silent `200`
   [audit r3a-17]. `GET /v1/collections/{name}/suggest` no longer fails with
-  `500` when a key is configured.
+  `500` when a key is configured.  With `M2M_API_KEY` set, `GET`/`PUT`/`DELETE`
+  `/v1/collections/{name}/vectors/{id}` and the read-only `GET /v1/collections`,
+  `GET /v1/collections/{name}` and `GET .../stats` validate the key (`401`; the vector
+  endpoints answer before the collection lookup, and `PUT`/`DELETE` count toward the
+  rate limit) [audit P15; `tests/test_audit_closure.py`].
+
 - LangChain `M2MVectorStore.similarity_search()` fills the requested top-k by
   skipping deleted documents [audit r3b-02].
 - Unicode crash on Windows in benchmark scripts [audit r3b-14: only partially
@@ -243,6 +301,21 @@ of each query's own candidates). They are being re-measured and will be added to
   `embeddings`, `distributed`) as the single source of dependencies;
   `requirements.txt` is `-e .[dev,bench]` [audit r3b-09, r3b-10].
 - License declared as the SPDX expression `AGPL-3.0-only` (PEP 639) [audit r3b-09].
+- `SimpleVectorDB.feedback()` and `FeedbackResult` [audit r3a-08];
+  `AdvancedVectorDB.maybe_consolidate()` (`ConsolidationDecision`: consolidates only
+  when the criticality index is SUPERCRITICAL, idempotent) and the constructor flag
+  `auto_consolidate` (default `False`) [audit r3a-07; `tests/test_audit_learning_soc.py`].
+- A real, opt-in rate limit: `M2M_RATE_LIMIT_PER_MIN` per client IP (absent, `0` or
+  negative = off); `429` with `Retry-After` above the limit [audit P15;
+  `tests/test_audit_closure.py`].
+- Coordinator: `GET /health` (no key) and forwarding of `M2M_EDGE_API_KEY` to the
+  edges on every fan-out [audit P15; `tests/test_audit_closure.py`].
+- `get_stats()['backend']` and `['requested_device']`; `M2MConfig.requested_device`
+  and `cuda_unavailable_reason()` [audit P15; `tests/test_audit_closure.py`].
+- `SQ8DiskStore.load(dump_dir, float_path=None)` [P17-2; `tests/test_sq8_disk_load.py`].
+- `docs/BENCHMARKS.md` (tables, protocol, figure legends) and the re-measured
+  `benchmarks/results/*.json`, with the run on the pre-audit commit in
+  `before_a74d9e4/`; the figures are generated from those JSON files only.
 - Regression tests `tests/test_audit_*.py` for every audit id above.
 
 ### Changed (packaging, CI, deployment)
@@ -264,6 +337,22 @@ of each query's own candidates). They are being re-measured and will be added to
   `docker` or `kubectl` (neither is available on the machine that produced
   them).
 - `tests/README.md` describes the suite that exists [audit r3a-13].
+- The root `docker-compose.yml` publishes `8080` on `127.0.0.1` only and passes
+  `M2M_API_KEY` / `M2M_RATE_LIMIT_PER_MIN` through to the container;
+  `deploy/docker-compose.yml` and `deploy/.env.example` take three keys (`M2M_API_KEY`,
+  `M2M_COORDINATOR_API_KEY`, `M2M_EDGE_API_KEY`) [audit P15; `tests/test_audit_closure.py`].
+- `md5` in `cluster/sharding.py` and `sha1` in `gate_modulus.py` are annotated
+  `usedforsecurity=False`, and bandit no longer skips B324 [audit P15].
+- Benchmarks re-measured with a common protocol (`bench/_protocol.py`); the CI
+  benchmark job reports informative thresholds and sets no time gates; 15 benchmark
+  JSON files without a producer were archived in `bench/history/` [audit r4 methodology;
+  pack P9].
+- Style pass over `src/` and `tests/` (isort + black with AST equivalence checks;
+  flake8 208 → 0 findings, bandit 0): no behaviour change [P16]. The historical
+  re-exports of `optimized_api`, `interfaces` and `semantic_memory` are explicit
+  [cierre].
+- `MANIFEST.in` ships `CONTRIBUTING.md` and `docs/` in the sdist; `pyproject.toml`
+  declares PyPI topics and classifiers [P10b].
 - Documentation rewritten: `README.md`, `docs/CONFIGURATION.md` (new),
   `docs/API.md`, `docs/PERFORMANCE.md`, `docs/TROUBLESHOOTING.md`,
   `docs/cluster.md`, `SECURITY.md` and this file [audit r3a-01 ... r3a-19,
@@ -276,8 +365,19 @@ of each query's own candidates). They are being re-measured and will be added to
 
 ### Known limitations in 2.4.0
 
-See `[Unreleased]` above: vector `GET`/`PUT`/`DELETE` and the legacy `/ingest`
-do not validate the API key, the rate limiter is inert, the coordinator does
-not forward its key to the edges and has no `/health`, the root
-`docker-compose.yml` publishes 8080 without a key, `restore()` does not
-validate `..`. None of them is a regression; all are scheduled.
+- Without a filter, a search does not widen its probe to replace soft-deleted
+  documents: in HRM2 mode (`n > 3000`) `search_batch()` can return fewer than `k`
+  positions (`-1`) and `search()` fewer than `k` results when most documents of the
+  probed clusters are deleted. A filter widens the probe and is exact
+  (`tests/test_audit_batch.py` covers the exclusion and the backfill; the missing
+  widening was confirmed by a probe, there is no dedicated test for it).
+- The unfiltered path is approximate on data without clusters (recall@10 0.149 at
+  10k, 0.093 at 50k on uniform data) and there is no exact-scan switch; see
+  `docs/PERFORMANCE.md`.
+- HNSW and LSH are experimental and slower than a linear scan.
+- No TLS, no user management, no encryption at rest, no `/metrics` endpoint.
+- The filtered batch path still probes with `expand=True`, slower than the
+  unfiltered one [audit P15, item left open on purpose].
+- Unicode on Windows in benchmark scripts is only partially addressed
+  [audit r3b-14]; the deployment manifests were not validated with `docker` or
+  `kubectl`.

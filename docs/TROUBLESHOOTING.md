@@ -84,3 +84,56 @@ A bare `pytest` also selects the tests marked `gpu`, `integration` and
 ```bash
 pytest tests/ -m "not slow and not integration and not gpu and not embeddings"
 ```
+
+## Low recall on random (uniform) vectors
+
+HRM2 routes queries to `n_probe` coarse clusters; on data without clusters the neighbours
+of a query are spread over all of them. Recall@10 with the default `n_probe` is 0.149 at
+10k and 0.093 at 50k on uniform data. There is no `exact=True` switch: set
+`SimpleVectorDB(n_probe=...)` to the number of coarse clusters, pass a filter (the exact
+path of P17), or scan with NumPy — on such data the scan is faster than both exact
+options (`docs/PERFORMANCE.md`).
+
+## `RuntimeError: No encoder set ...` from `SemanticMemoryDB.store()`
+
+The constructor accepts `encoder=None`, but every text operation needs one. Pass a callable
+`text -> np.ndarray` of dimension `latent_dim`, or store pre-computed vectors with
+`store_with_vector()` (`tests/test_semantic_memory.py`).
+
+## `search_batch()` returns `-1`, or `search()` returns fewer than `k` results
+
+Without a filter the probe is not widened to replace soft-deleted documents. In HRM2 mode
+(`n > 3000`) a query whose probed clusters are mostly deleted comes back with fewer than
+`k` results (`-1` padding in the batch). A filter widens the probe and is exact — even one
+that accepts everything (`filter=lambda meta: True`). This is a known limitation of the
+unfiltered path (`tests/test_audit_batch.py` covers the exclusion of deleted documents).
+
+## `429 Too Many Requests` from the edge API
+
+`M2M_RATE_LIMIT_PER_MIN` is set. Wait the number of seconds in the `Retry-After` header, or
+unset the variable (`0` or negative also switches the limit off; off is the default).
+
+## `401 Unauthorized` from the edge API with a key configured
+
+Every endpoint except `/health` and `/v1/health` asks for `M2M_API_KEY` when it is set,
+including the read-only `GET` endpoints of vectors and collections. Send the key, or unset
+the variable for a local development setup (`SECURITY.md`).
+
+## The coordinator's `POST /search` returns empty results / the edges answer `401`
+
+The edges have `M2M_API_KEY` set but the coordinator does not forward one. Set
+`M2M_EDGE_API_KEY` on the coordinator to the edges' key; the coordinator's own
+`M2M_COORDINATOR_API_KEY` is never forwarded (`docs/cluster.md`).
+
+## `FileNotFoundError` from `SQ8DiskStore.load()`
+
+A dump built with `build_from_float_npy()` keeps only the SQ8 codes; the `float32` source
+is needed again to rescore. Its path is recorded in `float_source.json` when the dump is
+built; if that file is gone, call `load(dump_dir, float_path=...)` with the source. The
+error names the missing file and the remedy (`tests/test_sq8_disk_load.py`).
+
+## `add()` is slow with `storage_path`
+
+Each call writes to disk: one document costs about 85.8 ms (p95 270) against
+0.176 ms in memory. Add documents in batches: 1000 in one call take 346 ms
+with storage and 110 ms without (`docs/PERFORMANCE.md`).

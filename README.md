@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-orange" alt="License">
-  <!-- P10b: cifras -- test-count badge goes here, measured on the final branch with the CI selection -->
+  <img src="https://img.shields.io/badge/tests-823%20passed%20%7C%2022%20skipped-brightgreen" alt="CI selection: 823 passed, 22 skipped">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
 
@@ -29,7 +29,7 @@
 ---
 
 **Status of 2.4.0.** This version is the outcome of a full audit of the code, its claims and
-its benchmarks (2026-11): about 95 commits fix search semantics, filters, the write path,
+its benchmarks (2026-11): 99 commits fix search semantics, filters, the write path,
 persistence and the HTTP API, and the documentation was rewritten to describe what the code
 does. It lives on `main` and is **not on PyPI yet** (the publish workflow runs when a GitHub
 Release is created), so install from source to get it. What changed, with the audit id of
@@ -43,12 +43,12 @@ every fix, is in the [CHANGELOG](CHANGELOG.md).
 - **Hierarchical routing (HRM2)** — queries are routed to `n_probe` coarse clusters instead of scanning the index; `HRM2Config` and a gate of modulus (`gate_select_k`) choose the number of clusters.
 - **One score, everywhere** — `DocResult.score` is the cosine similarity in `[-1, 1]` on every path (single, batch, filtered, LSH); `alpha` and `distance` are separate fields.
 - **Energy and confidence per result** — `energy` is the energy of the query under the result's splat and `confidence = sigmoid(−energy)`; out-of-distribution queries hit a visible cap.
-- **Fail-closed metadata filters** — `$eq/$ne/$in/$nin/$gt/$gte/$lt/$lte` or a callable, applied before the top-k in `search()`, `search_batch_filtered()` and `delete(filter=...)`; unknown operators raise instead of being ignored.
+- **Fail-closed metadata filters** — `$eq/$ne/$in/$nin/$gt/$gte/$lt/$lte` or a callable, applied before the top-k in `search()`, `search_batch_filtered()` and `delete(filter=...)`, and **exact** in IVF mode (recall@10 = 1.0 on the benchmark filters); unknown operators raise instead of being ignored.
 - **Persistence that round-trips** — `storage_path` restores splats, index and soft-deletes on reopen; `save(path)` writes a self-contained snapshot; optional HMAC signing with `M2M_HMAC_SECRET`.
-- **HTTP API** — FastAPI service (`python -m m2m`) with optional API key, body-size limit and explicit status codes.
+- **HTTP API** — FastAPI service (`python -m m2m`) with optional API key, opt-in rate limit, body-size limit and explicit status codes.
 - **Backends** — CPU by default; CUDA (`torch`) and Vulkan (compute shaders) as optional extras. The engine reports the backend actually in use (`db.engine.backend`). There is no multi-GPU support.
 - **LangChain integration** — a `VectorStore` (`M2MVectorStore`); the retriever is `as_retriever()`.
-- **Learning from feedback** — Hebbian updates of `α`, `κ`, `μ` at the splat-store level (see [below](#learning-from-feedback)); not yet exposed on `SimpleVectorDB`.
+- **Learning from feedback** — `db.feedback(query, relevant_ids=..., irrelevant_ids=...)` applies Hebbian updates of `α`, `κ`, `μ` by document id; `AdvancedVectorDB.maybe_consolidate()` prunes when the SOC index is SUPERCRITICAL (see [below](#learning-from-feedback)).
 - **Edge/cluster mode** — a coordinator fans queries out to edge nodes and merges the results (`docs/cluster.md`).
 
 ---
@@ -144,7 +144,7 @@ print(f"Criticality index: {report.index:.4f}  state: {report.state}")
   item_225: score=0.9206  energy=1.5878  confidence=0.1697
   item_394: score=0.9202  energy=1.5959  confidence=0.1686
 Consolidated 0 splats
-Criticality index: 0.0000  state: CriticalityState.SUBCRITICAL
+Criticality index: 0.0415  state: CriticalityState.SUBCRITICAL
 ```
 
 **How to read the three numbers.**
@@ -275,8 +275,9 @@ M2M_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')" py
 The service listens on `127.0.0.1:8080` by default and serves the OpenAPI docs at
 `/docs`. Endpoints cover collections, vectors, search, energy features and admin
 checkpoint/backup; see [docs/API.md](docs/API.md) for the table and the status codes.
-Set `M2M_API_KEY` before exposing the port: without it the API is open, and a couple of
-vector endpoints do not validate a key yet (listed in [SECURITY.md](SECURITY.md)).
+Set `M2M_API_KEY` before exposing the port: without it the API is open. With a key set, every
+endpoint except `/health` requires it; the per-client rate limit is opt-in
+(`M2M_RATE_LIMIT_PER_MIN`, off by default). Details in [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -348,10 +349,18 @@ toy retriever built directly on `M2MEngine` and does not import `llama-index`.
 
 ## Learning from feedback
 
-<!-- P10b: feedback/SOC -->
-The splat store learns from relevance feedback with Hebbian updates
-(`SplatStore.feedback(query, relevant_ids=..., irrelevant_ids=...)`, ids are splat
-positions). `SimpleVectorDB.feedback(...)` is not part of 2.4.0 yet.
+`db.feedback(query, relevant_ids=..., irrelevant_ids=...)` learns from one search: the splats
+of relevant document ids move their centre `μ` towards the query and gain amplitude and
+concentration, irrelevant ones lose both (rules of `m2m.online_updates.OnlineUpdater`). Ids are
+document ids; unknown or soft-deleted ids are listed in `FeedbackResult.unknown_ids` and
+ignored. The HRM2 index follows the drift, so the next `search()` sees it [audit r3a-08;
+`tests/test_audit_learning_soc.py`].
+
+Measured on one document of a clustered store after 300 feedbacks: its rank for that query
+went from 2 to 0 and its cosine score from 0.4443 to 0.9982, while
+recall@10 for 99 other queries went from 1.0000 to 0.9960. The centre keeps its own norm
+(drift moves it, it does not shrink it): on a normalised store `‖μ‖` is 1.0000 after 500
+relevant feedbacks, where it had decayed to 0.073 before the fix [audit r2-14].
 
 | Event | α (amplitude) | κ (concentration) | μ (center) |
 |---|---|---|---|
@@ -360,8 +369,17 @@ positions). `SimpleVectorDB.feedback(...)` is not part of 2.4.0 yet.
 | Periodic decay | `α *= decay` every `decay_interval` events (count-based, not wall-clock) | — | — |
 
 The rules are those of `m2m.online_updates.OnlineUpdater` [audit r3a-03]. SOC consolidation
-(`AdvancedVectorDB.consolidate()`, `trigger_avalanche()`, `relax()`) and the criticality
-report (`check_criticality()`) are **explicit calls**; nothing runs in the background.
+(`AdvancedVectorDB.consolidate()`, `maybe_consolidate()`, `trigger_avalanche()`, `relax()`) and
+the criticality report (`check_criticality()`) are **explicit calls**; nothing runs in the
+background, and `auto_consolidate` defaults to `False`.
+
+`maybe_consolidate()` acts only when the criticality index is SUPERCRITICAL and is idempotent:
+on a 60-document store with 45 splats pushed to low amplitude it pruned 45
+splats and the index fell to 0.0; a second call reported `triggered=False`. The index is
+computed over the real clusters of the store (11 clusters for N = 120; a store
+with 75 % low-amplitude splats reads 0.905, where the previous metric could not exceed
+0.5649), and `relax()` lowers the free energy F from 14.431 to 13.351 instead of raising
+it [audit r2-16, r3a-07; `tests/test_audit_learning_soc.py`].
 
 ```python
 import numpy as np
@@ -457,27 +475,61 @@ Two classes are named `M2MEngine`: `m2m.engine.M2MEngine` selects the hardware b
 - **Request limits** — bodies above `M2M_MAX_BODY_BYTES` (32 MiB) get `413`; invalid vectors and filters get `400`.
 - **Signed storage** — with `M2M_HMAC_SECRET`, `save()` signs the storage and reopening verifies it; `save_index()`/`load_index()` always require the secret and verify before deserializing through a restricted unpickler.
 - **Path confinement** — `..`, absolute paths and symlinks escaping the storage directory are rejected.
-- **Honest gaps** — the rate limiter is inert, a few vector endpoints skip the key check and the coordinator does not forward its key to the edges; all listed in [SECURITY.md](SECURITY.md).
+- **Opt-in rate limit** — `M2M_RATE_LIMIT_PER_MIN` per client IP (absent or `0` = off, the default); above the limit the edge answers `429` with `Retry-After`.
+- **Known limits** — no TLS, no users, no encryption at rest, no `/metrics`; the list is in [SECURITY.md](SECURITY.md).
 
 ---
 
 ## Benchmarks
 
-<!-- P10b: cifras -->
-The tables and figures that used to be here (single and batch QPS, filtered-search recall,
-SQ8 memory, ANN-Benchmarks runs) were measured before the 2026-11 fixes and with a
-methodology the audit found flawed, so they were removed rather than left standing. They
-are being re-measured and will be published with the protocol, seeds and hardware in
-[docs/PERFORMANCE.md](docs/PERFORMANCE.md). What is already known qualitatively:
+Measured on the final 2.4.0 code with the protocol of [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md):
+synthetic L2-normalised `float32` data with fixed seeds, 200 queries, `k = 10`, exact ground
+truth in `float64`, one BLAS thread, AMD Ryzen 5 3400G under WSL2. QPS is the median over
+repetitions of queries ÷ wall time of the repetition.
 
-- `search_batch()` scores each query against its own probed clusters; on **clustered** data
-  it matches the single-query path, on **uniform** data its recall is the IVF recall for
-  the configured `n_probe`, not `1.0`.
-- The SQ8 spectral phase trades RAM for rescoring work; it is not a speed-up.
-- LSH and HNSW are experimental. <!-- P10b: LSH/HNSW -->
+| Call | Data | QPS | recall@10 | vs. linear scan¹ | vs. `a74d9e4`² |
+|---|---|---|---|---|---|
+| `search(q, k)` | clustered 10k × 384 | 1,300 | 1.000 | 1.99× | 1.5× |
+| `search(q, k)` | clustered 50k × 384 | 511 | 1.000 | 3.39× | 2.13× |
+| `search(q, k)` | clustered 10k × 64 | 3,350 | 1.000 | 0.64× | 2.27× |
+| `search(q, k)` | uniform 10k × 384 | 1,750 | 0.149 | 2.65× | 1.82× |
+| `search_batch(Q, k)`, B = 200 | clustered 10k × 384 | 1,770 | 1.000 | 0.381× | 0.51× |
+
+¹ Same run, NumPy: `X @ q` + top-10 for the single query, `Q @ X.T` + top-10 for the batch; recall 1.0.
+² Commit before the audit fixes (`benchmarks/results/before_a74d9e4/`). Before the audit
+`search_batch` scored the union of the batch, which was faster and semantically wrong.
+
+![Single-query and batch throughput against a linear scan](docs/bench-hero.png)
+
+Read the table with these facts:
+
+- **Clustered data, single query:** the index is about 2× a NumPy linear scan at 10k and 3.4×
+  at 50k, and 1.5× / 2.13× faster than the commit before the audit.
+  This is the case the engine is built for.
+- **Batches (B = 200):** the linear scan is as fast or faster than the library and returns
+  recall 1.0 (4,650 against 1,770 QPS at 10k, 862 against 691 at 50k;
+  recall 1.0 for both). The value of the library in batches is **not** raw throughput: it is
+  what comes with each hit (`alpha`, energy, confidence), filters evaluated before the top-k
+  and the splat model.
+- **d = 64:** the linear scan wins the single query too (5,220 against 3,350 QPS).
+- **Uniform data (no clusters):** recall@10 of the approximate path is 0.149 at 10k and
+  0.093 at 50k. There is no `exact=True` switch: set `n_probe` to the number of coarse
+  clusters, or pass any filter — both give exact results and both are slower than a NumPy
+  scan on such data ([`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)).
+- **Filtered search is exact:** `search(filter=...)`, `search_batch_filtered(filter=...)` and
+  `filter_fn=` give recall@10 = 1.0 on the four benchmark filters; post-filtering an unfiltered
+  top-k gives 0.053–0.305 [P17; `tests/test_p17_exact_filter.py`].
+- **HNSW and LSH are experimental** and slower than a linear scan (N = 2500: 302 and
+  123 QPS against 18,000, all with recall 1.0).
+- **`storage_path` costs on small writes:** one `add()` with storage takes 85.8 ms
+  (p95 270) against 0.176 ms without; add documents in batches.
 - M2M is a pure-Python/NumPy engine; for raw ANN throughput at billion scale use FAISS,
   Milvus or HNSW libraries. Its value is the splat model: per-result energy and
-  confidence, learnable `α`/`κ`, fail-closed filters and a signed storage format.
+  confidence, learnable `α`/`κ`, exact fail-closed filters and a signed storage format.
+
+All tables (single, batch, filters, index types, storage, SQ8), the noise between runs and
+the protocol are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md);
+[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) explains which knob moves which number.
 
 ---
 
@@ -506,10 +558,11 @@ contribution guidelines in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md). Highlights of 2.4.0: cosine `score` with `alpha` and
-`distance` fields, per-result energy and `confidence = sigmoid(−E)`, fail-closed metadata
-filters, atomic writes with strict vector validation, persistence that restores the index
-and can be HMAC-signed, `python -m m2m` on `127.0.0.1` by default, a 400/413/503-correct
-HTTP API, and `gate_select_k`/HRM2/SQ8 fixes.
+`distance` fields, per-result energy and `confidence = sigmoid(−E)`, fail-closed and exact
+metadata filters, `feedback()` and `maybe_consolidate()` on the store, atomic writes with
+strict vector validation, persistence that restores the index and can be HMAC-signed,
+`python -m m2m` on `127.0.0.1` by default, a 400/413/429/503-correct HTTP API with key
+validation on every endpoint and an opt-in rate limit, and `gate_select_k`/HRM2/SQ8 fixes.
 
 ---
 
