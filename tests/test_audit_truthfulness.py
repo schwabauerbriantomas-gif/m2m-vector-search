@@ -291,3 +291,15 @@ def test_broken_core_import_raises_clear_import_error():
     )
     assert proc.returncode != 0, proc.stdout
     assert "la instalación está incompleta" in proc.stderr, proc.stderr[-800:]
+
+
+# ---------------------------------------------------------------------------
+# r3a-04 — versión unificada
+# ---------------------------------------------------------------------------
+
+
+def test_version_is_unified_with_pyproject():
+    assert m2m.__version__ == "2.4.0"
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    assert pyproject["project"]["version"] == m2m.__version__
+    assert "Version: 2.4.0" in m2m.__doc__

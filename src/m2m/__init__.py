@@ -4,7 +4,7 @@
 M2M (Machine-to-Memory) - EBM Vector Database
 High-performance Gaussian Splat storage and retrieval with Energy-Based Model features.
 
-Version: 2.3.0
+Version: 2.4.0
 Author: Brian Schwabauer
 License: AGPL-3.0
 
@@ -14,7 +14,7 @@ Modos de operación:
   - CLUSTER:  M2MCluster (cluster distribuido con router energético opcional)
 """
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
