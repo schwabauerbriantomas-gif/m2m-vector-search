@@ -194,7 +194,10 @@ class M2MMemory:
 
         if n_removed > 0:
             self.splats.compact()
-            self.splats.build_index()  # C-04 fix: rebuild HRM2 index after consolidate
+            # C-04 fix: rebuild HRM2 index after consolidate. retrain=True
+            # (r1-25): compact() desplaza las filas de mu, el camino attach
+            # dejaría coarse_assignments/_cluster_masks con posiciones viejas.
+            self.splats.build_index(retrain=True)
             logger.info("SOC: Consolidated %d splats", n_removed)
 
         return n_removed
