@@ -2733,7 +2733,7 @@ class SimpleVectorDB:
             # backend EFECTIVO de búsqueda (cpu/cuda/vulkan) según el selector
             # (m2m.engine), vs. el dispositivo que se pidió [audit P15].
             "backend": self.engine.backend,
-            "requested_device": self.config.device,
+            "requested_device": self.engine.get_backend_info().get("requested"),
         }
         if self.storage:
             storage_stats = self.storage.get_stats()

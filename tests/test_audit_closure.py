@@ -433,8 +433,9 @@ def test_get_stats_exposes_backend():
     rng = np.random.default_rng(1)
     db.add(ids=[f"d{i}" for i in range(6)], vectors=_unit(rng.standard_normal((6, 8))))
     st = db.get_stats()
-    assert st["backend"] == db.engine.backend
-    assert st["requested_device"] == db.config.device
+    info = db.engine.get_backend_info()
+    assert st["backend"] == db.engine.backend == info["effective"]
+    assert st["requested_device"] == info["requested"]
     assert st["backend"] in ("cpu", "cuda", "vulkan")
 
 
@@ -479,7 +480,9 @@ def test_cuda_failure_is_warned_once_and_falls_back(monkeypatch, caplog):
     for g, w in zip(got, want):
         np.testing.assert_allclose(g, w, atol=1e-5)
     cuda_warnings = [
-        r for r in caplog.records if r.levelno == logging.WARNING and "CUDA" in r.getMessage()
+        r
+        for r in caplog.records
+        if r.name == "m2m.splats" and r.levelno == logging.WARNING and "CUDA" in r.getMessage()
     ]
     assert len(cuda_warnings) == 1, [r.getMessage() for r in cuda_warnings]
     assert "cuda boom" in cuda_warnings[0].getMessage()
