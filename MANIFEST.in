@@ -1,21 +1,23 @@
 include LICENSE
 include README.md
 include CHANGELOG.md
-include ADVANCED_FEATURES.md
-include USER_GUIDE.md
-include DEVELOPER_DOCS.md
-include BENCHMARK_REPORT.md
-include CONFIGURATION.md
-include TESTING_REPORT.md
-include EXECUTIVE_SUMMARY.md
+include SECURITY.md
+include CONTRIBUTING.md
 
+# Paquete: código, shaders Vulkan y el marcador PEP 561 para mypy [audit r3b-09].
 recursive-include src *.py
 recursive-include src *.comp
-recursive-include src *.spv
-recursive-include assets *.png
+include src/m2m/py.typed
+
+# El sdist lleva docs, tests y ejemplos para que se pueda revisar y validar desde el
+# tarball sin clonar el repo [audit r3b-09].
+graft docs
+graft tests
+graft examples
 
 global-exclude __pycache__
 global-exclude *.py[co]
 global-exclude .DS_Store
 global-exclude *.swp
 global-exclude *.swo
+global-exclude *.log

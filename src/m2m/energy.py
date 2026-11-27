@@ -2,17 +2,22 @@
 Energy-Based Model for the Gaussian Splat landscape.
 
 Energy model:
-    E(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x - μᵢ‖²)) + λ_geom · E_geom(x)
+    E(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x̂ - μᵢ‖²)) + λ_geom · E_geom(x)
 
 Lower energy = higher confidence (query is well-covered by existing splats).
 Higher energy = sparse region (exploration / novelty needed).
 
-Now uses the centralized gaussian_scoring module for consistency.
+``E_splats`` delega en la implementación CANÓNICA del paquete
+(``m2m.ebm.energy_api.splat_energy``) [audit r2-15]: misma normalización de la entrada
+(la esfera, como μ), mismo tope ``OOD_ENERGY`` y mismo valor "sin splats" que
+``EBMEnergy.energy``. Antes usaba ``gaussian_scoring.gaussian_energy`` sin normalizar x
+y con otro tope: el mismo punto daba 10.0 en una API y 69.08 (= -log 1e-30) en la otra.
 """
 
 import numpy as np
 
-from .gaussian_scoring import gaussian_energy as _compute_energy
+from .ebm.energy_api import OOD_ENERGY
+from .ebm.energy_api import splat_energy_batch as _canonical_energy_batch
 
 
 class EnergyFunction:
@@ -27,10 +32,12 @@ class EnergyFunction:
         """
         Splat-based energy: negative log-density of the Gaussian mixture.
 
-        E_splats(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x - μᵢ‖²))
+        E_splats(x) = -log(Σᵢ αᵢ · exp(-κᵢ · ‖x̂ - μᵢ‖²))   [tope OOD_ENERGY]
 
-        Uses the actual α, κ values from SplatStore (which are now updated
-        by the online learning rules).
+        Usa los α, κ reales del SplatStore (actualizados por las reglas de
+        aprendizaje online) y la implementación canónica del paquete: para la misma
+        entrada da el mismo valor que ``EBMEnergy.energy`` (misma normalización a la
+        esfera, mismo tope y mismo default "sin splats") [audit r2-15].
 
         Args:
             x: query vectors [B, D] or [D]
@@ -40,7 +47,7 @@ class EnergyFunction:
             energies: [B] — lower = closer to attractors
         """
         if splats is None or splats.n_active == 0:
-            return np.ones(x.shape[0], dtype=np.float32) * 10.0
+            return np.ones(x.shape[0], dtype=np.float32) * OOD_ENERGY
 
         x = np.asarray(x, dtype=np.float32)
         if x.ndim == 1:
@@ -51,11 +58,8 @@ class EnergyFunction:
         alpha = splats.alpha[:n]
         kappa = splats.kappa[:n]
 
-        energies = np.zeros(x.shape[0], dtype=np.float32)
-        for i in range(x.shape[0]):
-            energies[i] = _compute_energy(x[i], mu, alpha, kappa)
-
-        return energies
+        energies = _canonical_energy_batch(x, mu, alpha, kappa)
+        return energies.astype(np.float32)
 
     def E_geom(self, x):
         """

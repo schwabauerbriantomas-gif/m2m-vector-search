@@ -9,8 +9,7 @@ Soporta auto-detección de dispositivos: CUDA > Vulkan > CPU.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
@@ -164,19 +163,48 @@ class M2MConfig:
 
     @property
     def compute_device(self) -> str:
-        """Device for allocations."""
+        """Dispositivo SOLICITADO para asignaciones (lo dicen los flags, no la
+        disponibilidad): ``"cuda"`` si ``enable_cuda``, si no ``"cpu"``.
+
+        Con ``device="cuda"`` y sin torch/CUDA sigue devolviendo ``"cuda"`` aunque
+        el cálculo corre en CPU [audit r3a-09]. El backend EFECTIVO lo resuelve el
+        selector: ``m2m.engine.M2MEngine.backend`` (también
+        ``SimpleVectorDB.get_stats()["backend"]``); la disponibilidad de CUDA se
+        consulta con :meth:`cuda_unavailable_reason` [audit P15].
+        """
         if self.enable_cuda:
             return "cuda"
         return "cpu"
 
     @property
     def effective_device(self) -> str:
-        """Device efectivo para operaciones de búsqueda."""
+        """Dispositivo SOLICITADO para búsqueda (nombre histórico): ``"cuda"`` si
+        ``enable_cuda``, ``"vulkan"`` si ``enable_vulkan``, si no ``"cpu"``.
+
+        NO verifica disponibilidad (ver :attr:`compute_device`); es lo mismo que
+        :attr:`requested_device`.
+        """
         if self.enable_cuda:
             return "cuda"
         if self.enable_vulkan:
             return "vulkan"
         return "cpu"
+
+    @property
+    def requested_device(self) -> str:
+        """Alias explícito de :attr:`effective_device`: el dispositivo PEDIDO
+        (``"cpu"``/``"cuda"``/``"vulkan"``), sin verificar disponibilidad [audit P15]."""
+        return self.effective_device
+
+    def cuda_unavailable_reason(self):
+        """``None`` si torch + CUDA son usables ahora; si no, el motivo.
+
+        Disponibilidad REAL de CUDA, sin instanciar nada: reusa el chequeo del
+        selector (``m2m.engine._cuda_unavailable_reason``) [audit P15].
+        """
+        from .engine import _cuda_unavailable_reason
+
+        return _cuda_unavailable_reason()
 
     @classmethod
     def simple(cls, device: Optional[str] = None) -> "M2MConfig":

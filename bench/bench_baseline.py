@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Baseline benchmark m2m-vector-search — metodologia replicada de scripts/benchmark_ann_standard.py
-Datasets: sintetico clustered in-distribution (como benchmark_final.json) + GloVe-like uniforme.
+Datasets: sintetico clustered in-distribution (como bench/history/benchmark_final.json) + GloVe-like uniforme.
 Mide: build time, QPS, recall@10, p50/p95 para m2m (l2 y gaussian) y linear scan referencia.
 Tambien: costo del default add() con silhouette (LSH fallback check) y batch API.
-Salida: JSON en bench/baseline.json
+Salida: JSON en bench/history/baseline.json
 """
 import json
 import os
@@ -20,14 +20,14 @@ SEED = 42
 K = 10
 N_QUERIES = 200
 DIM = 384
-OUT = os.path.join(os.path.dirname(__file__), "baseline.json")
+OUT = os.path.join(os.path.dirname(__file__), "bench/history/baseline.json")
 
 # ---------------------------------------------------------------
 # Data generators
 # ---------------------------------------------------------------
 
 def gen_clustered(n, dim, n_clusters=50, seed=SEED):
-    """Clustered in-distribution: replica la metodologia de benchmark_final.json."""
+    """Clustered in-distribution: replica la metodologia de bench/history/benchmark_final.json."""
     rng = np.random.RandomState(seed)
     centers = rng.randn(n_clusters, dim).astype(np.float32)
     assign = rng.randint(0, n_clusters, size=n)

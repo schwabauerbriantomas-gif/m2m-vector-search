@@ -22,18 +22,28 @@ Endpoints:
   POST /v1/admin/backup
 """
 
+import hmac
+import inspect
+import json
+import logging
 import os
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import AdvancedVectorDB, SimpleVectorDB
+from .. import AdvancedVectorDB, SimpleVectorDB, __version__
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -228,16 +238,131 @@ class CollectionManager:
 # App setup
 # ---------------------------------------------------------------------------
 
+# -- SECURITY: Request body size limit (audit r3a-17 resto) ---------------
+# Un body mayor a M2M_MAX_BODY_BYTES (default 32 MiB) se rechaza con HTTP 413
+# ANTES de parsearse: con Content-Length, sin leer ni un byte; sin
+# Content-Length (chunked) la lectura se corta al superar el tope. Lo implementa
+# el max_body_size nativo de FastAPI/Starlette (>= 0.164) o, en Python 3.10 donde
+# esa versión no es instalable, la middleware _BodySizeLimit; se lee al construir la app.
+_DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
+
+
+def _max_body_bytes() -> int:
+    raw = os.environ.get("M2M_MAX_BODY_BYTES")
+    if raw is None:
+        return _DEFAULT_MAX_BODY_BYTES
+    try:
+        limit = int(raw)
+    except ValueError:
+        limit = -1
+    if limit < 0:
+        logger.warning(
+            "M2M_MAX_BODY_BYTES=%r is not a non-negative integer; using %d",
+            raw,
+            _DEFAULT_MAX_BODY_BYTES,
+        )
+        return _DEFAULT_MAX_BODY_BYTES
+    return limit
+
+
+def _rate_limit_per_min() -> int:
+    """Tope de pedidos por minuto e IP: ``M2M_RATE_LIMIT_PER_MIN``.
+
+    Opt-in REAL (audit P15): ausente, vacío, 0 o negativo = límite APAGADO (el
+    default). Un valor que no es entero apaga el límite y lo avisa (no adivina
+    un tope). Se lee en cada pedido, igual que ``M2M_API_KEY``.
+    """
+    raw = os.environ.get("M2M_RATE_LIMIT_PER_MIN")
+    if raw is None or not raw.strip():
+        return 0
+    try:
+        limit = int(raw.strip())
+    except ValueError:
+        logger.warning("M2M_RATE_LIMIT_PER_MIN=%r is not an integer; rate limiting is OFF", raw)
+        return 0
+    return max(0, limit)
+
+
+class _BodySizeLimit:
+    """Límite de tamaño del body para FastAPI sin ``max_body_size``.
+
+    ``max_body_size`` existe desde FastAPI 0.164, que pide Python >= 3.11: en Python 3.10
+    la última FastAPI instalable es 0.162.5 y ahí el mismo límite lo aplica esta
+    middleware ASGI. Con ``Content-Length`` responde 413 sin leer ni un byte; sin él
+    (chunked) corta la lectura en cuanto el body supera el tope.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    def _too_large(self) -> HTTPException:
+        return HTTPException(
+            status_code=413,
+            detail=f"Request body exceeds the limit of {self.max_bytes} bytes (M2M_MAX_BODY_BYTES)",
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        for name, value in scope.get("headers") or []:
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    continue
+                if declared > self.max_bytes:
+                    await JSONResponse({"detail": self._too_large().detail}, status_code=413)(
+                        scope, receive, send
+                    )
+                    return
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body") or b"")
+                if received > self.max_bytes:
+                    # Se lee dentro del handler de la ruta: Starlette lo convierte en la
+                    # respuesta 413 por el manejo normal de HTTPException.
+                    raise self._too_large()
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
+_MAX_BODY_BYTES = _max_body_bytes()
+_FASTAPI_HAS_MAX_BODY_SIZE = "max_body_size" in inspect.signature(FastAPI.__init__).parameters
+
+_FASTAPI_KW: Dict[str, Any] = {}
+if _FASTAPI_HAS_MAX_BODY_SIZE:
+    _FASTAPI_KW["max_body_size"] = _MAX_BODY_BYTES
+
 app = FastAPI(
     title="M2M EBM Vector Database API",
     description="REST API para M2M Vector Search con features EBM",
-    version="2.0.0",
+    version=__version__,
+    **_FASTAPI_KW,
 )
+if not _FASTAPI_HAS_MAX_BODY_SIZE:
+    app.add_middleware(_BodySizeLimit, max_bytes=_MAX_BODY_BYTES)
+    # El límite efectivo queda visible igual que en FastAPI >= 0.164.
+    app.max_body_size = _MAX_BODY_BYTES  # type: ignore[attr-defined]
+
 
 # -- SECURITY: CORS configuration (M-01 fix) ----------------------------
 # allow_origins=["*"] + allow_credentials=True is invalid per CORS spec.
 # Default: permissive for development. Override via env for production.
-_cors_origins = os.environ.get("M2M_CORS_ORIGINS", "*").split(",")
+def _parse_cors_origins(raw: str) -> List[str]:
+    """``M2M_CORS_ORIGINS``: lista separada por comas; se toleran espacios alrededor de
+    cada origen ("https://a, https://b"), que antes dejaban el segundo fuera [validador D15].
+    """
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+_cors_origins = _parse_cors_origins(os.environ.get("M2M_CORS_ORIGINS", "*"))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -247,44 +372,142 @@ app.add_middleware(
 )
 
 # -- SECURITY: Rate limiting (H-03, P-07 fix) --------------------------
+# Opt-in REAL (audit P15): el tope es ``M2M_RATE_LIMIT_PER_MIN`` = pedidos por
+# minuto e IP. Ausente, vacío, 0 o negativo (default) = límite APAGADO. Antes el
+# chequeo comparaba contra una constante de 100 sin registrar nunca los pedidos,
+# así que jamás devolvía 429.
 _rate_limit_store: Dict[str, List[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
-_RATE_LIMIT_MAX_REQUESTS = 100  # per window per IP
+# Valor de REFERENCIA (el recomendado para M2M_RATE_LIMIT_PER_MIN); ya no se consulta.
+_RATE_LIMIT_MAX_REQUESTS = 100
 _RATE_LIMIT_MAX_VECTORS_PER_INSERT = 100_000
+# Memoria acotada (audit r3a-17 resto): a lo sumo _RATE_LIMIT_MAX_CLIENTS IPs en
+# memoria. Las IPs sin pedidos dentro de la ventana se purgan en un barrido
+# amortizado (a lo sumo uno cada _RATE_LIMIT_SWEEP_INTERVAL s, además del prune
+# por-IP); si aun con el barrido se supera el tope, se evicta la IP con la
+# actividad más vieja. La ventana (60 s) no cambia; el tope de pedidos por IP lo
+# fija ``M2M_RATE_LIMIT_PER_MIN`` (ver ``_rate_limit_per_min``).
+_RATE_LIMIT_MAX_CLIENTS = 10_000
+_RATE_LIMIT_SWEEP_INTERVAL = 5.0
+_rate_limit_last_sweep = 0.0
+_rate_limit_lock = threading.Lock()
 
 
-def _check_rate_limit(client_ip: str) -> None:
-    """Basic rate limiting per IP. Raises HTTPException if exceeded."""
-    import time as _time
+def _trim_rate_limit_store(now: float) -> None:
+    """Recorta la tabla a ``_RATE_LIMIT_MAX_CLIENTS`` (evicta la IP con actividad más vieja)."""
+    store = _rate_limit_store
+    overflow = len(store) - _RATE_LIMIT_MAX_CLIENTS
+    if overflow > 0:
+        # Una entrada sin timestamps registrados cuenta como recién tocada (ahora).
+        oldest_first = sorted(store, key=lambda ip: store[ip][-1] if store[ip] else now)
+        for ip in oldest_first[:overflow]:
+            store.pop(ip, None)
 
-    now = _time.time()
-    if client_ip not in _rate_limit_store:
-        _rate_limit_store[client_ip] = []
-    # Prune old entries
-    _rate_limit_store[client_ip] = [
-        t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
-    ]
-    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+def _sweep_rate_limit_store(now: float) -> None:
+    """Purga las IPs sin pedidos dentro de la ventana y recorta la tabla al tope."""
+    store = _rate_limit_store
+    for ip in [ip for ip, ts in store.items() if not ts or now - ts[-1] >= _RATE_LIMIT_WINDOW]:
+        store.pop(ip, None)
+    _trim_rate_limit_store(now)
+
+
+def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
+    """Rate limit por IP, opt-in vía ``M2M_RATE_LIMIT_PER_MIN`` (audit P15).
+
+    Registra el pedido de ``client_ip`` en la ventana corrediza y levanta
+    ``HTTPException(429)`` cuando la IP ya hizo ``limit`` pedidos dentro de la
+    ventana. Antes comparaba contra ``_RATE_LIMIT_MAX_REQUESTS`` sin registrar
+    nunca los pedidos: el tope jamás se disparaba.
+
+    Con el límite APAGADO (default) no cuenta ni rechaza; sólo mantiene la tabla
+    (purga por ventana + tope de IPs), así la memoria queda acotada aunque
+    ``M2M_RATE_LIMIT_PER_MIN`` se active o desactive en caliente. Los pedidos
+    rechazados no se registran (no alargan el bloqueo). Lo cuentan los endpoints
+    que lo llaman: escrituras, búsqueda y los legacy; ``/health``, ``/v1/stats``
+    y los GET no.
+    """
+    global _rate_limit_last_sweep
+
+    if now is None:
+        now = time.time()
+    limit = _rate_limit_per_min()
+    with _rate_limit_lock:
+        if now - _rate_limit_last_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
+            _sweep_rate_limit_store(now)
+            _rate_limit_last_sweep = now
+        if client_ip not in _rate_limit_store:
+            _rate_limit_store[client_ip] = []
+            _trim_rate_limit_store(now)
+        # Prune old entries
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+        ]
+        if limit <= 0:
+            return  # límite apagado
+        if len(_rate_limit_store[client_ip]) >= limit:
+            # Retry-After: segundos que faltan para que venza el pedido más viejo de la ventana.
+            oldest = min(_rate_limit_store[client_ip])
+            retry_after = max(1, int(np.ceil(_RATE_LIMIT_WINDOW - (now - oldest))))
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(retry_after)},
+            )
+        _rate_limit_store[client_ip].append(now)
 
 
 # -- SECURITY: API Key validation (C-01, P-06 fix) ---------------------
+# Modelo de autenticación (audit r3a-17 resto):
+#   * SIN M2M_API_KEY (default): la API queda ABIERTA en los endpoints normales
+#     (desarrollo local / Quick Start). Decisión conservada a propósito.
+#   * CON M2M_API_KEY: los endpoints que validan exigen ``Authorization: Bearer
+#     <key>`` o ``X-API-Key: <key>``, comparados en tiempo constante.
+#   * ``/v1/admin/*`` (checkpoint, backup) EXIGEN key: sin key configurada
+#     responden 503 (fail closed) en vez de quedar abiertos.
+#   * GET/PUT/DELETE de un vector también validan (audit P15): antes, con clave
+#     configurada, se leía, sobreescribía y borraba sin ella.
+#   * Los GET de solo lectura (``/v1/collections``, ``/v1/collections/{name}``,
+#     ``.../stats``, ``.../suggest``) validan desde el cierre del pase: dejaban
+#     abiertos los nombres, los contadores y el contenido de las colecciones.
+#   * Quedan abiertos a propósito, porque no devuelven datos: ``/health`` y
+#     ``/v1/health``.
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
-def _validate_api_key(request: Request) -> None:
-    """Validates API key if configured via M2M_API_KEY environment variable."""
-    import os
+def _configured_api_key() -> Optional[str]:
+    """Key efectiva: la global ``_API_KEY`` si se seteó a mano; si no, ``M2M_API_KEY``."""
+    return _API_KEY if _API_KEY is not None else os.environ.get("M2M_API_KEY")
 
-    global _API_KEY
-    if _API_KEY is None:
-        _API_KEY = os.environ.get("M2M_API_KEY")
-    if _API_KEY is not None:
-        auth = request.headers.get("Authorization", "")
-        api_key = request.headers.get("X-API-Key", "")
-        token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else api_key
-        if not token or token != _API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+def _extract_token(request: Request) -> str:
+    """Token del pedido: ``Authorization: Bearer <tok>`` (scheme case-insensitive,
+    RFC 7235) o el header ``X-API-Key``. Otro scheme de Authorization no es una key."""
+    auth = request.headers.get("Authorization", "")
+    scheme, _, credential = auth.partition(" ")
+    if scheme.strip().lower() == "bearer":
+        return credential.strip()
+    return request.headers.get("X-API-Key", "").strip()
+
+
+def _validate_api_key(request: Request, admin: bool = False) -> None:
+    """Valida la API key si está configurada (M2M_API_KEY o ``edge_api._API_KEY``).
+
+    La comparación es en tiempo constante (``hmac.compare_digest``). Con
+    ``admin=True`` el endpoint es de administración y falla cerrado: sin key
+    configurada responde 503 en vez de quedar abierto.
+    """
+    expected = _configured_api_key()
+    if expected is None:
+        if admin:
+            raise HTTPException(
+                status_code=503,
+                detail="Admin endpoints require an API key: M2M_API_KEY is not configured",
+            )
+        return
+    token = _extract_token(request)
+    if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 # -- SECURITY: Collection name sanitization (H-01, P-03 fix) -----------
@@ -296,7 +519,10 @@ def _validate_collection_name(name: str) -> str:
     if not _COLLECTION_NAME_RE.match(name):
         raise HTTPException(
             status_code=400,
-            detail="Invalid collection name. Use only alphanumeric, underscore, hyphen. Max 128 chars.",
+            detail=(
+                "Invalid collection name. Use only alphanumeric, underscore, hyphen. "
+                "Max 128 chars."
+            ),
         )
     return name
 
@@ -335,8 +561,8 @@ _manager = CollectionManager()
 
 @app.get("/v1/health")
 def health(request: Request):
-    """Health check del servidor."""
-    return {"status": "ok", "version": "2.0.0", "timestamp": time.time()}
+    """Health check del servidor: la versión es la del paquete instalado."""
+    return {"status": "ok", "version": __version__, "timestamp": time.time()}
 
 
 @app.get("/v1/stats")
@@ -349,8 +575,9 @@ def stats(request: Request):
             db = _manager.get(name)
             s = db.get_stats()
             collections.append({"name": name, **s})
-        except Exception:
-            pass
+        except Exception as e:
+            # Antes: `pass` → la colección desaparecía del informe sin rastro.
+            collections.append({"name": name, "error": str(e)})
     return {
         "collections_count": len(_manager.list_names()),
         "collections": collections,
@@ -364,8 +591,9 @@ def stats(request: Request):
 
 
 @app.get("/v1/collections")
-def list_collections():
+def list_collections(request: Request):
     """Lista todas las colecciones."""
+    _validate_api_key(request)
     return {"collections": _manager.list_names()}
 
 
@@ -382,8 +610,9 @@ def create_collection(req: CreateCollectionRequest, request: Request):
 
 
 @app.get("/v1/collections/{name}")
-def get_collection(name: str):
+def get_collection(request: Request, name: str):
     """Información de una colección."""
+    _validate_api_key(request)
     try:
         return _manager.info(name)
     except KeyError as e:
@@ -408,8 +637,56 @@ def delete_collection(name: str, request: Request):
 # ---------------------------------------------------------------------------
 
 
+async def _parse_insert_request(request: Request) -> InsertVectorsRequest:
+    """Body del insert en dos pasos: JSON → CONTEO de vectores → validación.
+
+    El tope de vectores por request se chequea por conteo sobre el JSON ya
+    decodificado y ANTES de que pydantic convierta/valide los arrays (audit
+    r3a-17 resto): antes el validador del tope corría último, así 100.001
+    vectores quemaban segundos de CPU en validación para terminar en 422.
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as e:
+        # Mismo 422 ("json_invalid") que produce FastAPI para JSON inválido.
+        raise RequestValidationError(
+            [
+                {
+                    "type": "json_invalid",
+                    "loc": ("body", e.pos),
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": e.msg},
+                }
+            ],
+            body=e.doc,
+        ) from e
+    vectors = body.get("vectors") if isinstance(body, dict) else None
+    if isinstance(vectors, list) and len(vectors) > _RATE_LIMIT_MAX_VECTORS_PER_INSERT:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", "vectors"],
+                    "msg": (
+                        f"Value error, Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} "
+                        "vectors per request"
+                    ),
+                    "type": "value_error",
+                    "input": {"count": len(vectors)},
+                }
+            ],
+        )
+    try:
+        return InsertVectorsRequest.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=jsonable_encoder(e.errors())) from e
+
+
 @app.post("/v1/collections/{name}/vectors")
-def insert_vectors(name: str, req: InsertVectorsRequest, request: Request):
+def insert_vectors(
+    name: str, request: Request, req: InsertVectorsRequest = Depends(_parse_insert_request)
+):
     """Inserta vectores en una colección."""
     _validate_api_key(request)
     _check_rate_limit(request.client.host if request.client else "unknown")
@@ -420,19 +697,24 @@ def insert_vectors(name: str, req: InsertVectorsRequest, request: Request):
         raise HTTPException(status_code=404, detail=str(e))
 
     vectors = np.array(req.vectors, dtype=np.float32)
-    added = db.add(
-        ids=req.ids,
-        vectors=vectors,
-        metadata=req.metadata,
-        documents=req.documents,
-    )
+    try:
+        added = db.add(
+            ids=req.ids,
+            vectors=vectors,
+            metadata=req.metadata,
+            documents=req.documents,
+        )
+    except ValueError as e:
+        # Payload inválido (NaN/Inf, norma ~0, ids inválidos) → 400, no 500.
+        raise HTTPException(status_code=400, detail=str(e))
     _manager.update_count(name, added)
     return {"added": added, "collection": name}
 
 
 @app.get("/v1/collections/{name}/vectors/{vector_id}")
-def get_vector(name: str, vector_id: str):
-    """Obtiene un vector por ID."""
+def get_vector(name: str, vector_id: str, request: Request):
+    """Obtiene un vector por ID (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)  # antes del lookup: sin clave no se filtra 401 vs 404
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -451,21 +733,27 @@ def get_vector(name: str, vector_id: str):
 
 
 @app.put("/v1/collections/{name}/vectors/{vector_id}")
-def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
-    """Actualiza un vector existente."""
+def update_vector(name: str, vector_id: str, req: UpdateVectorRequest, request: Request):
+    """Actualiza un vector existente (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         db = _manager.get(name)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
     vector = np.array(req.vector, dtype=np.float32) if req.vector else None
-    result = db.update(
-        id=vector_id,
-        vector=vector,
-        metadata=req.metadata,
-        document=req.document,
-        upsert=req.upsert,
-    )
+    try:
+        result = db.update(
+            id=vector_id,
+            vector=vector,
+            metadata=req.metadata,
+            document=req.document,
+            upsert=req.upsert,
+        )
+    except ValueError as e:
+        # Vector inválido (NaN/Inf, norma ~0, upsert sin vector) → 400, no 500.
+        raise HTTPException(status_code=400, detail=str(e))
 
     if not result.success:
         raise HTTPException(status_code=404, detail=result.message)
@@ -478,14 +766,19 @@ def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
 
 
 @app.delete("/v1/collections/{name}/vectors/{vector_id}")
-def delete_vector(name: str, vector_id: str, hard: bool = False):
-    """Elimina un vector."""
+def delete_vector(name: str, vector_id: str, request: Request, hard: bool = False):
+    """Elimina un vector (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         db = _manager.get(name)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    result = db.delete(id=vector_id, hard=hard)
+    try:
+        result = db.delete(id=vector_id, hard=hard)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if result.deleted == 0:
         raise HTTPException(status_code=404, detail=f"Vector '{vector_id}' not found")
 
@@ -512,13 +805,18 @@ def search(name: str, req: SearchRequest, request: Request):
     query = np.array(req.vector, dtype=np.float32)
     start = time.time()
 
-    results_raw = db.search(
-        query,
-        k=req.k,
-        filter=req.filter,
-        include_energy=req.include_energy,
-        include_metadata=req.include_metadata,
-    )
+    try:
+        results_raw = db.search(
+            query,
+            k=req.k,
+            filter=req.filter,
+            include_energy=req.include_energy,
+            include_metadata=req.include_metadata,
+        )
+    except ValueError as e:
+        # Filtro de metadatos invalido (operador desconocido, operando mal formado) o
+        # vector invalido: es un error del cliente. Antes respondia 500 [validador D02].
+        raise HTTPException(status_code=400, detail=str(e))
 
     elapsed_ms = (time.time() - start) * 1000
 
@@ -531,8 +829,14 @@ def search(name: str, req: SearchRequest, request: Request):
             mu, alpha, kappa = results_raw
         # T2: el engine HRM2 devuelve mu/alpha con batch dim (1, k); el path
         # LSH (k,). Aplanar el batch dim para el scoring legacy.
-        alpha = np.asarray(alpha).reshape(-1)[: len(mu) if mu.ndim < 2 else mu.shape[-2]] if hasattr(alpha, "reshape") else alpha
-        results = [{"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(alpha)))]
+        alpha = (
+            np.asarray(alpha).reshape(-1)[: len(mu) if mu.ndim < 2 else mu.shape[-2]]
+            if hasattr(alpha, "reshape")
+            else alpha
+        )
+        results = [
+            {"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(alpha)))
+        ]
     else:
         results = []
         for r in results_raw:
@@ -567,6 +871,16 @@ def query_advanced(name: str, req: SearchRequest, request: Request):
     query = np.array(req.vector, dtype=np.float32)
 
     if db.ebm_enabled and req.include_energy:
+        if req.filter is not None:
+            # search_with_energy() no aplica filtros: antes el filtro se ignoraba en
+            # silencio. Falla cerrado y manda a /search, que lo aplica antes del top-k.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "filter is not supported together with include_energy=True on /query; "
+                    "use /search, which applies the filter before the top-k"
+                ),
+            )
         sr = db.search_with_energy(query, k=req.k)
         results = []
         for r in sr.results:
@@ -589,7 +903,9 @@ def query_advanced(name: str, req: SearchRequest, request: Request):
             "uncertainty_regions": len(sr.uncertainty_regions),
         }
     else:
-        return search(name, req)
+        # El endpoint `search` necesita el `request` para validar la key y el rate limit:
+        # sin el respondia 500 en toda coleccion sin EBM [validador D04].
+        return search(name, req, request)
 
 
 # ---------------------------------------------------------------------------
@@ -667,11 +983,14 @@ def explore(name: str, req: ExploreRequest, request: Request):
 
 
 @app.get("/v1/collections/{name}/suggest")
-def suggest_exploration(name: str, n: int = 3):
+def suggest_exploration(name: str, request: Request, n: int = 3):
     """Sugerencias de exploración (GET)."""
+    _validate_api_key(request)
     req = ExploreRequest()
     req.n_suggestions = n
-    return explore(name, req)
+    # El Request viaja a explore(): con key configurada validaba ``request=None``
+    # y devolvía 500 (AttributeError) en vez de 401/200.
+    return explore(name, req, request)
 
 
 # ---------------------------------------------------------------------------
@@ -680,8 +999,9 @@ def suggest_exploration(name: str, n: int = 3):
 
 
 @app.get("/v1/collections/{name}/stats")
-def collection_stats(name: str):
+def collection_stats(request: Request, name: str):
     """Estadísticas de una colección."""
+    _validate_api_key(request)
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -696,25 +1016,62 @@ def collection_stats(name: str):
 
 
 @app.post("/v1/admin/checkpoint")
-def checkpoint(name: Optional[str] = None, request: Request = None):
-    """Crea checkpoint del WAL."""
-    if request:
-        _validate_api_key(request)
+def checkpoint(request: Request, name: Optional[str] = None):
+    """Crea checkpoint (flush + fsync del WAL) de una colección o de todas.
+
+    No silencia errores (audit r3a-17 resto). ``name`` inexistente → 404. Una
+    colección sin ``storage_path`` pedida por nombre → 400 (no hay WAL que
+    flushear); en el barrido de todas se informa como ``skipped``. Un fallo real
+    de ``db.save()`` → 500 con el mensaje y el resultado por colección (antes:
+    ``except Exception: pass`` y un "Checkpoint created" falso).
+    """
+    _validate_api_key(request, admin=True)
+    if name is not None and name not in _manager._collections:
+        raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
     names = [name] if name else _manager.list_names()
+    results: Dict[str, Dict[str, str]] = {}
+    failed = []
     for n in names:
+        db = _manager.get(n)
+        if not db.storage:
+            if name:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Collection '{n}' has no storage_path: nothing to checkpoint",
+                )
+            results[n] = {"status": "skipped", "reason": "no storage configured"}
+            continue
         try:
-            db = _manager.get(n)
-            db.save(path="")
-        except Exception:
-            pass
-    return {"message": "Checkpoint created", "collections": names}
+            path = db.save()
+        except Exception as e:
+            results[n] = {"status": "error", "reason": str(e)}
+            failed.append(f"{n}: {e}")
+        else:
+            results[n] = {"status": "ok", "path": str(path)}
+    if failed:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Checkpoint failed for {len(failed)} collection(s): "
+                + "; ".join(failed),
+                "collections": names,
+                "results": results,
+            },
+        )
+    return {"message": "Checkpoint created", "collections": names, "results": results}
 
 
 @app.post("/v1/admin/backup")
 def backup(req: BackupRequest, request: Request):
-    """Crea backup de todas las colecciones con storage."""
-    _validate_api_key(request)
+    """Crea backup de todas las colecciones con storage.
+
+    Sin ``storage_path`` → ``skipped``. ``ValueError`` (entrada inválida, p.ej.
+    path traversal) → 400. Cualquier otro fallo → 500 con el motivo por
+    colección (antes: HTTP 200 con el error escondido adentro del body).
+    """
+    _validate_api_key(request, admin=True)
     results = {}
+    failed = []
     for name in _manager.list_names():
         try:
             db = _manager.get(name)
@@ -723,8 +1080,20 @@ def backup(req: BackupRequest, request: Request):
                 results[name] = {"status": "ok", "path": path}
             else:
                 results[name] = {"status": "skipped", "reason": "no storage configured"}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"{name}: {e}")
         except Exception as e:
             results[name] = {"status": "error", "reason": str(e)}
+            failed.append(name)
+    if failed:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Backup failed for {len(failed)} collection(s): " + ", ".join(failed),
+                "backup_path": req.backup_path,
+                "results": results,
+            },
+        )
     return {"backup_path": req.backup_path, "results": results}
 
 
@@ -772,7 +1141,10 @@ async def legacy_ingest(request: Request):
     if np.any(np.isnan(vecs)):
         raise HTTPException(status_code=400, detail="vectors contain NaN values")
     db = _manager.get(_LEGACY_COLLECTION)
-    added = db.add(ids=doc_ids, vectors=vecs)
+    try:
+        added = db.add(ids=doc_ids, vectors=vecs)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     _manager.update_count(_LEGACY_COLLECTION, added)
     return {"added": added}
 

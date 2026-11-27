@@ -8,13 +8,8 @@ Validates:
 - Adaptive k detection works
 """
 
-import sys
-import warnings
-
 import numpy as np
 import pytest
-
-sys.path.insert(0, r"C:\Users\Brian\Desktop\m2m-vector-search-main\src")
 
 from m2m.hrm2_engine import GaussianSplat, HRM2Engine
 

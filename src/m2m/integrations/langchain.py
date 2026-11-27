@@ -8,13 +8,15 @@ from langchain_core.vectorstores import VectorStore
 
 
 class M2MVectorStore(VectorStore):
-    """
-    M2M (Machine-to-Memory) integration for LangChain.
+    """LangChain ``VectorStore`` sobre M2M (Machine-to-Memory).
+
+    Hereda de ``langchain_core.vectorstores.VectorStore``: CRUD completo
+    (``add_texts``/``add_documents``, ``delete``) y búsqueda por similitud
+    (``similarity_search`` y variantes). No es un retriever propio: el retriever
+    es el ``as_retriever()`` heredado de ``VectorStore`` [audit P15].
     """
 
-    def __init__(
-        self, embeddings: Embeddings, m2m_engine=None, config=None, **kwargs: Any
-    ):
+    def __init__(self, embeddings: Embeddings, m2m_engine=None, config=None, **kwargs: Any):
         """
         Initialize M2M VectorStore with embeddings and M2M config.
         """
@@ -82,9 +84,7 @@ class M2MVectorStore(VectorStore):
 
         return ids
 
-    def similarity_search(
-        self, query: str, k: int = 4, **kwargs: Any
-    ) -> List[Document]:
+    def similarity_search(self, query: str, k: int = 4, **kwargs: Any) -> List[Document]:
         """
         Return k most similar documents to the query.
         """
@@ -98,11 +98,19 @@ class M2MVectorStore(VectorStore):
         # We need to unsqueeze to make it a batch of 1
         query_batch = query_tensor[np.newaxis, :]
 
+        # audit r3b-02: los docs borrados siguen ocupando posición en el engine
+        # (M2MEngine no tiene API de borrado, n_active no baja), así que el top-k
+        # se pide con holgura y se filtra por _store; si no, k=1 devolvía []
+        # tras borrar el vecino más cercano.
+        n_active = int(self._m2m.m2m.splats.n_active)
+        dead = max(0, n_active - len(self._store))
+        k_fetch = max(1, min(n_active, k + dead)) if n_active > 0 else k
+
         # Run search using M2MEngine public API
         # M2MEngine.search returns (mu, alpha, kappa, splat_indices); splat_indices
         # are insertion-order positions, already ranked best-first.
         neighbors_mu, neighbors_alpha, neighbors_kappa, splat_indices = self._m2m.search(
-            query_batch, k=k
+            query_batch, k=k_fetch
         )
 
         if splat_indices.ndim == 2:
@@ -115,7 +123,9 @@ class M2MVectorStore(VectorStore):
         # expected a 3-tuple that no longer matches the engine's 4-tuple).
         results = []
         q = query_batch[0]
-        for j, idx in enumerate(splat_indices[:k]):
+        for j, idx in enumerate(splat_indices[:k_fetch]):
+            if len(results) >= k:
+                break
             idx = int(idx)
             if idx in self._store:
                 doc_info = self._store[idx]
@@ -131,15 +141,17 @@ class M2MVectorStore(VectorStore):
 
     def delete(self, ids: List[str]) -> None:
         """
-        Remove documents by ID from the store and mark splats as deleted
-        so they are skipped during similarity search.
+        Remove documents by ID from the store.
+
+        The splats stay allocated in the engine (M2MEngine exposes no delete
+        API and n_active does not shrink); ``similarity_search`` over-fetches
+        and filters them out, so deleted documents never occupy the top-k
+        (audit r3b-02). Memory is reclaimed only by dropping the store.
         """
         if not ids:
             return
         id_set = set(ids)
-        indices_to_remove = [
-            idx for idx, info in self._store.items() if info["id"] in id_set
-        ]
+        indices_to_remove = [idx for idx, info in self._store.items() if info["id"] in id_set]
         for idx in indices_to_remove:
             del self._store[idx]
 
@@ -155,9 +167,7 @@ class M2MVectorStore(VectorStore):
         if ids is None:
             ids = [doc.metadata.get("id") for doc in documents]
 
-        id_to_idx = {
-            info["id"]: idx for idx, info in self._store.items()
-        }
+        id_to_idx = {info["id"]: idx for idx, info in self._store.items()}
 
         for doc_id, doc in zip(ids, documents):
             if doc_id is None:
@@ -175,10 +185,11 @@ class M2MVectorStore(VectorStore):
                     new_emb = self._embeddings.embed_query(doc.page_content)
                     new_emb = np.array(new_emb, dtype=np.float32)
                     from m2m import normalize_sphere
+
                     new_emb = normalize_sphere(new_emb)
 
                     # Update the splat center in-place if engine supports it
-                    if hasattr(self._m2m, 'm2m') and hasattr(self._m2m.m2m, 'splats'):
+                    if hasattr(self._m2m, "m2m") and hasattr(self._m2m.m2m, "splats"):
                         splats = self._m2m.m2m.splats
                         if store_idx < splats.n_active:
                             splats.mu[store_idx] = new_emb
@@ -194,23 +205,14 @@ class M2MVectorStore(VectorStore):
         """
         matching = []
         for idx, info in self._store.items():
-            if all(
-                info["metadata"].get(key) == value
-                for key, value in metadata.items()
-            ):
+            if all(info["metadata"].get(key) == value for key, value in metadata.items()):
                 matching.append(info)
 
         if len(matching) <= k:
-            return [
-                Document(page_content=m["text"], metadata=m["metadata"])
-                for m in matching
-            ]
+            return [Document(page_content=m["text"], metadata=m["metadata"]) for m in matching]
 
         # Return first k matches
-        return [
-            Document(page_content=m["text"], metadata=m["metadata"])
-            for m in matching[:k]
-        ]
+        return [Document(page_content=m["text"], metadata=m["metadata"]) for m in matching[:k]]
 
     @classmethod
     def from_texts(

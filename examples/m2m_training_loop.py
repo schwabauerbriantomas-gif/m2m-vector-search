@@ -24,7 +24,8 @@ def dummy_training_loop(engine: M2MEngine, steps: int = 100):
         queries /= np.linalg.norm(queries, axis=-1, keepdims=True) + 1e-8
 
         # 2. Obtener mu's (keys) usando el VectorDB (forward)
-        mu, a, k = engine.search(queries, k=5)
+        # Legacy return of M2MEngine.search(): always a 4-tuple
+        mu, a, k, _splat_idx = engine.search(queries, k=5)
 
         # 3. Simulate backward pass and optimization
         loss = np.random.rand() * (100 - step) / 100  # Simulated decreasing loss

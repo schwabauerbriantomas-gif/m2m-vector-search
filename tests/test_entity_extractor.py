@@ -22,11 +22,13 @@ def test_extractor_without_dataset_transformer():
 
     embedding_model = MockEmbeddingModel(dim=640)
 
-    text = """
-    Apple Inc. reported quarterly earnings. 
-    Microsoft Corporation announced Azure growth.
-    Google LLC released new AI features.
-    """
+    text = (
+        "\n"
+        "    Apple Inc. reported quarterly earnings. \n"
+        "    Microsoft Corporation announced Azure growth.\n"
+        "    Google LLC released new AI features.\n"
+        "    "
+    )
 
     entities = extractor.extract(
         text,
@@ -66,7 +68,10 @@ def test_extractor_with_dataset_transformer():
 def test_structural_patterns():
     """Test de patrones estructurales (emails, URLs, etc.)."""
     extractor = M2MEntityExtractor(use_ngram_analysis=False, use_semantic_clustering=False)
-    text = "Contact me at test@example.com or visit https://example.com. Call 555-123-4567. Date: 2024-01-01, Price: $1,234.56"
+    text = (
+        "Contact me at test@example.com or visit https://example.com. "
+        "Call 555-123-4567. Date: 2024-01-01, Price: $1,234.56"
+    )
 
     entities = extractor.extract(text)
 

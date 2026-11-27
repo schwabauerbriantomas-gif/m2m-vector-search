@@ -3,12 +3,6 @@
 Skips all tests if no NVIDIA GPU / CUDA is available.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import numpy as np
 import pytest
 
@@ -193,7 +187,6 @@ class TestCUDASearcher:
             searcher.search(query, k=10)
 
         after_mem = torch.cuda.memory_allocated()
-        peak_mem = torch.cuda.max_memory_allocated()
 
         # Memory should not grow more than 1MB beyond baseline
         growth = after_mem - baseline_mem
@@ -203,6 +196,9 @@ class TestCUDASearcher:
 @pytest.mark.gpu
 def test_cuda_searcher_raises_runtime_when_no_cuda(monkeypatch):
     """CUDASearcher.__init__ raises RuntimeError when CUDA is unavailable."""
+    # Sin torch, CUDASearcher hace `import torch` antes de chequear _has_cuda y
+    # levanta ModuleNotFoundError: este test necesita torch instalado [audit P15].
+    pytest.importorskip("torch", reason="CUDASearcher importa torch antes de chequear CUDA")
     import m2m.cuda_search as cs
 
     # Monkeypatch _has_cuda to always return False

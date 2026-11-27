@@ -173,7 +173,8 @@ class TestVectorCRUD:
         name = self._setup()
         vecs = _rand_vecs(1)
         client.post(f"/v1/collections/{name}/vectors", json={"vectors": vecs, "ids": ["u1"]})
-        new_vec = np.zeros(DIM, dtype=np.float32).tolist()
+        # audit r1-19: el vector cero se rechaza con 400; se actualiza con un vector válido.
+        new_vec = np.full(DIM, 0.1, dtype=np.float32).tolist()
         r = client.put(
             f"/v1/collections/{name}/vectors/u1",
             json={"vector": new_vec, "metadata": {"updated": True}},

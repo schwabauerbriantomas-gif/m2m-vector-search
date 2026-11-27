@@ -96,9 +96,9 @@ def main():
 
     out = {"protocol": "add 10%/step sobre 20k, mitad re-insert perturbada mitad nueva; queries fijas",
            "n_probe": 5, "rows": rows}
-    with open(os.path.join(os.path.dirname(__file__), "h7_churn.json"), "w") as f:
+    with open(os.path.join(os.path.dirname(__file__), "bench/history/h7_churn.json"), "w") as f:
         json.dump(out, f, indent=2)
-    print("guardado h7_churn.json")
+    print("guardado bench/history/h7_churn.json")
 
 
 if __name__ == "__main__":

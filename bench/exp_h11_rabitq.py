@@ -124,7 +124,7 @@ def main():
         "rabitq_phase1_recall": None, "sq8_phase1_recall": round(float(rec_sq8), 4),
         "build_s": round(t_build, 2), "mem_packed_mb": round(packed.nbytes / 1e6, 2),
     }
-    with open(os.path.join(os.path.dirname(__file__), "h11_rabitq.json"), "w") as f:
+    with open(os.path.join(os.path.dirname(__file__), "bench/history/h11_rabitq.json"), "w") as f:
         json.dump(out, f, indent=2)
 
 

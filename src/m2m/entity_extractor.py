@@ -209,7 +209,8 @@ class M2MEntityExtractor:
                         and j + 1 < len(tokens)
                         and tokens[j + 1][0].istitle()
                     ):
-                        # Permitir conectores si la siguiente está capitalizada (Ej: "Ministerio de Hacienda")
+                        # Permitir conectores si la siguiente está capitalizada
+                        # (Ej: "Ministerio de Hacienda")
                         entity_tokens.append(next_word)
                         entity_tokens.append(tokens[j + 1][0])
                         j += 2

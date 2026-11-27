@@ -1,3 +1,19 @@
+# Manifiestos de ejemplo para el Swarm (coordinator + edges). No verificados contra un
+# cluster real: se validan con parseo YAML + cross-check de variables y rutas contra src/.
+#
+# Imagen: no hay registry que publique `m2m-vector-search` [audit r3b-11]. Construí la
+# misma imagen que el compose y cargala en el cluster, o cambiá la referencia por una
+# publicada:
+#   docker build -f deploy/Dockerfile -t m2m-vector-search:latest .
+#   kind load docker-image m2m-vector-search:latest   (o: minikube image load ...)
+#
+# Secret requerido (nunca lo commitees):
+#   kubectl create secret generic m2m-api-keys \
+#     --from-literal=M2M_API_KEY=<clave de los edges> \
+#     --from-literal=M2M_COORDINATOR_API_KEY=<clave del coordinator>
+#
+# EDGE_ID / COORDINATOR_URL: eliminados. Ningún código de src/ los lee (grep -> 0).
+# Mismo limite que el compose: el coordinator no reenvia clave a los edges.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,6 +21,9 @@ metadata:
   labels:
     app: m2m-coordinator
 spec:
+  # 1 réplica a propósito: ClusterRouter/ResultAggregator guardan el registro de edges en
+  # memoria; con más réplicas detrás de un Service sin sesión pegajosa, /heartbeat y
+  # /search caerían en réplicas con estado distinto.
   replicas: 1
   selector:
     matchLabels:
@@ -14,6 +33,13 @@ spec:
       labels:
         app: m2m-coordinator
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: coordinator
         image: m2m-vector-search:latest
@@ -21,6 +47,37 @@ spec:
         command: ["uvicorn", "m2m.api.coordinator_api:app", "--host", "0.0.0.0", "--port", "8000"]
         ports:
         - containerPort: 8000
+        env:
+        - name: M2M_COORDINATOR_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: m2m-api-keys
+              key: M2M_COORDINATOR_API_KEY
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        # El coordinator no expone ninguna ruta GET (src/m2m/api/coordinator_api.py: sólo
+        # POST /register /heartbeat /route /search): probe TCP hasta que exista GET /health.
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -38,6 +95,13 @@ spec:
       labels:
         app: m2m-edge
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: edge
         image: m2m-vector-search:latest
@@ -46,9 +110,34 @@ spec:
         ports:
         - containerPort: 8000
         env:
-        - name: COORDINATOR_URL
-          value: "http://m2m-coordinator-service:8000"
-        - name: EDGE_ID
+        - name: M2M_API_KEY
           valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+            secretKeyRef:
+              name: m2m-api-keys
+              key: M2M_API_KEY
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        # GET /health existe y no exige clave (src/m2m/api/edge_api.py).
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 20
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]

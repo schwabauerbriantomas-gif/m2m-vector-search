@@ -1,4 +1,6 @@
+import hashlib
 import itertools
+import warnings
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -26,7 +28,10 @@ class CrossPolytopeLSH:
 
         self.k = max(1, int(np.ceil(config.n_bits / np.log2(2 * self.dim))))
 
-        np.random.seed(config.seed)
+        # RNG propio: antes hacia np.random.seed(seed), que re-seedeaba el RNG GLOBAL
+        # de numpy de todo el proceso [audit r2-04].
+        self._seed = int(config.seed)
+        self._rng = np.random.default_rng(config.seed)
 
         self.rotations = []
         for _ in range(self.n_tables):
@@ -39,9 +44,25 @@ class CrossPolytopeLSH:
         self.vectors: Optional[np.ndarray] = None
         self.n_vectors = 0
 
+        # Una vez por instancia, en el unico lugar donde se construye el indice
+        # (SimpleVectorDB lo crea solo cuando activa el fallback LSH). Medido en
+        # uniforme N=10k d=384, GT exacta: recall@10 ~0.02 con queries aleatorias
+        # y ~0.11 near-duplicate, a ~7 ms/query vs 0.2 ms del scan batched
+        # [audit r2-03].
+        warnings.warn(
+            "CrossPolytopeLSH es EXPERIMENTAL: con la configuracion por defecto "
+            "(n_tables=15, n_bits=18, n_probes=50, n_candidates=500) el recall@10 "
+            "medido en datos uniformes (N=10k, d=384) es < 0.05 con queries "
+            "aleatorias (~0.11 near-duplicate) y cuesta mas que un scan lineal "
+            "batched de numpy a ese N. Midio el recall en tus datos antes de usarlo "
+            "como fallback [audit r2-03].",
+            UserWarning,
+            stacklevel=2,
+        )
+
     def _random_rotation(self, dim: int) -> np.ndarray:
         """Generate a random orthogonal matrix via QR decomposition."""
-        A = np.random.randn(dim, dim).astype(np.float32)
+        A = self._rng.standard_normal((dim, dim)).astype(np.float32)
         Q, R = np.linalg.qr(A)
         Q = Q @ np.diag(np.sign(np.diag(R)))
         return Q
@@ -118,13 +139,18 @@ class CrossPolytopeLSH:
                     self.tables[t][hash_key] = []
                 self.tables[t][hash_key].append(idx)
 
-    def query(
+    def query_candidates(
         self,
         query: np.ndarray,
         k: int = 10,
         n_candidates: Optional[int] = None,
         n_probes: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
+        """Mismo sondeo que query(), pero devuelve TODOS los candidatos re-ranqueados
+        por distancia L2 (indices, distancias), sin truncar a k. `k` solo gobierna el
+        fallback aleatorio de candidatos (misma condicion que query()), asi que
+        query(q, k) == query_candidates(q, k)[:k]. Lo usa search_batch_filtered para
+        aplicar filtro / exclusion de borrados y rellenar hasta k [audit r1-07]."""
         if query.ndim == 2:
             query = query.squeeze(0)
 
@@ -145,7 +171,11 @@ class CrossPolytopeLSH:
         candidates_list = list(candidates)
 
         if len(candidates_list) < k:
-            extra = np.random.choice(
+            # Relleno determinista: semilla derivada de (seed del indice, bytes de la
+            # query). Antes usaba np.random.choice sobre el RNG GLOBAL: dependia de la
+            # semilla global y del historial de llamadas [audit r2-04].
+            q_digest = hashlib.blake2b(query.tobytes(), digest_size=8).digest()
+            extra = np.random.default_rng([self._seed, int.from_bytes(q_digest, "little")]).choice(
                 self.n_vectors, size=min(k * 10, self.n_vectors), replace=False
             )
             candidates.update(extra)
@@ -161,9 +191,22 @@ class CrossPolytopeLSH:
         candidate_vectors = self.vectors[candidates_arr]
 
         distances = np.linalg.norm(candidate_vectors - query, axis=1)
-        sorted_indices = np.argsort(distances)[: min(k, len(distances))]
+        sorted_indices = np.argsort(distances)
 
         return candidates_arr[sorted_indices], distances[sorted_indices]
+
+    def query(
+        self,
+        query: np.ndarray,
+        k: int = 10,
+        n_candidates: Optional[int] = None,
+        n_probes: Optional[int] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Top-k de los candidatos sondeados (ver query_candidates)."""
+        indices, distances = self.query_candidates(
+            query, k=k, n_candidates=n_candidates, n_probes=n_probes
+        )
+        return indices[:k], distances[:k]
 
     def get_recall(self, queries: np.ndarray, ground_truth: np.ndarray, k: int = 10) -> float:
         n_queries = queries.shape[0]

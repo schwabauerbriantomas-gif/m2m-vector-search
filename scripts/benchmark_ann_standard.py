@@ -463,7 +463,7 @@ def main():
     parser.add_argument("--max_train", type=int, default=0,
                         help="Max training vectors (0 = use all)")
     parser.add_argument("--output", type=str,
-                        default="benchmark_ann_results.json",
+                        default="bench/history/benchmark_ann_results.json",
                         help="Output JSON file")
     args = parser.parse_args()
 

@@ -1,13 +1,24 @@
+# Contexto de build: los Dockerfiles sólo hacen COPY de pyproject.toml, README.md,
+# MANIFEST.in, LICENSE y src/. El resto no entra (bench/ era "benchmarks/": directorio
+# inexistente; datasets/ son 3 MB) [audit r3b-11]. .env* jamás debe entrar: tiene claves.
 __pycache__/
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
 .git/
 .github/
 .venv/
+venv/
 build/
 dist/
 *.egg-info/
 tests/
 docs/
-benchmarks/
+bench/
+datasets/
+scripts/
+examples/
 data/
 *.log
+.env
+.env.*

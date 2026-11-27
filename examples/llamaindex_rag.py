@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-M2M LlamaIndex RAG Example
+A minimal retriever built directly on top of the low-level `M2MEngine`.
 
-Demonstrates Retrieval-Augmented Generation (RAG) using M2M (Machine-to-Memory)
-as vectorstore with LlamaIndex.
+Honest note: despite its file name, this example does NOT use LlamaIndex. The
+`m2m` package ships no LlamaIndex integration; the `LlamaIndexRAG` class below is
+a toy retriever (random embeddings) that shows how to call `M2MEngine.search()`
+from a retriever-style class. For the LangChain integration see
+`examples/langchain_rag.py`.
 """
 
 import sys
@@ -83,7 +86,10 @@ class LlamaIndexRAG:
         query_embedding = self.embed_query(query)
 
         # Retrieve from M2M
-        neighbors_mu, neighbors_alpha, neighbors_kappa = self.m2m.search(
+        # Legacy return of M2MEngine.search(): ALWAYS a 4-tuple
+        # (mu, alpha, kappa, splat_indices); splat_indices [B, k] are the splat
+        # positions of the neighbours in ranking order.
+        neighbors_mu, neighbors_alpha, neighbors_kappa, splat_indices = self.m2m.search(
             query_embedding, k
         )
 
@@ -91,10 +97,10 @@ class LlamaIndexRAG:
         doc_list = list(self.documents.values())
         n_docs = len(doc_list)
 
-        # Get document indices from top-K kappa (clamped to valid range)
-        k = min(k, neighbors_kappa.shape[-1])
-        top_k_indices = np.argsort(neighbors_kappa, axis=-1)[:, -k:][:, ::-1]
-        retrieved_docs = [doc_list[int(i) % n_docs] for i in top_k_indices[0].tolist()]
+        # The neighbours are already ranked by the engine: take their splat positions.
+        k = min(k, splat_indices.shape[-1])
+        top_k_indices = splat_indices[0, :k]
+        retrieved_docs = [doc_list[int(i) % n_docs] for i in top_k_indices.tolist()]
 
         return retrieved_docs
 

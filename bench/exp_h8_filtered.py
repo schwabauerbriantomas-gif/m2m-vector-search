@@ -51,7 +51,7 @@ def main():
         out[sel] = {"recall@10": round(rec, 4), "qps": round(NQ / dt, 1), "fill": round(fill, 3)}
         print(f"selectividad {sel}: recall={rec:.4f} QPS={NQ/dt:.0f} fill={fill:.2f}")
 
-    with open(os.path.join(os.path.dirname(__file__), "h8_filtered.json"), "w") as f:
+    with open(os.path.join(os.path.dirname(__file__), "bench/history/h8_filtered.json"), "w") as f:
         json.dump(out, f, indent=2)
 
 

@@ -1,4 +1,5 @@
 """Tests de SQ8DiskStore (H10 integrado: store comprimido con rescoring mmap)."""
+
 import numpy as np
 import pytest
 
@@ -79,6 +80,7 @@ def test_search_requires_flush(tmp_path):
 
 # --- H13b: el rescoring corre contra los float32 ORIGINALES ---------------
 
+
 def test_flush_preserves_original_float32(tmp_path):
     """flush() escribe los float32 ORIGINALES entregados a add(), no
     dequantizados desde SQ8 (regresion H13b: dump dequantizado = rescoring
@@ -110,10 +112,14 @@ def test_recall_improves_with_oversample(tmp_path):
     for ov in (1, 8):
         got = st.search_batch(queries, k=K, oversample=ov)
         recs.append(
-            np.mean([len(set(got[i].tolist()) & set(gt[i].tolist())) / K for i in range(len(queries))])
+            np.mean(
+                [len(set(got[i].tolist()) & set(gt[i].tolist())) / K for i in range(len(queries))]
+            )
         )
     assert recs[1] >= recs[0] - 1e-9, "mas oversample nunca debe bajar el recall"
-    assert recs[1] >= 0.99, f"recall@10 con oversample 8: {recs[1]:.3f} < 0.99 (dump sin originales?)"
+    assert (
+        recs[1] >= 0.99
+    ), f"recall@10 con oversample 8: {recs[1]:.3f} < 0.99 (dump sin originales?)"
 
 
 def test_add_after_load_merges_originals(tmp_path):

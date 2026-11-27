@@ -6,7 +6,7 @@ import numpy as np
 
 from .gaussian_scoring import gaussian_score, two_phase_search
 from .hrm2_engine import HRM2Engine
-from .online_updates import FeedbackEvent, OnlineUpdater
+from .online_updates import OnlineUpdater
 from .splat_types import GaussianSplat
 
 if TYPE_CHECKING:
@@ -73,9 +73,7 @@ class SplatStore:
             batch_size=min(10000, self.max_splats),
             config=config,
             k_selection=ksel,
-            gate_target_docs_per_cluster=getattr(
-                config, "gate_target_docs_per_cluster", 25
-            ),
+            gate_target_docs_per_cluster=getattr(config, "gate_target_docs_per_cluster", 25),
         )
 
         # Keep track of tensors for Energy / SOC functions that access properties directly
@@ -103,6 +101,32 @@ class SplatStore:
     def updater(self) -> OnlineUpdater:
         """Access the online parameter updater for feedback."""
         return self._updater
+
+    def reset(self) -> None:
+        """Leave the store as freshly constructed, without re-instantiating it.
+
+        Clears the splats (``n_active``, id counter, ``mu``/``alpha``/``kappa``/
+        ``frequency``) and the HRM2 index, and resets the caches and the online
+        updater. ``self.engine`` and the preallocated arrays are kept (reset in
+        place), so external references stay valid. Configuration (``config``,
+        ``max_splats``, ``rank_by``) is not reverted. Before this method the only
+        way was poking private attributes from the outside (``_restore_from_storage``).
+        """
+        self.n_active = 0
+        self._next_id = 0
+        self._last_trained_n = 0
+        self.mu[...] = 0.0
+        self.alpha[...] = self.config.init_alpha
+        self.kappa[...] = self.config.init_kappa
+        self.frequency[...] = 0.0
+        self._m_sq_cache = None
+        self._m_sq_dirty = False
+        self._gpu_index = None
+        self._gpu_index_dirty = True
+        self._cuda_searcher = None
+        self._cuda_dirty = True
+        self.engine.clear()
+        self._updater = OnlineUpdater()
 
     def add_splat(self, x: np.ndarray) -> int:
         """Add a batch of splats or a single splat (vectorized)."""
@@ -141,6 +165,9 @@ class SplatStore:
             existente más cercano sin re-entrenar (streaming IVF estándar).
             O(|new|·k·d) en vez de O(n·k·d·iters) — el recall se mide en
             bench/exp_h7_churn.py.
+          - si n_active BAJÓ desde el último entrenamiento (compact), retrain
+            completo: las filas de mu se desplazaron y el índice viejo apunta a
+            posiciones pre-compaction (audit r1-25).
         """
         n = self.n_active
         if n == 0:
@@ -152,7 +179,22 @@ class SplatStore:
             or not getattr(eng, "_is_indexed", False)
             or last_n == 0
             or n > 1.25 * last_n
+            or n < last_n
         )
+        if not need_full:
+            # El attach solo es válido si el índice cubre EXACTAMENTE las
+            # primeras last_n filas; con cualquier otra longitud (índice armado
+            # desde afuera, p. ej. mapreduce/load) las posiciones no coinciden.
+            prev_assign = getattr(eng, "coarse_assignments", None)
+            prev_emb = getattr(eng, "embeddings", None)
+            if (
+                eng.coarse_model is None
+                or prev_assign is None
+                or len(prev_assign) != last_n
+                or prev_emb is None
+                or len(prev_emb) != last_n
+            ):
+                need_full = True
         if need_full:
             self._recompute_n_coarse()
             embeddings = self.mu[:n]
@@ -165,7 +207,7 @@ class SplatStore:
             centroids = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
             new_points = self.mu[old_n:n]
             # ||x-c||^2 = ||x||^2 - 2x.c + ||c||^2; ||x||^2 es constante por fila
-            d2 = -2.0 * (new_points @ centroids.T) + (centroids ** 2).sum(axis=1)[None, :]
+            d2 = -2.0 * (new_points @ centroids.T) + (centroids**2).sum(axis=1)[None, :]
             new_assign = np.argmin(d2, axis=1)
 
             prev_assign = eng.coarse_assignments
@@ -175,20 +217,35 @@ class SplatStore:
                 eng.embeddings = np.vstack([eng.embeddings, new_points])
 
             masks = getattr(eng, "_cluster_masks", None)
+            if masks:
+                # r1-11: alinear TODAS las máscaras a n. Antes solo se extendían
+                # las de los clusters que recibieron puntos nuevos y las demás
+                # quedaban con longitud old_n: update() indexa
+                # _cluster_masks[cid][pos] (IndexError) y query_with_details
+                # hace embeddings[mask] con la máscara corta (IndexError).
+                for cid, prev_mask in list(masks.items()):
+                    if len(prev_mask) == old_n:
+                        masks[cid] = np.concatenate([prev_mask, new_assign == cid])
+                    elif len(prev_mask) != n:
+                        # Longitud inesperada (índice externo que no las mantuvo):
+                        # reconstruir desde los assignments ya extendidos.
+                        masks[cid] = np.asarray(eng.coarse_assignments == cid)
             for cid in np.unique(new_assign):
                 extra = np.where(new_assign == cid)[0] + old_n
+                # [P17] la cota tiene que seguir siendo cota superior: las filas
+                # nuevas pueden estar más lejos del centroide que las viejas.
+                if getattr(eng, "coarse_cluster_radii", None) is not None:
+                    eng.bump_cluster_radius(cid, new_points[new_assign == cid])
                 prev_idx = eng.coarse_cluster_indices.get(cid)
                 eng.coarse_cluster_indices[cid] = (
-                    np.concatenate([prev_idx, extra])
-                    if prev_idx is not None
-                    else extra
+                    np.concatenate([prev_idx, extra]) if prev_idx is not None else extra
                 )
                 prev_emb = eng.coarse_cluster_embeddings.get(cid)
                 assert prev_emb is not None, f"cluster {cid} sin embeddings precomputados"
                 new_emb = np.ascontiguousarray(eng.embeddings[extra])
                 eng.coarse_cluster_embeddings[cid] = np.vstack([prev_emb, new_emb])
-                if masks is not None and cid in masks:
-                    masks[cid] = np.concatenate([masks[cid], new_assign == cid])
+                if masks is not None and cid not in masks:
+                    masks[cid] = np.asarray(eng.coarse_assignments == cid)
             self._last_trained_n = n
 
         self._gpu_index_dirty = True
@@ -299,9 +356,7 @@ class SplatStore:
                 # verificado diff ~1e-7, pero ~20x más rápido por query).
                 centroids = getattr(self.engine.coarse_model, "centroids_", None)
                 if centroids is not None:
-                    coarse_dists = np.sqrt(
-                        np.maximum(((centroids - q) ** 2).sum(axis=1), 0.0)
-                    )
+                    coarse_dists = np.sqrt(np.maximum(((centroids - q) ** 2).sum(axis=1), 0.0))
                 else:
                     coarse_dists = self.engine.coarse_model.transform(q.reshape(1, -1))[0]
 
@@ -372,7 +427,12 @@ class SplatStore:
             else:
                 # Gaussian two-phase search (default, probabilistic re-ranking)
                 result_indices, result_scores, _, _ = two_phase_search(
-                    q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5,
+                    q,
+                    cand_mu,
+                    cand_alpha,
+                    cand_kappa,
+                    k=k,
+                    overfetch=1.5,
                     precomputed_m_sq=_non_hrm2_m_sq if full_scan else None,
                     with_ranks=False,
                 )
@@ -438,7 +498,18 @@ class SplatStore:
                 return self._gaussian_rerank_gpu_results(gpu_ids, gpu_dists, queries_np, k, dim)
 
             except Exception as e:
-                logger.warning("CUDA batch search failed (%s), falling back.", e)
+                # Aviso UNA vez por store (audit P15): el motivo raíz (sin torch,
+                # sin GPU) ya sale al construir el engine; repetirlo en cada query
+                # inundaba el log. Se sigue intentando el camino CUDA en cada
+                # llamada y se cae al de numpy: el fallo no se silencia.
+                failure = f"{type(e).__name__}: {e}"
+                if getattr(self, "_cuda_failure", None) != failure:
+                    self._cuda_failure = failure
+                    logger.warning(
+                        "CUDA batch search failed (%s); falling back to CPU "
+                        "(warned once per store).",
+                        failure,
+                    )
 
         # -- GPU path: GPUVectorIndex (Vulkan) ------------------------
         vulkan_enabled = getattr(self.config, "enable_vulkan", False)
@@ -476,7 +547,12 @@ class SplatStore:
         for i in range(batch_size):
             q = queries_np[i]
             result_indices, scores, _, _ = two_phase_search(
-                q, index_data, index_alpha, index_kappa, k=k, overfetch=2.0,
+                q,
+                index_data,
+                index_alpha,
+                index_kappa,
+                k=k,
+                overfetch=2.0,
                 precomputed_m_sq=_m_sq,
                 with_ranks=False,
             )
@@ -564,6 +640,7 @@ class SplatStore:
             # apply_feedback may drift mu in-place (Hebbian update) — invalidate
             # the cached squared norms.
             self._m_sq_dirty = True
+            self.engine.invalidate_cluster_radii()  # [P17] μ deriva in-place
 
         query = np.asarray(query, dtype=np.float32).flatten()
 
@@ -660,6 +737,11 @@ class SplatStore:
 
         self.n_active = n_kept
         self._m_sq_dirty = True
+        # r1-25: las filas se desplazaron; el índice HRM2 apunta a posiciones
+        # pre-compaction. Marcarlo como no indexado fuerza el retrain completo
+        # en el build_index() siguiente (o el auto-build de find_neighbors).
+        self.engine._is_indexed = False
+        self.engine.invalidate_cluster_radii()  # [P17] filas desplazadas
         return removed
 
     def get_statistics(self) -> Dict[str, object]:

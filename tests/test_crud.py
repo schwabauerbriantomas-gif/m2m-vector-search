@@ -126,7 +126,9 @@ class TestUpdate:
 
     def test_update_upsert(self, db):
         """Test: upsert crea documento si no existe."""
-        vec = np.zeros(64, dtype=np.float32)
+        # audit r1-19: los vectores de norma ~0 se rechazan (actúan como hub equidistante);
+        # el upsert sigue probándose con un vector válido.
+        vec = np.ones(64, dtype=np.float32)
         result = db.update("new_doc", vector=vec, upsert=True)
         assert result.success
         assert "new_doc" in db._vectors

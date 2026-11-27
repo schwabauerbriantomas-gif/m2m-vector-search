@@ -8,8 +8,8 @@ in large-scale Gaussian splat datasets.
 import math
 import time
 import warnings
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from sklearn.metrics import calinski_harabasz_score, silhouette_score
@@ -32,7 +32,15 @@ class SearchResult:
 
 @dataclass
 class HRM2Config:
-    """Configuration for HRM2 Engine."""
+    """Configuration for HRM2 Engine.
+
+    Cableada en HRM2Engine(config=...) [audit r2-19; antes era un dataclass
+    muerto]: sus campos son los defaults de los knobs HRM2 y un kwarg
+    explícito de HRM2Engine manda sobre el config (None = tomar el default).
+    Nota: batch_size=1000 (A/B: 3.8x más rápido que 10000 con igual recall)
+    difiere del default histórico de HRM2Engine (10000), que se conserva si
+    no se pasa config.
+    """
 
     n_coarse: int = 100  # Number of coarse clusters
     n_fine: int = 1000  # Number of fine clusters per coarse
@@ -84,17 +92,17 @@ class HRM2Engine:
 
     def __init__(
         self,
-        n_coarse: int = 100,
-        n_fine: int = 1000,
-        embedding_dim: int = 640,
-        n_probe: int = 5,
-        batch_size: int = 10000,
-        random_state: int = 42,
+        n_coarse: Optional[int] = None,
+        n_fine: Optional[int] = None,
+        embedding_dim: Optional[int] = None,
+        n_probe: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        random_state: Optional[int] = None,
         config=None,
-        metric: str = "euclidean",
-        auto_k: bool = False,
-        k_selection: str = "fixed",
-        gate_target_docs_per_cluster: int = 25,
+        metric: Optional[str] = None,
+        auto_k: Optional[bool] = None,
+        k_selection: Optional[str] = None,
+        gate_target_docs_per_cluster: Optional[int] = None,
     ):
         """
         Initialize HRM2 Engine.
@@ -106,7 +114,12 @@ class HRM2Engine:
             n_probe: Coarse clusters to search
             batch_size: Batch size for K-Means
             random_state: Random seed
-            config: M2MConfig for hardware acceleration
+            config: M2MConfig for hardware acceleration; o HRM2Config: en
+                ese caso sus campos son los defaults de los knobs HRM2
+                (n_probe, adaptive_probing, metric, ...) y los kwargs
+                explícitos mandan sobre él [audit r2-19]. Con None en un knob
+                se toma el default (el de HRM2Config si se pasó, si no el
+                histórico: 100, 1000, 640, 5, 10000, 42, "euclidean", ...)
             metric: Distance metric - "euclidean" or "cosine"
             auto_k: Auto-detect optimal k via silhouette analysis (legacy;
                 equivalente a k_selection='silhouette')
@@ -116,6 +129,51 @@ class HRM2Engine:
             gate_target_docs_per_cluster: target de docs/cluster cuando el
                 gate dictamina corpus jerárquico (K = N // target)
         """
+        # [audit r2-19] HRM2Config era un dataclass muerto (nunca consumido:
+        # adaptive probing inalcanzable por API). Resolución de defaults:
+        # kwarg explícito > campo de HRM2Config (si `config` lo es) > default
+        # histórico de __init__. Con M2MConfig (o sin config) no cambia nada.
+        defaults = dict(
+            n_coarse=100,
+            n_fine=1000,
+            embedding_dim=640,
+            n_probe=5,
+            batch_size=10000,
+            random_state=42,
+            metric="euclidean",
+            auto_k=False,
+            k_selection="fixed",
+            gate_target_docs_per_cluster=25,
+        )
+        adaptive = dict(adaptive_probing=False, adaptive_threshold=1.5, adaptive_min_probe=1)
+        if isinstance(config, HRM2Config):
+            defaults.update({k: getattr(config, k) for k in defaults})
+            adaptive.update({k: getattr(config, k) for k in adaptive})
+        resolved: Dict[str, Any] = {
+            k: (v if v is not None else defaults[k])
+            for k, v in (
+                ("n_coarse", n_coarse),
+                ("n_fine", n_fine),
+                ("embedding_dim", embedding_dim),
+                ("n_probe", n_probe),
+                ("batch_size", batch_size),
+                ("random_state", random_state),
+                ("metric", metric),
+                ("auto_k", auto_k),
+                ("k_selection", k_selection),
+                ("gate_target_docs_per_cluster", gate_target_docs_per_cluster),
+            )
+        }
+        n_coarse = resolved["n_coarse"]
+        n_fine = resolved["n_fine"]
+        embedding_dim = resolved["embedding_dim"]
+        n_probe = resolved["n_probe"]
+        batch_size = resolved["batch_size"]
+        random_state = resolved["random_state"]
+        metric = resolved["metric"]
+        auto_k = resolved["auto_k"]
+        k_selection = resolved["k_selection"]
+        gate_target_docs_per_cluster = resolved["gate_target_docs_per_cluster"]
         self.n_coarse = n_coarse
         self.n_fine = n_fine
         self.embedding_dim = embedding_dim
@@ -123,9 +181,9 @@ class HRM2Engine:
         self.batch_size = batch_size
         self.random_state = random_state
         self.config = config
-        self.adaptive_probing = False  # SPEC 3
-        self.adaptive_threshold = 1.5
-        self.adaptive_min_probe = 1
+        self.adaptive_probing = adaptive["adaptive_probing"]  # SPEC 3
+        self.adaptive_threshold = adaptive["adaptive_threshold"]
+        self.adaptive_min_probe = adaptive["adaptive_min_probe"]
         self.metric = metric
         self.auto_k = auto_k
         if auto_k and k_selection == "fixed":
@@ -158,6 +216,11 @@ class HRM2Engine:
         # Fast caching
         self.coarse_cluster_indices: Dict[int, np.ndarray] = {}
         self.coarse_cluster_embeddings: Dict[int, np.ndarray] = {}
+        # [P17] radio por cluster: r_c = max_x ||x - centroide_c|| sobre las filas
+        # asignadas a c. Cota superior para podar clusters en la búsqueda CON
+        # filtro (dist(q,x) >= dist(q,c) - r_c). None = inválido: se recalcula en
+        # una pasada en la primera búsqueda con filtro (compute_cluster_radii).
+        self.coarse_cluster_radii: Optional[Dict[int, float]] = None
 
         # Encoder
         self.encoder = FullEmbeddingBuilder()
@@ -321,6 +384,7 @@ class HRM2Engine:
         self._fine_built = False
         self.coarse_cluster_indices = {}
         self.coarse_cluster_embeddings = {}
+        self.coarse_cluster_radii = None  # [P17] índice nuevo: radios sin calcular
 
         for coarse_id in range(n_coarse_effective):
             mask = self.coarse_assignments == coarse_id
@@ -408,6 +472,68 @@ class HRM2Engine:
             m.n_clusters if m else 0 for m in self.fine_models.values()
         )
 
+    def _coarse_distances(self, query_vector: np.ndarray) -> np.ndarray:
+        """Distancias a los centroides gruesos (numpy routing; idéntico a
+        coarse_model.transform, ~20x más rápido por query). Fórmula única para
+        query() y query_batch() [audit r2-18: paridad fila a fila]."""
+        coarse_model = self.coarse_model
+        assert coarse_model is not None
+        centroids = getattr(coarse_model, "centroids_", None)
+        if centroids is not None:
+            return np.sqrt(np.maximum(((centroids - query_vector) ** 2).sum(axis=1), 0.0))
+        return coarse_model.transform(query_vector.reshape(1, -1))[0]
+
+    def _lod01_candidates(self, query_vector: np.ndarray, closest_coarse, k: int, lod: int) -> list:
+        """Candidatos de lod 0/1: los k MÁS CERCANOS (distancia exacta) de los
+        clústeres sondeados [audit r2-19; antes eran los primeros k por orden
+        de índice — miembros arbitrarios del clúster, recall@10 1-17% en la
+        sonda p6_hrm2.py].
+
+        - lod 0 (coarse): los k más cercanos de cada clúster grueso sondeado.
+        - lod 1 (fine): los k más cercanos de los clústeres finos más cercanos
+          de cada clúster grueso sondeado, hasta reunir k por clúster grueso
+          (aproximación: el recall depende del tamaño de los clústeres finos).
+
+        Devuelve [(idx, dist, coarse_id, fine_id)] en orden de clúster sondeado
+        (cercano -> lejano); el caller ordena por distancia y recorta a k.
+        """
+        candidates = []
+        for coarse_id in closest_coarse:
+            coarse_id = int(coarse_id)
+            coarse_indices = np.where(self.coarse_assignments == coarse_id)[0]
+            if lod == 0:
+                diff = self.embeddings[coarse_indices] - query_vector
+                dist = np.sqrt(np.einsum("ij,ij->i", diff, diff))
+                order = np.argsort(dist, kind="stable")[:k]
+                candidates.extend(
+                    (int(coarse_indices[i]), float(dist[i]), coarse_id, 0) for i in order
+                )
+            else:
+                fine_model = self.fine_models.get(coarse_id)
+                if fine_model is None:
+                    continue
+                fine_assigns = self.fine_assignments.get(
+                    coarse_id, np.zeros(len(coarse_indices), dtype=np.int32)
+                )
+                fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
+                added = 0
+                for fine_id in np.argsort(fine_dists, kind="stable"):
+                    members = coarse_indices[fine_assigns == fine_id]
+                    if len(members) == 0:
+                        continue
+                    diff = self.embeddings[members] - query_vector
+                    dist = np.sqrt(np.einsum("ij,ij->i", diff, diff))
+                    order = np.argsort(dist, kind="stable")[:k]
+                    candidates.extend(
+                        (int(members[i]), float(dist[i]), coarse_id, int(fine_id)) for i in order
+                    )
+                    added += len(order)
+                    if added >= k:
+                        break
+            if len(candidates) >= k:
+                break
+        return candidates
+
     def query(
         self, query_vector: np.ndarray, k: int = 10, lod: int = 2
     ) -> List[Tuple[GaussianSplat, float]]:
@@ -435,59 +561,25 @@ class HRM2Engine:
             if norm > 1e-10:
                 query_vector = query_vector / norm
 
-        # Find nearest coarse clusters (numpy routing; identical to
-        # coarse_model.transform, ~20x faster per query)
-        coarse_model = self.coarse_model
-        assert coarse_model is not None
-        centroids = getattr(coarse_model, "centroids_", None)
-        if centroids is not None:
-            coarse_distances = np.sqrt(
-                np.maximum(((centroids - query_vector) ** 2).sum(axis=1), 0.0)
-            )
-        else:
-            coarse_distances = coarse_model.transform(query_vector.reshape(1, -1))[0]
+        # Find nearest coarse clusters (numpy routing; _coarse_distances es la
+        # fórmula única de query()/query_batch() [audit r2-18])
+        coarse_distances = self._coarse_distances(query_vector)
         n_probe_actual = self._adaptive_n_probe(coarse_distances)
         closest_coarse = np.argsort(coarse_distances)[:n_probe_actual]
 
         candidates = []
 
-        if lod == 0:
-            for coarse_id in closest_coarse:
-                mask = self.coarse_assignments == coarse_id
-                indices = np.where(mask)[0][:k]
-                for idx in indices:
-                    # Compute actual distance to this vector
-                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
-                    candidates.append((idx, float(vec_dist), int(coarse_id)))
-                if len(candidates) >= k:
-                    break
-
-        elif lod == 1:
-            # LOD 1: Fast fine approximation. Build fine index lazily if needed.
-            if not self._fine_built:
+        if lod == 0 or lod == 1:
+            # LOD 0 (coarse) / LOD 1 (fine): los k MÁS CERCANOS de los
+            # clústeres sondeados [audit r2-19; antes: los primeros k por
+            # orden de índice, i.e. miembros arbitrarios del clúster].
+            if lod == 1 and not self._fine_built:
                 self._build_fine_index()
-            for coarse_id in closest_coarse:
-                fine_model = self.fine_models.get(coarse_id)
-                if not fine_model:
-                    continue
-                fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
-                closest_fine = np.argsort(fine_dists)[0]  # Top 1 fine cluster inside this coarse
+            candidates = [
+                (i, d, c)
+                for i, d, c, _ in self._lod01_candidates(query_vector, closest_coarse, k, lod)
+            ]
 
-                coarse_mask = self.coarse_assignments == coarse_id
-                coarse_indices = np.where(coarse_mask)[0]
-                fine_assigns = self.fine_assignments.get(
-                    coarse_id, np.zeros(len(coarse_indices), dtype=np.int32)
-                )
-
-                # Match local fine cluster
-                fine_mask = fine_assigns == closest_fine
-                indices = coarse_indices[fine_mask][:k]
-                for idx in indices:
-                    # Compute actual distance to this vector within fine cluster
-                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
-                    candidates.append((idx, float(vec_dist), int(coarse_id)))
-                if len(candidates) >= k:
-                    break
         else:
             # LOD 2 (Exact): Collect candidates from nearest coarse clusters
             expert_indices_list = []
@@ -606,42 +698,15 @@ class HRM2Engine:
 
         _has_splats = self.splats and len(self.splats) > 0
 
-        if lod == 0:
-            for coarse_id in closest_coarse:
-                mask = self.coarse_assignments == coarse_id
-                indices = np.where(mask)[0][:k]
-                for idx in indices:
-                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
-                    sid = self.splats[int(idx)].id if _has_splats else int(idx)
-                    candidates.append((sid, float(vec_dist), int(coarse_id), 0))
-                if len(candidates) >= k:
-                    break
-
-        elif lod == 1:
-            # Build fine index lazily if needed
-            if not self._fine_built:
+        if lod == 0 or lod == 1:
+            # [audit r2-19] mismo contrato que query(): ver _lod01_candidates
+            if lod == 1 and not self._fine_built:
                 self._build_fine_index()
-            for coarse_id in closest_coarse:
-                fine_model = self.fine_models.get(coarse_id)
-                if not fine_model:
-                    continue
-                fine_dists = fine_model.transform(query_vector.reshape(1, -1))[0]
-                closest_fine = np.argsort(fine_dists)[0]
+            candidates = [
+                (self.splats[i].id if _has_splats else i, d, c, f)
+                for i, d, c, f in self._lod01_candidates(query_vector, closest_coarse, k, lod)
+            ]
 
-                coarse_mask = self.coarse_assignments == coarse_id
-                coarse_indices = np.where(coarse_mask)[0]
-                fine_assigns = self.fine_assignments.get(
-                    coarse_id, np.zeros(len(coarse_indices), dtype=np.int32)
-                )
-
-                fine_mask = fine_assigns == closest_fine
-                indices = coarse_indices[fine_mask][:k]
-                for idx in indices:
-                    vec_dist = np.linalg.norm(self.embeddings[idx] - query_vector)
-                    sid = self.splats[int(idx)].id if _has_splats else int(idx)
-                    candidates.append((sid, float(vec_dist), int(coarse_id), int(closest_fine)))
-                if len(candidates) >= k:
-                    break
         else:
             expert_indices_list = []
             expert_embeddings_list = []
@@ -693,7 +758,11 @@ class HRM2Engine:
 
                     candidates = [
                         (
-                            self.splats[int(expert_indices[i])].id if _has_splats else int(expert_indices[i]),
+                            (
+                                self.splats[int(expert_indices[i])].id
+                                if _has_splats
+                                else int(expert_indices[i])
+                            ),
                             float(np.sqrt(distances_sq[i])),
                             int(coarse_ids[i]),
                             0,
@@ -718,33 +787,33 @@ class HRM2Engine:
         if not self._is_indexed:
             raise RuntimeError("Index not built. Call index() first.")
 
+        query_vectors = np.ascontiguousarray(np.asarray(query_vectors, dtype=np.float32))
+        if query_vectors.ndim == 1:
+            query_vectors = query_vectors.reshape(1, -1)
         B = query_vectors.shape[0]
         results_batch = []
 
-        # Fast batched coarse distances
-        coarse_distances = self.coarse_model.transform(query_vectors)
-        # Use argpartition to get top n_probe quickly
-        if coarse_distances.shape[1] > self.n_probe:
-            closest_coarse_batch = np.argpartition(coarse_distances, self.n_probe - 1, axis=1)[
-                :, : self.n_probe
-            ]
-        else:
-            closest_coarse_batch = np.argsort(coarse_distances, axis=1)
-
         for b in range(B):
+            # [audit r2-18] Mismo ruteo que query(), fila a fila: la query se
+            # normaliza ANTES de elegir los clústeres gruesos (antes el
+            # transform() recibía la query SIN normalizar bajo 'cosine' y
+            # discrepaba con query() en ~16-22% de las queries no unitarias),
+            # los clústeres se ordenan con argsort (mismo orden de candidatos
+            # que query()) y se aplica _adaptive_n_probe por fila (antes se
+            # ignoraba el probing adaptativo).
             query_vector = query_vectors[b]
-            closest_coarse = closest_coarse_batch[b]
-
-            # Normalize per-query for cosine metric (query() does the same;
-            # query_batch historically skipped it → wrong ranking on cosine).
             if self.metric == "cosine":
                 norm = np.linalg.norm(query_vector)
                 if norm > 1e-10:
                     query_vector = query_vector / norm
+            coarse_distances = self._coarse_distances(query_vector)
+            n_probe_actual = self._adaptive_n_probe(coarse_distances)
+            closest_coarse = np.argsort(coarse_distances)[:n_probe_actual]
 
             if lod == 0 or lod == 1:
-                # Keep non-exact modes identical for now, just delegate
-                results_batch.append(self.query(query_vector, k=k, lod=lod))
+                # Modos no exactos: delegar a query() con la fila ORIGINAL
+                # (query() normaliza ella misma).
+                results_batch.append(self.query(query_vectors[b], k=k, lod=lod))
                 continue
 
             # LOD 2 (Exact CPU routing)
@@ -781,7 +850,8 @@ class HRM2Engine:
             # is empty (no Splat objects) — return (int, dist) like query() does.
             if self.splats:
                 local_res = [
-                    (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i]))) for i in topk_idx
+                    (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i])))
+                    for i in topk_idx
                 ]
             else:
                 local_res = [
@@ -797,6 +867,56 @@ class HRM2Engine:
         """Get engine statistics."""
         return self._stats
 
+    # --- [P17] radios por cluster: cota de poda para la búsqueda con filtro ---
+    def invalidate_cluster_radii(self) -> None:
+        """Invalida el cache de radios: μ o el índice cambiaron por fuera de los
+        caminos incrementales (drift Hebbiano, compact, rebuild). La próxima
+        búsqueda con filtro lo recalcula en una pasada."""
+        self.coarse_cluster_radii = None
+
+    def compute_cluster_radii(self, rows: np.ndarray) -> Dict[int, float]:
+        """Una pasada: ``r_c = max_x ||x - centroide_c||`` sobre las filas de
+        ``coarse_cluster_indices[c]`` leídas de ``rows`` (el MISMO array con el que
+        se puntúan los candidatos). Cota superior por construcción. Filas no
+        finitas (splat muerto) dejan ``r_c = inf``: ese cluster nunca se poda."""
+        cent = np.asarray(self.coarse_model.centroids_, dtype=np.float32)
+        radii: Dict[int, float] = {}
+        for c, idx in self.coarse_cluster_indices.items():
+            if len(idx) == 0:
+                radii[c] = 0.0
+                continue
+            diff = np.asarray(rows[idx], dtype=np.float32) - cent[c]
+            d = np.sqrt(np.maximum(np.einsum("ij,ij->i", diff, diff), 0.0))
+            d = d[np.isfinite(d)]
+            if d.size < len(idx):
+                radii[c] = float("inf")
+            else:
+                # margen float32 mínimo: sigue siendo cota, nunca se achica
+                radii[c] = float(d.max()) * (1.0 + 1e-6) + 1e-6
+        self.coarse_cluster_radii = radii
+        return radii
+
+    def bump_cluster_radius(self, cid: int, row: np.ndarray) -> None:
+        """Mantiene la cota tras AGREGAR o REESCRIBIR filas del cluster ``cid``:
+        ``r_c = max(r_c, max_row ||row - centroide_c||)``. Quitar filas sólo puede
+        achicar la distancia máxima: no hace falta tocar nada. No-op con el cache
+        invalidado (se recalcula entero cuando haga falta)."""
+        radii = getattr(self, "coarse_cluster_radii", None)
+        if radii is None or self.coarse_model is None:
+            return
+        cent = np.asarray(self.coarse_model.centroids_, dtype=np.float32)
+        cid = int(cid)
+        if cid >= len(cent):
+            return
+        diff = np.asarray(row, dtype=np.float32) - cent[cid]
+        if diff.ndim == 1:
+            d2 = float(np.dot(diff, diff))
+        else:
+            d2 = float(np.einsum("ij,ij->i", diff, diff).max())
+        d = float(np.sqrt(d2)) if np.isfinite(d2) else float("inf")
+        d = d * (1.0 + 1e-6) + 1e-6
+        radii[cid] = max(float(radii.get(cid, 0.0)), d)
+
     def clear(self) -> None:
         """Clear all data."""
         self.splats = []
@@ -809,6 +929,7 @@ class HRM2Engine:
         self.coarse_cluster_embeddings = {}
         self._cluster_masks = {}
         self._is_indexed = False
+        self.coarse_cluster_radii = None  # [P17]
         self._stats = HRM2Stats()
         self._silhouette_score = None
         self._calinski_harabasz = None

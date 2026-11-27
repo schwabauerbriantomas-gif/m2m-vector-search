@@ -1,9 +1,7 @@
-import time
-
 import numpy as np
 
-from src.m2m.__init__ import SimpleVectorDB
-from src.m2m.lsh_index import CrossPolytopeLSH, LSHConfig
+from m2m import SimpleVectorDB
+from m2m.lsh_index import CrossPolytopeLSH, LSHConfig
 
 
 def test_lsh_recall_uniform_data():
@@ -42,46 +40,45 @@ def test_lsh_recall_uniform_data():
     assert recall >= 0.95, f"Recall {recall} < 0.95"
 
 
-def test_lsh_speedup():
-    """Verifica que LSH es más rápido que linear scan."""
-    np.random.seed(42)
-    n_vectors = 20000
-    dim = 640
-    k = 10
+def test_lsh_matches_exact_scan():
+    """Paridad LSH vs scan exacto: test de CORRECCIÓN determinista, sin medir tiempos.
 
-    vectors = np.random.randn(n_vectors, dim).astype(np.float32)
-    vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+    Reemplaza a ``test_lsh_speedup``, que asertaba ``speedup >= 0.3`` con ``time.time``
+    y fallaba bajo carga del host (dio -1.35x con el host ocupado). La medición de
+    velocidad vive en ``benchmarks/bench_lsh.py``; acá se verifica que el camino LSH
+    devuelve lo mismo que el camino exacto:
 
-    n_queries = 50
-    base_indices = np.random.choice(n_vectors, n_queries, replace=False)
-    noise = np.random.randn(n_queries, dim).astype(np.float32) * 0.05
-    queries = vectors[base_indices] + noise
-    queries = queries / np.linalg.norm(queries, axis=1, keepdims=True)
+    * con queries idénticas a vectores indexados, el top-1 de LSH ES el vecino exacto
+      (distancia 0) para el 100% de las queries;
+    * las distancias que devuelve LSH son las distancias L2 exactas de los índices
+      devueltos (el re-rankeo de candidatos usa la misma métrica que el scan exacto);
+    * el resultado tiene ``k`` elementos ordenados por distancia no decreciente.
+    """
+    rng = np.random.default_rng(42)
+    n_vectors, dim, k, n_queries = 2000, 640, 5, 50
 
-    config = LSHConfig(dim=dim, n_tables=15, n_bits=18, n_probes=50, n_candidates=500)
+    vectors = rng.standard_normal((n_vectors, dim)).astype(np.float32)
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+
+    config = LSHConfig(dim=dim, n_tables=15, n_bits=18, n_probes=50, n_candidates=500, seed=42)
     index = CrossPolytopeLSH(config)
     index.index(vectors)
 
-    # Medir linear scan
-    start = time.time()
-    for q in queries:
-        distances = np.linalg.norm(vectors - q, axis=1)
-        _ = np.argsort(distances)[:k]
-    linear_time = (time.time() - start) / n_queries * 1000
+    query_idx = rng.choice(n_vectors, size=n_queries, replace=False)
+    queries = vectors[query_idx].copy()
 
-    # Medir LSH
-    start = time.time()
-    for q in queries:
-        index.query(q, k=k)
-    lsh_time = (time.time() - start) / n_queries * 1000
+    for query, self_idx in zip(queries, query_idx):
+        # Camino exacto: scan lineal con la misma métrica (L2) que usa el re-rankeo.
+        exact_dist = np.linalg.norm(vectors - query, axis=1)
+        exact_top1 = int(np.argmin(exact_dist))
+        assert exact_top1 == self_idx  # sanidad: la copia exacta es el vecino único a distancia 0
 
-    speedup = linear_time / max(lsh_time, 1e-10)  # avoid division by zero
-    print(f"Linear Scan: {linear_time:.2f}ms")
-    print(f"LSH: {lsh_time:.2f}ms")
-    print(f"Speedup: {speedup:.2f}x")
+        lsh_idx, lsh_dist = index.query(query, k=k)
 
-    # LSH speedup varies on CI runners; just verify it's not catastrophically slow
-    assert speedup >= 0.3, f"Speedup {speedup:.2f}x is unexpectedly low"
+        assert lsh_idx.shape == (k,) and lsh_dist.shape == (k,)
+        assert int(lsh_idx[0]) == exact_top1, "top-1 de LSH != top-1 del scan exacto"
+        np.testing.assert_allclose(lsh_dist, exact_dist[lsh_idx], rtol=1e-5, atol=1e-6)
+        assert np.all(np.diff(lsh_dist) >= 0), "LSH no devolvió los resultados ordenados"
 
 
 def test_m2m_integration_with_lsh():
@@ -104,6 +101,8 @@ def test_m2m_integration_with_lsh():
     query = query / np.linalg.norm(query)
 
     k = 10
-    result_vectors, _, _ = db.search(query, k=k)
+    # Retorno legacy SIEMPRE 4-tupla (mu, alpha, kappa, idx): decision del orquestador
+    # para el audit r1-18 (antes 3 en LSH/vacio y 4 en el camino HRM2).
+    result_vectors, _, _, _ = db.search(query, k=k)
     assert len(result_vectors) == k
     assert result_vectors.shape[1] == dim

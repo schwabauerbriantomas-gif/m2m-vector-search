@@ -1,0 +1,858 @@
+{
+ "tabla": "bench_filtered",
+ "protocolo": {
+  "k": 10,
+  "n_queries": 200,
+  "seed_datos": 42,
+  "seed_queries": 7,
+  "warmup": 1,
+  "min_reps": 5,
+  "max_reps": 200,
+  "min_tiempo_s": 1.0,
+  "dataset_clustered": "C = round(sqrt(n)) centros ~ N(0, I_d)*2; punto = centro + N(0, I_d); L2-normalizado, float32",
+  "dataset_uniform": "N(0, I_d) L2-normalizado, float32",
+  "queries": "mismo generador que el dataset, seed_queries, n_queries",
+  "gt": "fuerza bruta float64 (producto punto contra todas las filas, argpartition + orden); recall@10 = |top-10 interseccion GT| / |GT|",
+  "latencia": "ms por query: mediana / p5 / p95 sobre todas las queries de todas las repeticiones",
+  "qps": "queries_por_repeticion / tiempo de pared de la repeticion; mediana entre repeticiones (no es 1/latencia media)",
+  "batch": "una repeticion = una llamada con B queries; latencia por query = tiempo / B",
+  "rss": "pico de RSS del proceso muestreado cada 0.005 s (/proc/self/statm)",
+  "carga": "carga_cpu_sistema_pct = CPU ocupada del sistema (/proc/stat, todos los CPUs) durante la medicion; cpu_propio_pct = (utime+stime del proceso)/pared"
+ },
+ "meta": {
+  "commit": "626e4ff9a865e06ea3088b25449b605ee9ac4f7a",
+  "commit_corto": "626e4ff9a",
+  "arbol": "repo",
+  "src_sucio": false,
+  "m2m_file": "src/m2m/__init__.py",
+  "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+  "nproc": 8,
+  "cpu_count": 8,
+  "hilos": {
+   "OPENBLAS_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "MKL_NUM_THREADS": null,
+   "NUMEXPR_NUM_THREADS": null
+  },
+  "python": "3.12.3",
+  "numpy": "2.5.5",
+  "plataforma": "Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "uptime_antes": "10:03:14 up 3 days, 13:35,  2 users,  load average: 1.10, 0.98, 0.79",
+  "loadavg_antes": "1.10 0.98 0.79 1/542 801839",
+  "uptime_despues": "10:03:45 up 3 days, 13:36,  2 users,  load average: 1.19, 1.02, 0.81",
+  "loadavg_despues": "1.19 1.02 0.81 1/539 801904"
+ },
+ "resultados": [
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) repetida [nocorr_25]",
+   "n_repeticiones": 5,
+   "mediana": 2.0241,
+   "p5": 1.872,
+   "p95": 2.5988,
+   "qps": 472.1,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.0,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:17 up 3 days, 13:35,  2 users,  load average: 1.09, 0.98, 0.79",
+    "uptime_despues": "10:03:19 up 3 days, 13:35,  2 users,  load average: 1.09, 0.98, 0.79",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 95.4
+   },
+   "camino": "single_filtro",
+   "filtro_nombre": "nocorr_25",
+   "filtro": {
+    "bucket": 0
+   },
+   "selectividad": 0.25,
+   "descripcion": "no correlacionado: i % 4 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) 1ra evaluacion [nocorr_25]",
+   "n_repeticiones": 20,
+   "mediana": 5.1237,
+   "p5": 4.8427,
+   "p95": 6.1838,
+   "qps": 195.2,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.1,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:19 up 3 days, 13:35,  2 users,  load average: 1.09, 0.98, 0.79",
+    "uptime_despues": "10:03:20 up 3 days, 13:35,  2 users,  load average: 1.09, 0.98, 0.79",
+    "carga_cpu_sistema_pct": 14.3,
+    "cpu_propio_pct": 95.4
+   },
+   "qps_definicion": "1 / latencia mediana de evaluaciones frías individuales",
+   "camino": "single_filtro_frio",
+   "filtro_nombre": "nocorr_25",
+   "invalidacion_verificada": true,
+   "invalidacion": "escritura publica update(doc0, metadata) antes de cada consulta",
+   "filtro": {
+    "bucket": 0
+   },
+   "selectividad": 0.25,
+   "descripcion": "no correlacionado: i % 4 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter=dict [nocorr_25]",
+   "n_repeticiones": 35,
+   "mediana": 0.1435,
+   "p5": 0.1389,
+   "p95": 0.1535,
+   "qps": 6968.3,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.2,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:20 up 3 days, 13:35,  2 users,  load average: 1.09, 0.98, 0.79",
+    "uptime_despues": "10:03:21 up 3 days, 13:35,  2 users,  load average: 1.08, 0.98, 0.79",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 95.1
+   },
+   "camino": "batch_filtro_dict",
+   "B": 200,
+   "filtro_nombre": "nocorr_25",
+   "filtro": {
+    "bucket": 0
+   },
+   "selectividad": 0.25,
+   "descripcion": "no correlacionado: i % 4 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter_fn=callable [nocorr_25]",
+   "n_repeticiones": 32,
+   "mediana": 0.1572,
+   "p5": 0.1526,
+   "p95": 0.1731,
+   "qps": 6362.2,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.2,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:21 up 3 days, 13:35,  2 users,  load average: 1.08, 0.98, 0.79",
+    "uptime_despues": "10:03:22 up 3 days, 13:35,  2 users,  load average: 1.08, 0.98, 0.79",
+    "carga_cpu_sistema_pct": 13.7,
+    "cpu_propio_pct": 95.0
+   },
+   "camino": "batch_filtro_fn",
+   "B": 200,
+   "filtro_nombre": "nocorr_25",
+   "filtro": {
+    "bucket": 0
+   },
+   "selectividad": 0.25,
+   "descripcion": "no correlacionado: i % 4 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch B=200 + post-filtro top-10 [nocorr_25]",
+   "n_repeticiones": 15,
+   "mediana": 0.3454,
+   "p5": 0.3375,
+   "p95": 0.3602,
+   "qps": 2895.6,
+   "recall@10": 0.2535,
+   "rss_pico_mb": 257.2,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:22 up 3 days, 13:35,  2 users,  load average: 1.08, 0.98, 0.79",
+    "uptime_despues": "10:03:23 up 3 days, 13:35,  2 users,  load average: 1.08, 0.98, 0.79",
+    "carga_cpu_sistema_pct": 13.3,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "batch_postfiltro",
+   "B": 200,
+   "filtro_nombre": "nocorr_25",
+   "filtro": {
+    "bucket": 0
+   },
+   "selectividad": 0.25,
+   "descripcion": "no correlacionado: i % 4 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) repetida [nocorr_5]",
+   "n_repeticiones": 5,
+   "mediana": 2.3543,
+   "p5": 2.1845,
+   "p95": 2.9726,
+   "qps": 406.0,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.1,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:24 up 3 days, 13:35,  2 users,  load average: 1.08, 0.98, 0.79",
+    "uptime_despues": "10:03:23 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 14.0,
+    "cpu_propio_pct": 94.6
+   },
+   "camino": "single_filtro",
+   "filtro_nombre": "nocorr_5",
+   "filtro": {
+    "bucket20": 0
+   },
+   "selectividad": 0.05,
+   "descripcion": "no correlacionado: i % 20 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) 1ra evaluacion [nocorr_5]",
+   "n_repeticiones": 20,
+   "mediana": 5.4374,
+   "p5": 5.0658,
+   "p95": 5.8527,
+   "qps": 183.9,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.1,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:24 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "uptime_despues": "10:03:24 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 95.1
+   },
+   "qps_definicion": "1 / latencia mediana de evaluaciones frías individuales",
+   "camino": "single_filtro_frio",
+   "filtro_nombre": "nocorr_5",
+   "invalidacion_verificada": true,
+   "invalidacion": "escritura publica update(doc0, metadata) antes de cada consulta",
+   "filtro": {
+    "bucket20": 0
+   },
+   "selectividad": 0.05,
+   "descripcion": "no correlacionado: i % 20 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter=dict [nocorr_5]",
+   "n_repeticiones": 16,
+   "mediana": 0.3278,
+   "p5": 0.3135,
+   "p95": 0.3453,
+   "qps": 3050.4,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:24 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "uptime_despues": "10:03:25 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 94.9
+   },
+   "camino": "batch_filtro_dict",
+   "B": 200,
+   "filtro_nombre": "nocorr_5",
+   "filtro": {
+    "bucket20": 0
+   },
+   "selectividad": 0.05,
+   "descripcion": "no correlacionado: i % 20 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter_fn=callable [nocorr_5]",
+   "n_repeticiones": 15,
+   "mediana": 0.3346,
+   "p5": 0.3241,
+   "p95": 0.3553,
+   "qps": 2988.4,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:25 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "uptime_despues": "10:03:26 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.9,
+    "cpu_propio_pct": 94.9
+   },
+   "camino": "batch_filtro_fn",
+   "B": 200,
+   "filtro_nombre": "nocorr_5",
+   "filtro": {
+    "bucket20": 0
+   },
+   "selectividad": 0.05,
+   "descripcion": "no correlacionado: i % 20 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch B=200 + post-filtro top-10 [nocorr_5]",
+   "n_repeticiones": 15,
+   "mediana": 0.3462,
+   "p5": 0.3389,
+   "p95": 0.3693,
+   "qps": 2888.7,
+   "recall@10": 0.0535,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:26 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "uptime_despues": "10:03:28 up 3 days, 13:35,  2 users,  load average: 1.16, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "batch_postfiltro",
+   "B": 200,
+   "filtro_nombre": "nocorr_5",
+   "filtro": {
+    "bucket20": 0
+   },
+   "selectividad": 0.05,
+   "descripcion": "no correlacionado: i % 20 == 0"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) repetida [corr_25]",
+   "n_repeticiones": 5,
+   "mediana": 3.4822,
+   "p5": 1.9283,
+   "p95": 4.3399,
+   "qps": 311.4,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.1,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:28 up 3 days, 13:35,  2 users,  load average: 1.14, 1.00, 0.80",
+    "uptime_despues": "10:03:32 up 3 days, 13:36,  2 users,  load average: 1.14, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.8,
+    "cpu_propio_pct": 95.0
+   },
+   "camino": "single_filtro",
+   "filtro_nombre": "corr_25",
+   "filtro": {
+    "cl25": 1
+   },
+   "selectividad": 0.2548,
+   "descripcion": "correlacionado: 1/4 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) 1ra evaluacion [corr_25]",
+   "n_repeticiones": 20,
+   "mediana": 6.6043,
+   "p5": 4.9961,
+   "p95": 7.2315,
+   "qps": 151.4,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.1,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:32 up 3 days, 13:36,  2 users,  load average: 1.14, 1.00, 0.80",
+    "uptime_despues": "10:03:33 up 3 days, 13:36,  2 users,  load average: 1.14, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 14.3,
+    "cpu_propio_pct": 94.9
+   },
+   "qps_definicion": "1 / latencia mediana de evaluaciones frías individuales",
+   "camino": "single_filtro_frio",
+   "filtro_nombre": "corr_25",
+   "invalidacion_verificada": true,
+   "invalidacion": "escritura publica update(doc0, metadata) antes de cada consulta",
+   "filtro": {
+    "cl25": 1
+   },
+   "selectividad": 0.2548,
+   "descripcion": "correlacionado: 1/4 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter=dict [corr_25]",
+   "n_repeticiones": 5,
+   "mediana": 1.2987,
+   "p5": 1.2946,
+   "p95": 1.3483,
+   "qps": 770.0,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:33 up 3 days, 13:36,  2 users,  load average: 1.13, 1.00, 0.80",
+    "uptime_despues": "10:03:34 up 3 days, 13:36,  2 users,  load average: 1.13, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.2,
+    "cpu_propio_pct": 95.2
+   },
+   "camino": "batch_filtro_dict",
+   "B": 200,
+   "filtro_nombre": "corr_25",
+   "filtro": {
+    "cl25": 1
+   },
+   "selectividad": 0.2548,
+   "descripcion": "correlacionado: 1/4 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter_fn=callable [corr_25]",
+   "n_repeticiones": 5,
+   "mediana": 1.3328,
+   "p5": 1.3167,
+   "p95": 1.3394,
+   "qps": 750.3,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:35 up 3 days, 13:36,  2 users,  load average: 1.13, 1.00, 0.80",
+    "uptime_despues": "10:03:36 up 3 days, 13:36,  2 users,  load average: 1.13, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.3,
+    "cpu_propio_pct": 95.2
+   },
+   "camino": "batch_filtro_fn",
+   "B": 200,
+   "filtro_nombre": "corr_25",
+   "filtro": {
+    "cl25": 1
+   },
+   "selectividad": 0.2548,
+   "descripcion": "correlacionado: 1/4 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch B=200 + post-filtro top-10 [corr_25]",
+   "n_repeticiones": 15,
+   "mediana": 0.355,
+   "p5": 0.3465,
+   "p95": 0.3715,
+   "qps": 2817.2,
+   "recall@10": 0.305,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:36 up 3 days, 13:36,  2 users,  load average: 1.13, 1.00, 0.80",
+    "uptime_despues": "10:03:38 up 3 days, 13:36,  2 users,  load average: 1.13, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.6,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "batch_postfiltro",
+   "B": 200,
+   "filtro_nombre": "corr_25",
+   "filtro": {
+    "cl25": 1
+   },
+   "selectividad": 0.2548,
+   "descripcion": "correlacionado: 1/4 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) repetida [corr_5]",
+   "n_repeticiones": 5,
+   "mediana": 2.276,
+   "p5": 2.1219,
+   "p95": 2.8689,
+   "qps": 425.7,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.1,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:38 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "uptime_despues": "10:03:41 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 14.0,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "single_filtro",
+   "filtro_nombre": "corr_5",
+   "filtro": {
+    "cl5": 1
+   },
+   "selectividad": 0.0521,
+   "descripcion": "correlacionado: 1/20 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search(filter=dict) 1ra evaluacion [corr_5]",
+   "n_repeticiones": 20,
+   "mediana": 5.3684,
+   "p5": 5.0771,
+   "p95": 6.8667,
+   "qps": 186.3,
+   "recall@10": 1.0,
+   "rss_pico_mb": 228.2,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:41 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "uptime_despues": "10:03:41 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 14.1,
+    "cpu_propio_pct": 95.1
+   },
+   "qps_definicion": "1 / latencia mediana de evaluaciones frías individuales",
+   "camino": "single_filtro_frio",
+   "filtro_nombre": "corr_5",
+   "invalidacion_verificada": true,
+   "invalidacion": "escritura publica update(doc0, metadata) antes de cada consulta",
+   "filtro": {
+    "cl5": 1
+   },
+   "selectividad": 0.0521,
+   "descripcion": "correlacionado: 1/20 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter=dict [corr_5]",
+   "n_repeticiones": 18,
+   "mediana": 0.281,
+   "p5": 0.2678,
+   "p95": 0.2963,
+   "qps": 3559.0,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:41 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "uptime_despues": "10:03:42 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "carga_cpu_sistema_pct": 13.6,
+    "cpu_propio_pct": 94.7
+   },
+   "camino": "batch_filtro_dict",
+   "B": 200,
+   "filtro_nombre": "corr_5",
+   "filtro": {
+    "cl5": 1
+   },
+   "selectividad": 0.0521,
+   "descripcion": "correlacionado: 1/20 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch_filtered B=200 filter_fn=callable [corr_5]",
+   "n_repeticiones": 17,
+   "mediana": 0.2968,
+   "p5": 0.283,
+   "p95": 0.3085,
+   "qps": 3369.5,
+   "recall@10": 1.0,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:43 up 3 days, 13:36,  2 users,  load average: 1.12, 1.00, 0.80",
+    "uptime_despues": "10:03:44 up 3 days, 13:36,  2 users,  load average: 1.19, 1.02, 0.81",
+    "carga_cpu_sistema_pct": 13.9,
+    "cpu_propio_pct": 94.8
+   },
+   "camino": "batch_filtro_fn",
+   "B": 200,
+   "filtro_nombre": "corr_5",
+   "filtro": {
+    "cl5": 1
+   },
+   "selectividad": 0.0521,
+   "descripcion": "correlacionado: 1/20 de los clusters verdaderos"
+  },
+  {
+   "tabla": "bench_filtered",
+   "commit": "626e4ff9a",
+   "dataset": {
+    "kind": "clustered",
+    "n": 10000,
+    "d": 384,
+    "seed": 42
+   },
+   "parametro": "search_batch B=200 + post-filtro top-10 [corr_5]",
+   "n_repeticiones": 15,
+   "mediana": 0.3431,
+   "p5": 0.336,
+   "p95": 0.3575,
+   "qps": 2914.5,
+   "recall@10": 0.06,
+   "rss_pico_mb": 257.3,
+   "build_s": 2.574,
+   "meta": {
+    "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+    "hilos": {
+     "OPENBLAS_NUM_THREADS": "1",
+     "OMP_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
+     "NUMEXPR_NUM_THREADS": null
+    },
+    "uptime_antes": "10:03:44 up 3 days, 13:36,  2 users,  load average: 1.19, 1.02, 0.81",
+    "uptime_despues": "10:03:45 up 3 days, 13:36,  2 users,  load average: 1.19, 1.02, 0.81",
+    "carga_cpu_sistema_pct": 13.4,
+    "cpu_propio_pct": 94.7
+   },
+   "camino": "batch_postfiltro",
+   "B": 200,
+   "filtro_nombre": "corr_5",
+   "filtro": {
+    "cl5": 1
+   },
+   "selectividad": 0.0521,
+   "descripcion": "correlacionado: 1/20 de los clusters verdaderos"
+  }
+ ],
+ "etiqueta": "",
+ "dataset_info": {
+  "build_s": 2.574,
+  "n_docs": 10000,
+  "n_probe": 5,
+  "n_coarse": 100
+ }
+}

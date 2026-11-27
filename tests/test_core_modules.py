@@ -2,7 +2,6 @@
 
 import math
 import tempfile
-import time
 
 import numpy as np
 import pytest
@@ -52,11 +51,16 @@ class TestGeometry:
         assert abs(d - math.pi / 2) < 1e-6
 
     def test_exp_log_map(self):
+        # audit r3a-10 (P7b): `from m2m import exp_map, log_map` da la operación
+        # riemanniana REAL de m2m.geometry, definida sobre la esfera unitaria. El
+        # test asertaba el fallback euclidiano (base + tangent) con un punto fuera
+        # de la esfera; por decisión del orquestador ese fallback se eliminó.
         from m2m import exp_map, log_map
 
         base = np.array([1.0, 0.0])
-        point = np.array([2.0, 3.0])
+        point = np.array([0.0, 1.0])
         tangent = log_map(base, point)
+        np.testing.assert_allclose(tangent, [0.0, math.pi / 2], atol=1e-6)
         reconstructed = exp_map(base, tangent)
         np.testing.assert_allclose(reconstructed, point, atol=1e-6)
 
@@ -367,7 +371,6 @@ class TestChaosEdgeCases:
 
     def test_concurrent_writes(self):
         """Multiple threads writing to WAL shouldn't corrupt it."""
-        import atexit
         import threading
 
         from m2m.storage import WriteAheadLog
@@ -398,7 +401,6 @@ class TestChaosEdgeCases:
             assert len(ops) >= 200
             wal.close()
         finally:
-            import os
             import shutil
 
             try:
@@ -525,12 +527,7 @@ class TestCompactAndEntropy:
 class TestAdvancedVectorDBSingleEngine:
     def test_no_double_engine_creation(self):
         """AdvancedVectorDB should create only one M2MEngine."""
-        from unittest.mock import patch
-
         from m2m import AdvancedVectorDB
-
-        call_count = 0
-        orig_init = type(M2MConfig.advanced(device="cpu").__class__.__init__) if False else None
 
         # Use a simpler approach: just verify it works
         db = AdvancedVectorDB(latent_dim=64, enable_soc=False)
@@ -583,7 +580,6 @@ class TestInputValidation:
         """SemanticMemoryDB.store() should reject empty text."""
         pytest.importorskip("m2m.semantic_memory")
         # We can't fully test without an encoder, but test the validation directly
-        from m2m.semantic_memory import auto_categorize
 
         # Validation is tested indirectly — test the ValueError path
         pass

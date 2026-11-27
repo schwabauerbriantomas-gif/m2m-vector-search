@@ -1,0 +1,19 @@
+# flake8 NO lee pyproject.toml: este archivo es su única config. Antes la config vivía en
+# [tool.flake8] de pyproject.toml, donde nunca se aplicaba [audit r3b-07].
+# Se descubre sola corriendo `flake8` desde la raíz del repo (es lo que hacen CI y pre-commit).
+[flake8]
+max-line-length = 100
+# E203 (espacio antes de ':') y W503 (salto antes de operador binario) chocan con black.
+extend-ignore = E203, W503
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .eggs,
+    *.egg,
+    .pytest_cache,
+    .mypy_cache,
+    docs/api,
+    .bench,
+    .smoke

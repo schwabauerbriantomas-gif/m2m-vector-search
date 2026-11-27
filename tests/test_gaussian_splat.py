@@ -148,7 +148,6 @@ class TestTwoPhaseSearch:
 
     def test_high_alpha_promoted(self):
         """A splat with very high alpha should be promoted even if not closest."""
-        D = 4
         query = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         # Close splat with low alpha
@@ -429,9 +428,15 @@ class TestSplatStoreGaussian:
         config = M2MConfig(latent_dim=dim, max_splats=1000, knn_k=5)
         store = SplatStore(config)
 
-        # Create 50 splats
+        # Create 50 splats (semilla propia: el test no puede depender del estado
+        # del RNG global que dejen otros tests)
         n = 50
-        vectors = np.random.randn(n, dim).astype(np.float32)
+        rng = np.random.default_rng(0)
+        vectors = rng.standard_normal((n, dim)).astype(np.float32)
+        # Un vecino casi idéntico a splat 0: si el drift Hebbiano encogiera a splat 0
+        # (re-proyección a norma 1 en un store sin normalizar), este vecino lo
+        # desplazaría del primer puesto pese a tener α menor.
+        vectors[1] = vectors[0] + 0.05 * rng.standard_normal(dim).astype(np.float32)
         store.add_splat(vectors)
         store.build_index()
 
@@ -443,8 +448,11 @@ class TestSplatStoreGaussian:
             store.feedback(query=query, relevant_ids=[0])
 
         # Now search: splat 0 should be in top results
-        mu, alpha, kappa, _ = store.find_neighbors(query, k=5)
+        mu, alpha, kappa, idx = store.find_neighbors(query, k=5)
 
+        # The first result should be the boosted splat itself (the query IS its
+        # center): the Hebbian drift must not shrink it against its neighbours.
+        assert int(np.asarray(idx).ravel()[0]) == 0
         # The first result should have the highest alpha
         # (which should be the boosted splat)
         assert alpha[0, 0] > config.init_alpha
