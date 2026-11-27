@@ -201,3 +201,71 @@ class TestCriterio1RoundTrip:
         assert out.shape == (2, 3) and (out >= 0).all()
 
 
+# ---------------------------------------------------------------------------
+# Criterio 2 (r1-17): save() sin storage_path / load() de ruta inexistente
+# ---------------------------------------------------------------------------
+
+
+class TestCriterio2SaveLoad:
+    def test_save_without_storage_path_raises(self):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        db.add(ids=IDS[:3], vectors=X[:3])
+        with pytest.raises(RuntimeError, match="storage_path"):
+            db.save()
+
+    def test_save_path_from_memory_db_writes_real_snapshot(self, tmp_path):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        db.add(ids=IDS[:10], vectors=X[:10], metadata=METAS[:10], documents=DOCS[:10])
+        db.delete(id="a4")
+        snap = tmp_path / "snap"
+        db.save(str(snap))
+        assert (snap / "data" / "metadata" / "metadata.db").exists()
+        db2 = _db(snap)
+        assert set(db2._vectors) == set(IDS[:10]) and db2._deleted == {"a4"}
+        assert _top(db2, X[3])[0] == "a3"
+        assert db2._documents["a3"] == "document 3"
+
+    def test_load_nonexistent_path_raises(self, tmp_path):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        db.add(ids=IDS[:2], vectors=X[:2])
+        with pytest.raises(FileNotFoundError):
+            db.load(str(tmp_path / "does_not_exist"))
+        with pytest.raises(FileNotFoundError):
+            db.engine.load_optimized(str(tmp_path / "does_not_exist.bin"))
+
+    def test_load_replaces_state_and_repoints_storage(self, tmp_path):
+        a = m2m.SimpleVectorDB(latent_dim=D)
+        a.add(ids=IDS[:3], vectors=X[:3])
+        a.save(str(tmp_path / "snapA"))
+        b = _db(tmp_path / "stB")
+        b.add(ids=["z0", "z1"], vectors=X[10:12], metadata=[{"k": 1}, {"k": 2}])
+        b.save()
+        ret = b.load(str(tmp_path / "snapA"))
+        assert ret is b
+        assert set(b._vectors) == set(IDS[:3])
+        assert b.engine.m2m.splats.n_active == 3
+        assert Path(b.storage.storage_path) == (tmp_path / "snapA").resolve()
+        assert _top(b, X[1])[0] == "a1"
+
+    def test_save_path_equal_to_storage_path_is_checkpoint(self, tmp_path):
+        st = tmp_path / "st"
+        db = _build(st)
+        assert Path(db.save(str(st))) == st.resolve()
+        assert Path(db.save()) == st.resolve()
+        assert Path(db.save(path="")).resolve() == st.resolve()
+
+    def test_save_path_snapshot_from_storage_db(self, tmp_path):
+        st = tmp_path / "st"
+        db = _build(st)
+        db.delete(id="a5")
+        before = db.search_batch(X[:4], k=3)
+        snap = tmp_path / "snap"
+        db.save(str(snap))
+        db2 = _db(snap)
+        np.testing.assert_array_equal(db2.search_batch(X[:4], k=3), before)
+        assert db2._deleted == {"a5"}
+        assert _top(db2, X[9])[0] == "a9"
+        with pytest.raises(FileExistsError):
+            db.save(str(snap))
+
+

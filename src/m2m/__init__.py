@@ -313,15 +313,20 @@ class M2MEngine:
         return self.m2m.forward(x)
 
     def load_optimized(self, path: str):
-        """Loads optimized dataset with pre-computed Gaussian Splats."""
-        try:
-            from .dataset_transformer import M2MDatasetTransformer
-            from .loaders.optimized_loader import load_m2m_dataset
+        """Loads optimized dataset with pre-computed Gaussian Splats.
 
-            splats = load_m2m_dataset(path)
-            self._build_hrm2_from_splats(splats)
-        except Exception as e:
-            logger.warning("Could not load optimized dataset: %s", e)
+        Levanta FileNotFoundError si `path` no existe y propaga los errores de
+        parseo: antes los tragaba con un warning y devolvía self, así que
+        SimpleVectorDB.load() de una ruta inexistente "funcionaba" (audit r1-17).
+        """
+        from pathlib import Path
+
+        if not path or not Path(str(path)).exists():
+            raise FileNotFoundError(f"load_optimized(): dataset not found: {path!r}")
+        from .loaders.optimized_loader import load_m2m_dataset
+
+        splats = load_m2m_dataset(str(path))
+        self._build_hrm2_from_splats(splats)
         return self
 
     def _build_hrm2_from_splats(self, splats):
@@ -1690,23 +1695,129 @@ class SimpleVectorDB:
             raise RuntimeError("EBM features no habilitadas.")
         return self._ebm_exploration.find_knowledge_gaps(n_gaps=n)
 
-    def save(self, path: str):
-        """Guarda el índice en disco (WAL + metadata + vectores)."""
-        if self.storage:
-            # save() ya no re-escribe el shard completo: cada add() persistió
-            # su propio shard (append-only), la metadata SQLite mapea cada doc
-            # a su (shard_idx, vector_idx). checkpoint() hace fsync del WAL.
-            self.storage.checkpoint()
-        else:
-            # Fallback: si no hay storage, intentar con engine
-            try:
-                self.engine.load_optimized(path)
-            except Exception:
-                pass
+    def save(self, path: Optional[str] = None) -> str:
+        """Persiste la base en disco.
 
-    def load(self, path: str):
-        """Carga un índice vectorial pre-computado."""
-        self.engine.load_optimized(path)
+        - ``save()`` (sin argumento): hace checkpoint (flush + fsync) del WAL de
+          ``storage_path``. Si la DB se creó sin ``storage_path`` levanta
+          ``RuntimeError``: antes era un no-op silencioso que además llamaba a
+          LOAD del engine (audit r1-17).
+        - ``save(path)``: exporta un snapshot autocontenido en el directorio
+          ``path`` (mismo formato que ``storage_path``: shards + metadata.db +
+          soft-deletes), re-abrible con ``SimpleVectorDB(storage_path=path)`` o
+          ``load(path)``. Si ``path`` es el ``storage_path`` actual equivale a
+          ``save()``. Un ``path`` existente y no vacío levanta ``FileExistsError``.
+
+        Con ``M2M_HMAC_SECRET`` seteado, firma el storage (y el snapshot) con un
+        manifiesto HMAC-SHA256 que el reopen/``load()`` verifica (audit r3a-17);
+        sin secreto no se firma ni se verifica.
+
+        Args:
+            path: Directorio destino del snapshot (opcional).
+
+        Returns:
+            Ruta absoluta persistida (``storage_path`` o el snapshot).
+        """
+        import shutil
+        from pathlib import Path
+
+        def _new_snapshot(target: str) -> M2MPersistence:
+            dest = Path(target)
+            if dest.exists() and any(dest.iterdir()):
+                raise FileExistsError(
+                    f"save(path): {dest} already exists and is not empty (not overwriting)"
+                )
+            return M2MPersistence(str(dest), enable_wal=False)
+
+        target = str(path).strip() if path is not None else ""
+        if self.storage is not None:
+            if not target or Path(target).resolve() == self.storage.storage_path:
+                # save() ya no re-escribe el shard completo: cada add() persistió
+                # su propio shard (append-only), la metadata SQLite mapea cada doc
+                # a su (shard_idx, vector_idx). checkpoint() hace fsync del WAL.
+                self.storage.checkpoint()
+                self.storage.write_manifest()
+                return str(self.storage.storage_path)
+            self.storage.checkpoint()  # el snapshot copia el WAL ya flusheado
+            snap = _new_snapshot(target)
+            try:
+                shutil.copytree(
+                    str(self.storage.storage_path), str(snap.storage_path), dirs_exist_ok=True
+                )
+                snap.write_manifest()
+            finally:
+                snap.close()
+            return str(snap.storage_path)
+
+        if not target:
+            raise RuntimeError(
+                "save() without storage_path cannot persist in place: pass a path to export "
+                "a snapshot (save(path)) or create the DB with storage_path=..."
+            )
+        # DB sólo en memoria: escribir un snapshot real (antes: no-op silencioso)
+        snap = _new_snapshot(target)
+        try:
+            ids = [i for i in self._splat_id_order if i in self._vectors]
+            seen = set(ids)
+            ids += [i for i in self._vectors if i not in seen]
+            if ids:
+                vectors = np.stack(
+                    [np.asarray(self._vectors[i], dtype=np.float32).reshape(-1) for i in ids]
+                )
+                snap.save_vectors(vectors, ids)
+                shard_idx = getattr(snap, "_last_shard_idx", 1)
+                for i, doc_id in enumerate(ids):
+                    snap.save_metadata(
+                        doc_id,
+                        shard_idx=shard_idx,
+                        vector_idx=i,
+                        metadata=self._metadata.get(doc_id) or {},
+                        document=self._documents.get(doc_id),
+                    )
+                for doc_id in ids:
+                    if doc_id in self._deleted:
+                        snap.soft_delete(doc_id)
+            snap.write_manifest()
+        finally:
+            snap.close()
+        return str(snap.storage_path)
+
+    def load(self, path: str) -> "SimpleVectorDB":
+        """Carga la base desde el directorio de storage ``path``.
+
+        ``path`` es un directorio escrito por ``storage_path`` o ``save(path)``;
+        reemplaza el estado en memoria por el de ``path`` (índice reconstruido
+        por ``_restore_from_storage``) y pasa a persistir ahí. Errores explícitos
+        (antes ``load()`` devolvía self con un warning ante cualquier falla,
+        audit r1-17): ``FileNotFoundError`` si ``path`` no existe,
+        ``NotADirectoryError`` si es un archivo, ``RuntimeError`` si la firma
+        HMAC del storage no verifica y ``ValueError`` (path traversal).
+        """
+        from pathlib import Path
+
+        target = str(path).strip() if path is not None else ""
+        if not target:
+            raise ValueError("load() requires a storage directory path")
+        p = Path(target)
+        if not p.exists():
+            raise FileNotFoundError(f"load(): path does not exist: {p}")
+        if not p.is_dir():
+            raise NotADirectoryError(
+                f"load(): {p} is a file; expected a storage directory written by "
+                "storage_path/save(path) (pre-computed .bin datasets go through "
+                "engine.load_optimized)"
+            )
+        old = self.storage
+        enable_wal = old.enable_wal if old is not None else True
+        if old is not None and old.storage_path == p.resolve():
+            old.close()  # mismo directorio: cerrar el WAL antes de reabrirlo
+            old = None
+        self.storage = M2MPersistence(str(p), enable_wal=enable_wal)
+        if old is not None:
+            old.close()
+        self._restore_from_storage()
+        if self.ebm_enabled:
+            self._update_ebm_splats()
         return self
 
     def get_stats(self) -> Dict:
