@@ -856,16 +856,25 @@ def fig_storage(D):
         color = PERSISTENTE_C if f.get("con_storage_path") else MEMORIA_C
         ax_c.barh(i, med, 0.5, color=color, zorder=3)
         ax_c.plot([p5, p95], [i, i], color=TEXTO, linewidth=1.8, solid_capstyle="round", zorder=4)
-        textos.append(ax_c.annotate(f"median {med:,.2f} ms\np5 {p5:,.2f} · p95 {p95:,.2f}",
+        # "median" ya lo dice la etiqueta del eje: el texto corto deja aire hasta el borde
+        textos.append(ax_c.annotate(f"{med:,.2f} ms\np5 {p5:,.2f} · p95 {p95:,.2f}",
                                     (max(med, p95), i), xytext=(5, 0), textcoords="offset points",
                                     ha="left", va="center", fontsize=T_VALOR, color=TEXTO))
     ax_c.set_yticks(range(len(unit)))
     ax_c.set_yticklabels(etiquetas_c)
     ax_c.set_ylim(len(unit) - 0.5 + 0.35, -0.5 - 0.35)
-    ax_c.set_xlim(0, max(num(f, "p95") for f in unit) * 2.2)
+    # Escala log: sin storage el add cuesta ~0.2 ms y con storage ~86 ms; en escala lineal
+    # la primera barra quedaba invisible (sub-pixel) y su entrada de leyenda sin marca.
+    ax_c.set_xscale("log")
+    ax_c.set_xlim(min(num(f, "p5") for f in unit) * 0.4, max(num(f, "p95") for f in unit) * 2.2)
     ajustar_xlim(ax_c, textos)
-    ticks_amables(ax_c)
-    ax_c.set_xlabel("milliseconds per add(1 doc)\nbar = median, line = p5–p95")
+    _lo, _hi = sorted(ax_c.xaxis.get_view_interval())
+    _ticks = [10 ** e for e in range(math.floor(math.log10(_lo)), math.ceil(math.log10(_hi)) + 1)
+              if _lo <= 10 ** e <= _hi]
+    ax_c.xaxis.set_major_locator(FixedLocator(_ticks))
+    ax_c.xaxis.set_minor_locator(NullLocator())
+    ax_c.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}" if v >= MIL else f"{v:g}"))
+    ax_c.set_xlabel("milliseconds per add(1 doc), log scale\nbar = median, line = p5–p95")
     ax_c.set_title("C · add(1 doc) latency")
     # una sola leyenda a lo ancho (azul = en memoria, verde = en disco): dos leyendas por
     # columna le quitaban ancho al panel C en el constrained layout
@@ -1125,7 +1134,8 @@ def leyenda_index(H):
 def leyenda_storage(H):
     t = ("A — building the index in memory (`add(n)`) versus reopening it from a snapshot (`save(path)` + "
          "`SimpleVectorDB(storage_path=path)`); B — `add()` throughput with and without `storage_path`; C — latency "
-         "of `add(1 doc)` with and without `storage_path` (bar = median, line = p5–p95). ")
+         "of `add(1 doc)` with and without `storage_path` (bar = median, line = p5–p95; log scale, because the "
+         "two medians are 0.18 ms and 86 ms apart). ")
     if H["reopen_build"]:
         t += ("Reopening costs " + ", ".join(f"{r:.2f}× the in-memory build at {n // MIL}k docs" for n, r in H["reopen_build"])
               + ". ")

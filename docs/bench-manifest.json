@@ -124,13 +124,13 @@
     13.0,
     6.6
    ],
-   "sha256_png": "a199c98d7b720428d15065c09c7b9347382008e650891beac0104cfbd1ed6d4a",
+   "sha256_png": "2eb2d25e37ae3f2c8ebcecd98a9ad5e9ba743a6325276bbcb13ebde91a29bbb3",
    "titulo": "Storage: build vs reopen, add() throughput with and without storage_path, add(1 doc) latency",
    "verificacion": {
     "fuera_de_lienzo": 0,
     "rotulo_sobre_barra": 0,
     "solapamientos": 0,
-    "textos": 41
+    "textos": 43
    }
   }
  },
