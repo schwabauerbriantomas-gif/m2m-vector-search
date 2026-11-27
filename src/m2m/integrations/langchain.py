@@ -8,8 +8,12 @@ from langchain_core.vectorstores import VectorStore
 
 
 class M2MVectorStore(VectorStore):
-    """
-    M2M (Machine-to-Memory) integration for LangChain.
+    """LangChain ``VectorStore`` sobre M2M (Machine-to-Memory).
+
+    Hereda de ``langchain_core.vectorstores.VectorStore``: CRUD completo
+    (``add_texts``/``add_documents``, ``delete``) y búsqueda por similitud
+    (``similarity_search`` y variantes). No es un retriever propio: el retriever
+    es el ``as_retriever()`` heredado de ``VectorStore`` [audit P15].
     """
 
     def __init__(
