@@ -1457,7 +1457,8 @@ class SimpleVectorDB:
         with self._rw_lock:
             if vector is not None:
                 old_vec = self._vectors.get(id)
-                # Copia propia: mutar el array del llamador no debe desincronizar _vectors (audit r1-20)
+                # Copia propia: mutar el array del llamador no debe desincronizar
+                # _vectors (audit r1-20)
                 vec = np.array(vector, dtype=np.float32, copy=True)
                 if vec.ndim != 1 or vec.shape[0] != self.latent_dim:
                     raise ValueError(

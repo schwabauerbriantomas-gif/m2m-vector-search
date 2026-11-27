@@ -29,7 +29,8 @@ def validate_vulkan():
         print("\n[ERROR] Vulkan Validation Failed:")
         print(str(e))
         print(
-            "Please ensure your GPU supports Vulkan and you have the Vulkan SDK installed if compiling shaders."
+            "Please ensure your GPU supports Vulkan and you have the Vulkan SDK "
+            "installed if compiling shaders."
         )
 
 

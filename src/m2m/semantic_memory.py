@@ -220,7 +220,8 @@ class SemanticMemoryDB:
                  of shape (D,) or (N, D). If None, vectors must be provided manually.
         latent_dim: Embedding dimension (default 384 for all-MiniLM-L6-v2)
         storage_path: Directory for persistence (None = in-memory only)
-        hybrid_weight: Weight for vector vs BM25 in weighted fusion (0.0=bm25 only, 1.0=vector only, default 0.6)
+        hybrid_weight: Weight for vector vs BM25 in weighted fusion
+                        (0.0=bm25 only, 1.0=vector only, default 0.6)
         fusion_method: "rrf" (Reciprocal Rank Fusion, default), "weighted" (linear combination),
                        "vector_only", or "bm25_only"
         bm25_k1: BM25 k1 parameter (default 1.5)
@@ -257,7 +258,8 @@ class SemanticMemoryDB:
     ):
         if fusion_method not in ("rrf", "weighted", "vector_only", "bm25_only"):
             raise ValueError(
-                f"fusion_method must be one of: rrf, weighted, vector_only, bm25_only. Got: {fusion_method}"
+                "fusion_method must be one of: rrf, weighted, vector_only, bm25_only. "
+                f"Got: {fusion_method}"
             )
 
         self.encoder = encoder

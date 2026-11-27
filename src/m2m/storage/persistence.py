@@ -454,7 +454,8 @@ class M2MPersistence:
         conn = self._get_conn()
         try:
             row = conn.execute(
-                "SELECT metadata, document, shard_idx, vector_idx FROM documents WHERE id=? AND deleted=0",
+                "SELECT metadata, document, shard_idx, vector_idx "
+                "FROM documents WHERE id=? AND deleted=0",
                 (doc_id,),
             ).fetchone()
             if row:

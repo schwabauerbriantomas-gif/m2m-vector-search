@@ -257,7 +257,8 @@ def test_r1_11_recall_after_attach_not_lower():
     # Medición antes/después: el GT cambia con el dataset (4000 → 4500), así
     # que la cota admite ruido de muestreo, no una baja real.
     print(
-        f"\n[r1-11] recall@10 random: antes={before['random']:.4f} tras attach={after['random']:.4f}"
+        f"\n[r1-11] recall@10 random: antes={before['random']:.4f} "
+        f"tras attach={after['random']:.4f}"
         f" | self: antes={before['self']:.4f} tras attach={after['self']:.4f}"
         f" | vecinos base perdidos: {lost}/{checked}"
     )

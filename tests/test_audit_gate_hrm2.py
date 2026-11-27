@@ -161,7 +161,8 @@ X = rng.standard_normal((256, 16)).astype(np.float32)
 X /= np.linalg.norm(X, axis=1, keepdims=True)
 v = _verdict(X, seed=42)
 v = {k: val for k, val in v.items() if k != "t_s"}
-print(hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode()).hexdigest(), v["clasificacion"])
+print(hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode()).hexdigest(),
+      v["clasificacion"])
 """
 
 

@@ -73,7 +73,7 @@ def _assert_hrm2_path(db, n_min=3001):
     ), "el test necesita el camino HRM2 (n > 3000): es el unico donde vive el bug de la union"
 
 
-# --------------------------------------------------------------------------- criterio 1 + r4-07 / r1-12
+# ----------------------------------------------------------------------- criterio 1 + r4-07 / r1-12
 @pytest.mark.parametrize("dataset", ["clustered", "uniform"])
 def test_candidates_are_per_query_and_batch_equals_single_batch(dataset):
     """Cada query solo se puntua contra SUS clusters sondeados:
@@ -90,7 +90,8 @@ def test_candidates_are_per_query_and_batch_equals_single_batch(dataset):
     assert out.shape == (len(q), K)
     assert np.array_equal(out, single), (
         f"search_batch(Q)[i] != search_batch(Q[i:i+1])[0] en "
-        f"{int((out != single).any(axis=1).sum())} filas: el resultado depende de las companeras de lote"
+        f"{int((out != single).any(axis=1).sum())} filas: "
+        "el resultado depende de las companeras de lote"
     )
     # ids via include_metadata == ids via posiciones
     rows = db.search_batch(q, k=K, include_metadata=True)

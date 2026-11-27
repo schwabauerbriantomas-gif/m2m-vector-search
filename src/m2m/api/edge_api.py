@@ -447,7 +447,10 @@ def _validate_collection_name(name: str) -> str:
     if not _COLLECTION_NAME_RE.match(name):
         raise HTTPException(
             status_code=400,
-            detail="Invalid collection name. Use only alphanumeric, underscore, hyphen. Max 128 chars.",
+            detail=(
+                "Invalid collection name. Use only alphanumeric, underscore, hyphen. "
+                "Max 128 chars."
+            ),
         )
     return name
 
@@ -593,7 +596,10 @@ async def _parse_insert_request(request: Request) -> InsertVectorsRequest:
             detail=[
                 {
                     "loc": ["body", "vectors"],
-                    "msg": f"Value error, Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request",
+                    "msg": (
+                        f"Value error, Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} "
+                        "vectors per request"
+                    ),
                     "type": "value_error",
                     "input": {"count": len(vectors)},
                 }

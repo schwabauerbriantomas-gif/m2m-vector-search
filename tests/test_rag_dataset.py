@@ -179,10 +179,11 @@ class TestEdgeCases:
     def test_long_paragraph_query(self, embedder, embeddings):
         long_query = (
             "Recent advances in machine learning have focused on developing more efficient "
-            "architectures for training large language models. Techniques such as mixture of experts, "
-            "quantization, and knowledge distillation have been explored to reduce computational costs "
-            "while maintaining model quality. Additionally, new approaches to reasoning and chain-of-thought "
-            "prompting have shown promise in improving model performance on complex tasks."
+            "architectures for training large language models. Techniques such as mixture of "
+            "experts, quantization, and knowledge distillation have been explored to reduce "
+            "computational costs while maintaining model quality. Additionally, new approaches "
+            "to reasoning and chain-of-thought prompting have shown promise in improving model "
+            "performance on complex tasks."
         )
         q_emb = embedder.encode([long_query])[0]
         results = linear_search(q_emb, embeddings, k=5)

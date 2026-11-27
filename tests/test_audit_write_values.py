@@ -66,7 +66,8 @@ class TestR102UpdateNaNEInf:
 
     @pytest.mark.parametrize("bad_value", [np.nan, np.inf])
     def test_add_after_rejected_update_triggers_full_retrain_and_works(self, bad_value):
-        # 2 docs entrenan el índice (last_trained_n=2); el 3er add (3 > 1.25*2) fuerza retrain completo
+        # 2 docs entrenan el índice (last_trained_n=2); el 3er add (3 > 1.25*2) fuerza
+        # retrain completo
         db = m2m.SimpleVectorDB(latent_dim=D)
         db.add(ids=["i0", "i1"], vectors=X[:2])
         assert db.engine.m2m.splats._last_trained_n == 2
