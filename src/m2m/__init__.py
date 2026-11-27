@@ -644,6 +644,15 @@ class SimpleVectorDB:
             )
         if not np.all(np.isfinite(vectors)):
             raise ValueError("vectors contain NaN or Inf values")
+        # Vectores (casi) cero: normalize_sphere(0)=0 queda a distancia 1 de TODA
+        # query unitaria y se cuela en el top-k de cualquier búsqueda (audit r1-19).
+        norms = np.linalg.norm(vectors, axis=1)
+        zero_rows = np.flatnonzero(norms < 1e-6)
+        if zero_rows.size:
+            raise ValueError(
+                f"vectors contain {zero_rows.size} (near-)zero vector(s) with norm < 1e-6 "
+                f"at row(s) {zero_rows[:10].tolist()}"
+            )
 
         # Auto-generar IDs si no se proporcionan
         if ids is None:
@@ -701,7 +710,7 @@ class SimpleVectorDB:
                 self._splat_id_order.extend(ids[:n])
                 # Guardar metadata en memoria
                 for i, doc_id in enumerate(ids):
-                    self._vectors[doc_id] = vectors[i]
+                    self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
                     self._metadata[doc_id] = metadata[i] if metadata else {}
                     self._documents[doc_id] = documents[i] if documents else None
                 # Persistencia (parity with splat path)
@@ -725,6 +734,22 @@ class SimpleVectorDB:
         self._use_lsh = False
         n_added = self.engine.add_splats(vectors)
 
+        # Honestidad de capacidad (audit r1-26): SplatStore.add_splat acepta "tantos
+        # como entren" en max_splats. Lo que no entró NO es buscable: no se guarda en
+        # _vectors ni en storage y se avisa con los ids descartados.
+        if n_added < n:
+            rejected = [str(i) for i in ids[n_added:]]
+            logger.warning(
+                "max_splats=%d alcanzado: %d de %d vectores rechazados (no indexados ni "
+                "persistidos). Ids descartados: %s%s",
+                self.max_splats,
+                n - n_added,
+                n,
+                rejected[:20],
+                " ..." if len(rejected) > 20 else "",
+            )
+            ids = ids[:n_added]
+
         # Thread-safe mutation block
         with self._rw_lock:
             # Track which doc_ids correspond to splat positions (first n_added accepted)
@@ -733,15 +758,15 @@ class SimpleVectorDB:
 
             # Guardar en memoria
             for i, doc_id in enumerate(ids):
-                self._vectors[doc_id] = vectors[i]
+                self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
                 self._metadata[doc_id] = metadata[i] if metadata else {}
                 self._documents[doc_id] = documents[i] if documents else None
 
-        # Persistencia (outside lock — I/O)
-        if self.storage:
+        # Persistencia (outside lock — I/O); solo lo que realmente se indexó
+        if self.storage and n_added > 0:
             # Cada lote a su propio shard (shard_001, shard_002, ...); la
             # metadata referencia el shard real vía _last_shard_idx.
-            self.storage.save_vectors(vectors, ids)
+            self.storage.save_vectors(vectors[:n_added], ids)
             shard_idx = getattr(self.storage, "_last_shard_idx", 1)
             for i, doc_id in enumerate(ids):
                 self.storage.save_metadata(
@@ -781,7 +806,12 @@ class SimpleVectorDB:
         """
         if id not in self._vectors and id not in self._deleted:
             if upsert:
-                vec = vector if vector is not None else np.zeros(self.latent_dim, dtype=np.float32)
+                if vector is None:
+                    raise ValueError(
+                        "update(upsert=True) on a new document requires a non-zero 'vector' "
+                        "(without it a zero vector — a hub in every search — was inserted)"
+                    )
+                vec = vector
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
@@ -793,14 +823,20 @@ class SimpleVectorDB:
 
         if id in self._deleted:
             if upsert:
-                self._deleted.discard(id)
-                vec = vector if vector is not None else np.zeros(self.latent_dim, dtype=np.float32)
+                if vector is None:
+                    raise ValueError(
+                        "update(upsert=True) on a deleted document requires a non-zero 'vector' "
+                        "(without it a zero vector — a hub in every search — was inserted)"
+                    )
+                vec = vector
+                # add() valida el vector: si lo rechaza, el doc sigue borrado (estado intacto)
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
                     metadata=[metadata or {}],
                     documents=[document],
                 )
+                self._deleted.discard(id)
                 return UpdateResult(success=True, message="restored and upserted")
             return UpdateResult(success=False, message=f"Document {id!r} is deleted")
 
@@ -809,10 +845,21 @@ class SimpleVectorDB:
         with self._rw_lock:
             if vector is not None:
                 old_vec = self._vectors.get(id)
-                vec = np.asarray(vector, dtype=np.float32)
+                # Copia propia: mutar el array del llamador no debe desincronizar _vectors (audit r1-20)
+                vec = np.array(vector, dtype=np.float32, copy=True)
                 if vec.ndim != 1 or vec.shape[0] != self.latent_dim:
                     raise ValueError(
                         f"vector shape mismatch: expected ({self.latent_dim},), got {vec.shape}"
+                    )
+                # Mismo criterio que add(): NaN/Inf nunca entran al splat store
+                # (audit r1-02: envenenaban mu y rompían el próximo retrain completo).
+                if not np.all(np.isfinite(vec)):
+                    raise ValueError("vector contains NaN or Inf values")
+                norm = float(np.linalg.norm(vec))
+                if norm < 1e-6:
+                    raise ValueError(
+                        f"vector has (near-)zero norm ({norm:.3g}) < 1e-6: a zero vector is a hub "
+                        "at distance 1 from every unit query"
                     )
                 self._vectors[id] = vec
 
@@ -841,6 +888,10 @@ class SimpleVectorDB:
                         # sacar del cluster viejo, asignar al centroid mas
                         # cercano del mu nuevo, sin re-entrenar KMeans.
                         eng = store.engine
+                        # engine.embeddings es la copia del store con la que rankean
+                        # HRM2Engine.query (lod 0/1) y query_batch (audit r1-24).
+                        if getattr(eng, "embeddings", None) is not None and pos < len(eng.embeddings):
+                            eng.embeddings[pos] = store.mu[pos]
                         assert eng.coarse_assignments is not None
                         assert eng.coarse_model is not None
                         old_cid = int(eng.coarse_assignments[pos])
@@ -862,6 +913,13 @@ class SimpleVectorDB:
                                 [eng.coarse_cluster_embeddings[new_cid], store.mu[pos][np.newaxis, :]]
                             )
                             eng._cluster_masks[new_cid][pos] = True
+                        else:
+                            # Sin cambio de cluster: refrescar la fila que ya existe
+                            # (misma causa raíz que r1-24: copia derivada del vector viejo).
+                            row = np.flatnonzero(eng.coarse_cluster_indices[old_cid] == pos)
+                            cemb = eng.coarse_cluster_embeddings.get(old_cid)
+                            if row.size == 1 and cemb is not None and row[0] < len(cemb):
+                                cemb[row[0]] = store.mu[pos]
 
                 # Calcular delta de energía si EBM habilitado
                 if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
@@ -877,6 +935,9 @@ class SimpleVectorDB:
 
         # Storage I/O outside lock
         if self.storage:
+            if vector is not None:
+                # El vector nuevo también tiene que llegar a disco (audit r1-09)
+                self.storage.update_vector(id, vec)
             if metadata is not None:
                 self.storage.update_metadata(id, metadata=metadata)
             if document is not None:
