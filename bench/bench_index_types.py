@@ -5,7 +5,7 @@ Bloques (todos contra GT exacto float64, protocolo ``bench/_protocol.py``):
   * ``hrm2_lod``:  ``db.engine.m2m.retrieve(q, k, lod=0|1|2)`` en clustered 10k y 50k × d=384
                    (lod 2 es el camino exacto del router; 0/1 escanean menos y devuelven los
                    k más cercanos de lo sondeado).
-  * ``sq8``:       ``SQ8DiskStore.build_from_float_npy`` + ``search_batch(Q, k, oversample=2)``
+  * ``sq8``:       ``SQ8DiskStore.build_from_float_npy`` + ``search_batch(Q, k)`` con oversample default y con ``oversample=2``
                    en modo completo (``spectral_r=None``) y en fase espectral opt-in
                    (``spectral_r="auto"``), clustered 10k y 50k × d=384. Anota RAM de arrays,
                    disco y tiempo de ``load()``.
@@ -82,9 +82,17 @@ def bloque_sq8(filas, meta, tmp, etiqueta):
         gt = P.ground_truth(X, Q)
         xp = os.path.join(tmp, f"p9_sq8_{n}_{etiqueta}.npy")
         np.save(xp, X)
-        for modo, r in (("completo", None), ("espectral_auto", "auto")):
-            nombre = f"sq8_disk modo={modo} search_batch(k=10, oversample=2)"
-            dump = os.path.join(tmp, f"p9_sq8_{n}_{modo}_{etiqueta}")
+        # default de la store (oversample=None) y el caso "barato" oversample=2: la fase
+        # espectral necesita el oversample alto para recuperar recall (p12a).
+        for modo, r, ov in (
+            ("completo", None, None),
+            ("completo", None, 2),
+            ("espectral_auto", "auto", None),
+            ("espectral_auto", "auto", 2),
+        ):
+            ov_txt = "default" if ov is None else str(ov)
+            nombre = f"sq8_disk modo={modo} search_batch(k=10, oversample={ov_txt})"
+            dump = os.path.join(tmp, f"p9_sq8_{n}_{modo}_ov{ov_txt}_{etiqueta}")
             try:
                 os.makedirs(dump, exist_ok=True)  # el store exige que el directorio exista
                 with P.RssSampler() as rs:
@@ -93,8 +101,8 @@ def bloque_sq8(filas, meta, tmp, etiqueta):
                     build_s = time.perf_counter() - t0
                     ram = st.ram_bytes() / 2 ** 20
                     disco = P.dir_mb(dump)
-                    m = P.medir(lambda: st.search_batch(Q, k=P.K, oversample=2), len(Q))
-                rec = P.recall_at_k(st.search_batch(Q, k=P.K, oversample=2).tolist(), gt)
+                    m = P.medir(lambda: st.search_batch(Q, k=P.K, oversample=ov), len(Q))
+                rec = P.recall_at_k(st.search_batch(Q, k=P.K, oversample=ov).tolist(), gt)
                 t0 = time.perf_counter()
                 st2 = SQ8DiskStore.load(dump)
                 load_s = time.perf_counter() - t0

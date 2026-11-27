@@ -20,9 +20,9 @@
   "carga": "carga_cpu_sistema_pct = CPU ocupada del sistema (/proc/stat, todos los CPUs) durante la medicion; cpu_propio_pct = (utime+stime del proceso)/pared"
  },
  "meta": {
-  "commit": "2109459c3e6dded2d02d21b32af0a8d22cf272c7",
-  "commit_corto": "2109459c3",
-  "arbol": "wt_p9",
+  "commit": "626e4ff9a865e06ea3088b25449b605ee9ac4f7a",
+  "commit_corto": "626e4ff9a",
+  "arbol": "repo",
   "src_sucio": false,
   "m2m_file": "src/m2m/__init__.py",
   "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
@@ -31,21 +31,21 @@
   "hilos": {
    "OPENBLAS_NUM_THREADS": "1",
    "OMP_NUM_THREADS": "1",
-   "MKL_NUM_THREADS": "1",
+   "MKL_NUM_THREADS": null,
    "NUMEXPR_NUM_THREADS": null
   },
   "python": "3.12.3",
   "numpy": "2.5.5",
   "plataforma": "Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
-  "uptime_antes": "08:38:51 up 3 days, 12:02,  2 users,  load average: 1.07, 0.99, 1.31",
-  "loadavg_antes": "1.07 0.99 1.31 1/550 791025",
-  "uptime_despues": "08:40:39 up 3 days, 12:04,  2 users,  load average: 1.60, 1.15, 1.32",
-  "loadavg_despues": "1.60 1.15 1.32 1/558 791131"
+  "uptime_antes": "10:06:16 up 3 days, 13:39,  2 users,  load average: 1.04, 1.03, 0.86",
+  "loadavg_antes": "1.04 1.03 0.86 1/536 801968",
+  "uptime_despues": "10:07:55 up 3 days, 13:40,  2 users,  load average: 1.30, 1.11, 0.91",
+  "loadavg_despues": "1.30 1.11 0.91 1/537 801988"
  },
  "resultados": [
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 10000,
@@ -54,40 +54,40 @@
    },
    "parametro": "add(10000 docs) en memoria (build)",
    "n_repeticiones": 1,
-   "mediana": 2596.389,
-   "p5": 2596.389,
-   "p95": 2596.389,
-   "qps": 3851.5,
+   "mediana": 2459.2803,
+   "p5": 2459.2803,
+   "p95": 2459.2803,
+   "qps": 4066.2,
    "recall@10": null,
-   "rss_pico_mb": 268.5,
-   "build_s": 2.596,
+   "rss_pico_mb": 267.5,
+   "build_s": 2.459,
    "meta": {
     "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:38:54 up 3 days, 12:02,  2 users,  load average: 1.07, 0.99, 1.31",
+    "uptime_despues": "10:06:19 up 3 days, 13:39,  2 users,  load average: 1.03, 1.03, 0.86",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
    "qps_definicion": "docs / tiempo de add(n)",
    "camino": "build",
    "unidad": "ms por add(n)",
-   "rss_antes_mb": 175.1,
-   "rss_tras_build_mb": 268.5,
-   "rss_delta_mb": 93.4,
+   "rss_antes_mb": 173.9,
+   "rss_tras_build_mb": 267.5,
+   "rss_delta_mb": 93.6,
    "arrays_analitico_mb": 14.7,
    "arrays_reservados_mb": 147.2,
    "arrays_activos_mb": 14.7,
-   "docs_por_s": 3851.5
+   "docs_por_s": 4066.2
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 10000,
@@ -96,9 +96,9 @@
    },
    "parametro": "save(path) + reopen SimpleVectorDB(storage_path=path) n=10000",
    "n_repeticiones": 3,
-   "mediana": 2569.0486,
-   "p5": 2472.993,
-   "p95": 2593.7024,
+   "mediana": 2584.024,
+   "p5": 2514.5128,
+   "p95": 2602.2413,
    "qps": null,
    "recall@10": null,
    "rss_pico_mb": null,
@@ -108,30 +108,30 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:39:00 up 3 days, 12:03,  2 users,  load average: 1.06, 0.99, 1.31",
+    "uptime_despues": "10:06:25 up 3 days, 13:39,  2 users,  load average: 1.03, 1.03, 0.86",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
    "qps_definicion": "no aplica (latencia = tiempo de reopen)",
    "camino": "snapshot",
    "unidad": "ms por reopen",
-   "save_s": 0.568,
+   "save_s": 0.56,
    "disco_mb": 15.4,
    "bytes_por_doc": 1613.4,
    "n_docs_reopen": 10000,
    "reopen_s": [
-    2.569,
-    2.462,
-    2.596
+    2.507,
+    2.584,
+    2.604
    ]
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 50000,
@@ -140,40 +140,40 @@
    },
    "parametro": "add(50000 docs) en memoria (build)",
    "n_repeticiones": 1,
-   "mediana": 15343.7384,
-   "p5": 15343.7384,
-   "p95": 15343.7384,
-   "qps": 3258.7,
+   "mediana": 15337.3837,
+   "p5": 15337.3837,
+   "p95": 15337.3837,
+   "qps": 3260.0,
    "recall@10": null,
    "rss_pico_mb": 782.4,
-   "build_s": 15.344,
+   "build_s": 15.337,
    "meta": {
     "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:39:16 up 3 days, 12:03,  2 users,  load average: 1.04, 0.99, 1.30",
+    "uptime_despues": "10:06:41 up 3 days, 13:39,  2 users,  load average: 1.08, 1.04, 0.87",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
    "qps_definicion": "docs / tiempo de add(n)",
    "camino": "build",
    "unidad": "ms por add(n)",
-   "rss_antes_mb": 412.6,
-   "rss_tras_build_mb": 592.8,
-   "rss_delta_mb": 180.3,
+   "rss_antes_mb": 412.5,
+   "rss_tras_build_mb": 592.9,
+   "rss_delta_mb": 180.4,
    "arrays_analitico_mb": 73.6,
    "arrays_reservados_mb": 147.2,
    "arrays_activos_mb": 73.6,
-   "docs_por_s": 3258.7
+   "docs_por_s": 3260.0
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 50000,
@@ -182,9 +182,9 @@
    },
    "parametro": "save(path) + reopen SimpleVectorDB(storage_path=path) n=50000",
    "n_repeticiones": 3,
-   "mediana": 16403.674,
-   "p5": 16346.4981,
-   "p95": 16411.6234,
+   "mediana": 18185.5439,
+   "p5": 16953.8881,
+   "p95": 19069.1694,
    "qps": null,
    "recall@10": null,
    "rss_pico_mb": null,
@@ -194,30 +194,30 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:01 up 3 days, 12:04,  2 users,  load average: 1.07, 1.00, 1.29",
+    "uptime_despues": "10:07:32 up 3 days, 13:40,  2 users,  load average: 1.22, 1.08, 0.89",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
    "qps_definicion": "no aplica (latencia = tiempo de reopen)",
    "camino": "snapshot",
    "unidad": "ms por reopen",
-   "save_s": 1.649,
+   "save_s": 2.097,
    "disco_mb": 77.1,
    "bytes_por_doc": 1616.7,
    "n_docs_reopen": 50000,
    "reopen_s": [
-    16.413,
-    16.34,
-    16.404
+    16.817,
+    18.186,
+    19.167
    ]
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 1000,
@@ -226,10 +226,10 @@
    },
    "parametro": "add(1000 docs) sin storage_path",
    "n_repeticiones": 2,
-   "mediana": 111.5333,
-   "p5": 110.9717,
-   "p95": 112.095,
-   "qps": 8965.9,
+   "mediana": 109.6823,
+   "p5": 109.5687,
+   "p95": 109.796,
+   "qps": 9117.2,
    "recall@10": null,
    "rss_pico_mb": null,
    "build_s": null,
@@ -238,11 +238,11 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:02 up 3 days, 12:04,  2 users,  load average: 1.07, 1.00, 1.29",
+    "uptime_despues": "10:07:32 up 3 days, 13:40,  2 users,  load average: 1.22, 1.08, 0.89",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
@@ -253,13 +253,13 @@
    "con_storage_path": false,
    "disco_mb": null,
    "tiempos_s": [
-    0.111,
-    0.112
+    0.11,
+    0.11
    ]
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 1000,
@@ -268,10 +268,10 @@
    },
    "parametro": "add(1000 docs) con storage_path",
    "n_repeticiones": 2,
-   "mediana": 396.3035,
-   "p5": 370.5794,
-   "p95": 422.0277,
-   "qps": 2523.3,
+   "mediana": 346.0275,
+   "p5": 319.4247,
+   "p95": 372.6303,
+   "qps": 2889.9,
    "recall@10": null,
    "rss_pico_mb": null,
    "build_s": null,
@@ -280,11 +280,11 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:04 up 3 days, 12:04,  2 users,  load average: 1.14, 1.02, 1.29",
+    "uptime_despues": "10:07:34 up 3 days, 13:40,  2 users,  load average: 1.22, 1.08, 0.89",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
@@ -295,13 +295,13 @@
    "con_storage_path": true,
    "disco_mb": 1.6,
    "tiempos_s": [
-    0.368,
-    0.425
+    0.376,
+    0.316
    ]
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 10000,
@@ -310,10 +310,10 @@
    },
    "parametro": "add(10000 docs) sin storage_path",
    "n_repeticiones": 2,
-   "mediana": 2719.1729,
-   "p5": 2635.2117,
-   "p95": 2803.1341,
-   "qps": 3677.6,
+   "mediana": 2702.9457,
+   "p5": 2591.1677,
+   "p95": 2814.7237,
+   "qps": 3699.7,
    "recall@10": null,
    "rss_pico_mb": null,
    "build_s": null,
@@ -322,11 +322,11 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:09 up 3 days, 12:04,  2 users,  load average: 1.13, 1.02, 1.29",
+    "uptime_despues": "10:07:39 up 3 days, 13:40,  2 users,  load average: 1.18, 1.08, 0.90",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
@@ -337,13 +337,13 @@
    "con_storage_path": false,
    "disco_mb": null,
    "tiempos_s": [
-    2.812,
-    2.626
+    2.827,
+    2.579
    ]
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 10000,
@@ -352,10 +352,10 @@
    },
    "parametro": "add(10000 docs) con storage_path",
    "n_repeticiones": 2,
-   "mediana": 3121.4737,
-   "p5": 3113.4785,
-   "p95": 3129.4688,
-   "qps": 3203.6,
+   "mediana": 2937.5873,
+   "p5": 2909.9059,
+   "p95": 2965.2688,
+   "qps": 3404.2,
    "recall@10": null,
    "rss_pico_mb": null,
    "build_s": null,
@@ -364,11 +364,11 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:17 up 3 days, 12:04,  2 users,  load average: 1.20, 1.04, 1.29",
+    "uptime_despues": "10:07:46 up 3 days, 13:40,  2 users,  load average: 1.17, 1.08, 0.90",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
@@ -379,13 +379,13 @@
    "con_storage_path": true,
    "disco_mb": 15.5,
    "tiempos_s": [
-    3.13,
-    3.113
+    2.907,
+    2.968
    ]
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 100,
@@ -394,10 +394,10 @@
    },
    "parametro": "add(1 doc) x100 sin storage_path",
    "n_repeticiones": 100,
-   "mediana": 0.1734,
-   "p5": 0.1638,
-   "p95": 0.3585,
-   "qps": 5766.5,
+   "mediana": 0.1764,
+   "p5": 0.1625,
+   "p95": 0.3628,
+   "qps": 5667.6,
    "recall@10": null,
    "rss_pico_mb": null,
    "build_s": null,
@@ -406,11 +406,11 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:17 up 3 days, 12:04,  2 users,  load average: 1.20, 1.04, 1.29",
+    "uptime_despues": "10:07:46 up 3 days, 13:40,  2 users,  load average: 1.17, 1.08, 0.90",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
@@ -422,7 +422,7 @@
   },
   {
    "tabla": "bench_storage",
-   "commit": "2109459c3",
+   "commit": "626e4ff9a",
    "dataset": {
     "kind": "clustered",
     "n": 100,
@@ -431,10 +431,10 @@
    },
    "parametro": "add(1 doc) x100 con storage_path",
    "n_repeticiones": 100,
-   "mediana": 194.7927,
-   "p5": 146.1757,
-   "p95": 438.7811,
-   "qps": 5.1,
+   "mediana": 85.7758,
+   "p5": 60.8704,
+   "p95": 269.5976,
+   "qps": 11.7,
    "recall@10": null,
    "rss_pico_mb": null,
    "build_s": null,
@@ -443,11 +443,11 @@
     "hilos": {
      "OPENBLAS_NUM_THREADS": "1",
      "OMP_NUM_THREADS": "1",
-     "MKL_NUM_THREADS": "1",
+     "MKL_NUM_THREADS": null,
      "NUMEXPR_NUM_THREADS": null
     },
     "uptime_antes": null,
-    "uptime_despues": "08:40:39 up 3 days, 12:04,  2 users,  load average: 1.60, 1.15, 1.32",
+    "uptime_despues": "10:07:55 up 3 days, 13:40,  2 users,  load average: 1.30, 1.11, 0.91",
     "carga_cpu_sistema_pct": null,
     "cpu_propio_pct": null
    },
