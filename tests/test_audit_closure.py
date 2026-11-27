@@ -127,9 +127,7 @@ class TestVectorEndpointsValidateKey:
         np.testing.assert_allclose(client.get(url, headers=AUTH).json()["vector"], V0, atol=1e-7)
         r = client.put(url, json=body, headers=AUTH)
         assert r.status_code == 200, r.text
-        np.testing.assert_allclose(
-            client.get(url, headers=AUTH).json()["vector"], V1, atol=1e-6
-        )
+        np.testing.assert_allclose(client.get(url, headers=AUTH).json()["vector"], V1, atol=1e-6)
 
     def test_delete_without_key_is_401_and_keeps_vector(self, api_key):
         url = _seed()
@@ -205,7 +203,10 @@ class TestRateLimitOptIn:
         edge_api._rate_limit_store.clear()
         body = {"vector": V0, "k": 1}
         for _ in range(3):
-            assert client.post("/v1/collections/c15/search", json=body, headers=AUTH).status_code == 200
+            assert (
+                client.post("/v1/collections/c15/search", json=body, headers=AUTH).status_code
+                == 200
+            )
         r = client.post("/v1/collections/c15/search", json=body, headers=AUTH)
         assert r.status_code == 429, r.text
 
@@ -222,7 +223,10 @@ class TestRateLimitOptIn:
         url = _seed()
         body = {"vector": V0, "k": 1}
         for _ in range(150):  # más que el viejo tope nominal de 100/min
-            assert client.post("/v1/collections/c15/search", json=body, headers=AUTH).status_code == 200
+            assert (
+                client.post("/v1/collections/c15/search", json=body, headers=AUTH).status_code
+                == 200
+            )
         assert client.put(url, json={"vector": V1}, headers=AUTH).status_code == 200
 
 
@@ -234,9 +238,7 @@ class TestRateLimitOptIn:
 def _tree(root):
     root = Path(root)
     skip = ("-journal", "-wal", "-shm")
-    return sorted(
-        str(q.relative_to(root)) for q in root.rglob("*") if not q.name.endswith(skip)
-    )
+    return sorted(str(q.relative_to(root)) for q in root.rglob("*") if not q.name.endswith(skip))
 
 
 def _db_with_docs(tmp_path, n=5):
@@ -317,9 +319,7 @@ class TestRestoreValidatesSource:
 
 def test_root_compose_does_not_publish_8080_on_all_interfaces():
     text = (ROOT / "docker-compose.yml").read_text()
-    assert not re.search(r'^\s*-\s*"?8080:8080"?\s*$', text, re.M), (
-        "8080 publicado en 0.0.0.0"
-    )
+    assert not re.search(r'^\s*-\s*"?8080:8080"?\s*$', text, re.M), "8080 publicado en 0.0.0.0"
     loopback_only = "127.0.0.1:8080:8080" in text
     key_required = re.search(r"\$\{M2M_API_KEY:\?", text) is not None
     assert loopback_only or key_required, "ni bind a loopback ni M2M_API_KEY exigida"
@@ -392,7 +392,9 @@ class TestCoordinator:
     def test_without_edge_key_no_credentials_are_sent(self, monkeypatch, stub_edge):
         monkeypatch.delenv("M2M_EDGE_API_KEY", raising=False)
         monkeypatch.setattr(coordinator_api, "_COORDINATOR_API_KEY", "coord-secret")
-        r = coord_client.post("/search", json=QUERY, headers={"Authorization": "Bearer coord-secret"})
+        r = coord_client.post(
+            "/search", json=QUERY, headers={"Authorization": "Bearer coord-secret"}
+        )
         assert r.status_code == 200, r.text
         sent = stub_edge.calls[0]["headers"]
         assert "X-API-Key" not in sent and "Authorization" not in sent
@@ -532,7 +534,18 @@ class TestLshFilter:
 
 def test_filter_by_metadata_docstring_is_truthful(tmp_path):
     doc = M2MPersistence.filter_by_metadata.__doc__
-    for token in ("$eq", "$ne", "$in", "$nin", "$gt", "$gte", "$lt", "$lte", "callable", "ValueError"):
+    for token in (
+        "$eq",
+        "$ne",
+        "$in",
+        "$nin",
+        "$gt",
+        "$gte",
+        "$lt",
+        "$lte",
+        "callable",
+        "ValueError",
+    ):
         assert token in doc, token
 
 
@@ -798,7 +811,12 @@ class TestCoordinatorKeyComparison:
         for good in ("bearer coord-secret", "BEARER coord-secret", "Bearer coord-secret"):
             check(self._req({"Authorization": good}))  # no levanta
         check(self._req({"X-API-Key": "coord-secret"}))
-        for bad in ({"Authorization": "Bearer nope"}, {"Authorization": "coord-secret"}, {}, {"X-API-Key": ""}):
+        for bad in (
+            {"Authorization": "Bearer nope"},
+            {"Authorization": "coord-secret"},
+            {},
+            {"X-API-Key": ""},
+        ):
             with pytest.raises(HTTPException) as ei:
                 check(self._req(bad))
             assert ei.value.status_code == 401
@@ -826,7 +844,9 @@ class TestHebbianDriftKeepsSplatNorm:
             store.feedback(query=vectors[0].copy(), relevant_ids=[0])
         assert np.isclose(np.linalg.norm(store.mu[0]), norm0, rtol=1e-5)
         mu, alpha, kappa, idx = store.find_neighbors(vectors[0], k=5)
-        assert int(np.asarray(idx).ravel()[0]) == 0, "el splat reforzado deja de ser el vecino exacto"
+        assert (
+            int(np.asarray(idx).ravel()[0]) == 0
+        ), "el splat reforzado deja de ser el vecino exacto"
         assert float(alpha[0, 0]) > M2MConfig(latent_dim=8).init_alpha
 
     def test_normalized_store_stays_on_unit_sphere(self):

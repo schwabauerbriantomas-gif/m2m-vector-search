@@ -78,7 +78,20 @@ class _RestrictedUnpickler(pickle.Unpickler):
         "numpy._core.multiarray": {"_reconstruct", "scalar"},
         "numpy.core.numeric": {"_frombuffer"},
         "numpy._core.numeric": {"_frombuffer"},
-        "builtins": {"dict", "list", "tuple", "float", "int", "str", "bytes", "bool", "set", "frozenset", "NoneType", "complex"},
+        "builtins": {
+            "dict",
+            "list",
+            "tuple",
+            "float",
+            "int",
+            "str",
+            "bytes",
+            "bool",
+            "set",
+            "frozenset",
+            "NoneType",
+            "complex",
+        },
         "collections": {"OrderedDict", "defaultdict"},
         # m2m's own dataclasses are safe to reconstruct
         "m2m.dataset_transformer": {"GaussianSplat", "HRM2Node", "TransformConfig"},
@@ -88,9 +101,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
         allowed = self._SAFE_MODULES.get(module, set())
         if name in allowed:
             return super().find_class(module, name)
-        raise pickle.UnpicklingError(
-            f"Blocked unsafe class during unpickling: {module}.{name}"
-        )
+        raise pickle.UnpicklingError(f"Blocked unsafe class during unpickling: {module}.{name}")
 
 
 class M2MPersistence:
@@ -393,9 +404,7 @@ class M2MPersistence:
                 return False
             shard_idx, vector_idx = row
 
-            shard_name = (
-                f"shard_{max(1, int(shard_idx)):03d}" if shard_idx is not None else None
-            )
+            shard_name = f"shard_{max(1, int(shard_idx)):03d}" if shard_idx is not None else None
             shard = self.load_vectors(shard_name) if shard_name else None
             in_place = (
                 shard is not None
@@ -417,7 +426,10 @@ class M2MPersistence:
                 shard = vec[np.newaxis, :]
                 shard_idx, vector_idx = max_idx + 1, 0
 
-            np.save(str(vectors_dir / f"{shard_name}.npy"), np.ascontiguousarray(shard, dtype=np.float32))
+            np.save(
+                str(vectors_dir / f"{shard_name}.npy"),
+                np.ascontiguousarray(shard, dtype=np.float32),
+            )
 
             if not in_place:
                 conn = self._get_conn()
@@ -719,6 +731,7 @@ class M2MPersistence:
                     f"HMAC verification failed for index {name}. Possible tampering."
                 )
             import io
+
             return _RestrictedUnpickler(io.BytesIO(data)).load()
         return None
 

@@ -6,6 +6,7 @@ recall@10 caía (0.458 / 0.701 en clustered 10k x 384). Ahora: los clusters se
 recorren en orden de cercanía y sólo se saltea uno si
 ``(dist(q, c) - r_c)^2 >= d2_k`` (cota exacta), con ``r_c`` mantenido en cada mutación.
 """
+
 import numpy as np
 import pytest
 
@@ -61,16 +62,13 @@ def _gt(X_cur, alive, Q, mask, k=K):
 
 
 def _ids_single(db, q, filtro):
-    return [int(str(x.id)[len("doc"):]) for x in db.search(q, k=K, filter=filtro)]
+    return [int(str(x.id)[len("doc") :]) for x in db.search(q, k=K, filter=filtro)]
 
 
 def _ids_batch(db, Q, **kw):
     orden = db._splat_id_order
     filas = np.atleast_2d(np.asarray(db.search_batch_filtered(Q, k=K, **kw)))
-    return [
-        [int(str(orden[int(p)])[len("doc"):]) for p in fila if int(p) >= 0]
-        for fila in filas
-    ]
+    return [[int(str(orden[int(p)])[len("doc") :]) for p in fila if int(p) >= 0] for fila in filas]
 
 
 def _check(db, X_cur, alive, meta_cur, Q, etiqueta):
@@ -83,7 +81,7 @@ def _check(db, X_cur, alive, meta_cur, Q, etiqueta):
         d = _ids_batch(db, Q, filter=filtro)
         assert d == gt, f"[{etiqueta}] search_batch_filtered(filter=dict) {nombre}: != fuerza bruta"
         pasan = {i for i in range(len(alive)) if mask[i]}
-        ids_por_pos = [str(x)[len("doc"):] for x in db._splat_id_order]
+        ids_por_pos = [str(x)[len("doc") :] for x in db._splat_id_order]
 
         def fn(p, pasan=pasan, ids_por_pos=ids_por_pos):
             # filter_fn recibe POSICIONES de splat, no índices de doc
@@ -91,7 +89,9 @@ def _check(db, X_cur, alive, meta_cur, Q, etiqueta):
             return 0 <= p < len(ids_por_pos) and int(ids_por_pos[p]) in pasan
 
         f = _ids_batch(db, Q, filter_fn=fn)
-        assert f == gt, f"[{etiqueta}] search_batch_filtered(filter_fn=callable) {nombre}: != fuerza bruta"
+        assert (
+            f == gt
+        ), f"[{etiqueta}] search_batch_filtered(filter_fn=callable) {nombre}: != fuerza bruta"
     _check_radii(db, etiqueta)
 
 
@@ -108,9 +108,9 @@ def _check_radii(db, etiqueta):
         if len(rows) == 0:
             continue
         real = float(np.sqrt(((mu[rows] - cent[cid]) ** 2).sum(axis=1)).max())
-        assert radii[cid] >= real - 1e-6, (
-            f"[{etiqueta}] r[{cid}]={radii[cid]:.6f} < distancia real máxima {real:.6f} (no es cota)"
-        )
+        assert (
+            radii[cid] >= real - 1e-6
+        ), f"[{etiqueta}] r[{cid}]={radii[cid]:.6f} < distancia real máxima {real:.6f} (no es cota)"
 
 
 class Estado:
@@ -131,8 +131,9 @@ def datos():
     meta = _meta(labels, 0, pasan25, pasan5)
     qlabels = rng.integers(0, C, size=40)
     Q = _puntos(rng, centros, qlabels)
-    return dict(rng=rng, centros=centros, X=X, labels=labels, meta=meta, Q=Q,
-                pasan25=pasan25, pasan5=pasan5)
+    return dict(
+        rng=rng, centros=centros, X=X, labels=labels, meta=meta, Q=Q, pasan25=pasan25, pasan5=pasan5
+    )
 
 
 def _nuevo_estado(rng, centros, labels_nuevas, offset, pasan25, pasan5):
@@ -171,7 +172,9 @@ def test_filtro_exacto_y_tras_cada_mutacion(datos, tmp_path, monkeypatch):
         v = _puntos(rng, centros, np.array([int(rng.integers(0, C))]))[0]
         db.update(f"doc{i}", vector=v)
         est.X_cur[i] = v
-    assert eng.coarse_cluster_radii is radii0, "(iii) update_vector debe mantener el cache de radios"
+    assert (
+        eng.coarse_cluster_radii is radii0
+    ), "(iii) update_vector debe mantener el cache de radios"
     _check(db, est.X_cur, est.alive, est.meta_cur, Q, "update_vector")
 
     # delete (soft) + re-add de ids borrados, con vector NUEVO
@@ -196,7 +199,10 @@ def test_filtro_exacto_y_tras_cada_mutacion(datos, tmp_path, monkeypatch):
     _check(db, est.X_cur, est.alive, est.meta_cur, Q, "delete + re-add")
 
     # hard delete: compact + reconstrucción
-    duros = [int(i) for i in rng.choice([i for i, a in enumerate(est.alive) if a], size=40, replace=False)]
+    duros = [
+        int(i)
+        for i in rng.choice([i for i, a in enumerate(est.alive) if a], size=40, replace=False)
+    ]
     db.delete(ids=[f"doc{i}" for i in duros], hard=True)
     for i in duros:
         est.alive[i] = False
@@ -230,5 +236,5 @@ def test_consolidate_mantiene_exactitud(datos):
     vivos = {str(x) for x in db._splat_id_order}
     for i, doc in enumerate(orden):
         if i in podar:
-            est.alive[int(doc[len("doc"):])] = doc in vivos
+            est.alive[int(doc[len("doc") :])] = doc in vivos
     _check(db, est.X_cur, est.alive, est.meta_cur, Q, "consolidate")

@@ -7,6 +7,7 @@ Ids de auditoria: r1-14 (filtros), r1-27 (validacion de k), r1-05 (backfill),
 r1-06 (retorno legacy sin posiciones hard-deleted), r1-10 (energia + filtro),
 r1-18 (aridad legacy), r1-16 (sin lista O(n) por query).
 """
+
 import numpy as np
 import pytest
 
@@ -465,27 +466,44 @@ def test_search_consistent_under_concurrent_hard_delete():
         t_.start()
     for t_ in threads:
         t_.join(timeout=60)
-    assert not any(t_.is_alive() for t_ in threads), "hang/deadlock en search bajo delete concurrente"
+    assert not any(
+        t_.is_alive() for t_ in threads
+    ), "hang/deadlock en search bajo delete concurrente"
     assert not errors, errors[:3]
 
 
 # --- r1-14: la MISMA tabla de semantica con storage_path (M2MPersistence._matches_filter) ---
 def test_r1_14_storage_mode_mirrors_memory_semantics(tmp_path):
     """Con storage_path, _match_filter delega a M2MPersistence._matches_filter: no debe divergir.
-    Un solo init de storage (cuesta ~3 s), por eso los casos van todos aca en vez de parametrizados."""
+    Un solo init de storage (cuesta ~3 s), por eso los casos van todos aca en vez de parametrizados.
+    """
     mem = _meta_db(None)
     sto = _meta_db(str(tmp_path / "store"))
     assert sto.storage is not None and mem.storage is None
     cases = [
-        ({"c": {"$in": [3]}}, True), ({"c": {"$in": [0]}}, False), ({"c": {"$in": []}}, False),
-        ({"c": {"$nin": [3]}}, False), ({"c": {"$nin": [0]}}, True), ({"c": {"$nin": []}}, True),
-        ({"c": {"$eq": 3, "$in": [0]}}, False), ({"c": {"$gte": 3}, "t": {"$in": ["y"]}}, True),
-        ({"zz": {"$in": [1]}}, False), ({"c": 3}, True),
+        ({"c": {"$in": [3]}}, True),
+        ({"c": {"$in": [0]}}, False),
+        ({"c": {"$in": []}}, False),
+        ({"c": {"$nin": [3]}}, False),
+        ({"c": {"$nin": [0]}}, True),
+        ({"c": {"$nin": []}}, True),
+        ({"c": {"$eq": 3, "$in": [0]}}, False),
+        ({"c": {"$gte": 3}, "t": {"$in": ["y"]}}, True),
+        ({"zz": {"$in": [1]}}, False),
+        ({"c": 3}, True),
     ]
     for flt, expected in cases:
         assert mem._match_filter({"c": 3, "t": "y"}, flt) is expected
         assert sto._match_filter({"c": 3, "t": "y"}, flt) is expected
-    for flt in ({"c": {"$gtt": 3}}, {"c": {}}, {"c": [3]}, {"c": {"$in": 3}}, {}, "c", {"c": {"$gt": "x"}}):
+    for flt in (
+        {"c": {"$gtt": 3}},
+        {"c": {}},
+        {"c": [3]},
+        {"c": {"$in": 3}},
+        {},
+        "c",
+        {"c": {"$gt": "x"}},
+    ):
         for db in (mem, sto):
             with pytest.raises(ValueError):
                 db._match_filter({"c": 3}, flt)

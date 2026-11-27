@@ -4,6 +4,7 @@ Antes: el camino por chunks deja los float32 originales mmapeados DESDE el .npy
 fuente y no escribe `float32.npy` en el dump; `load(dump)` hacía `np.load` de ese
 archivo sin comprobar y levantaba `FileNotFoundError` críptico.
 """
+
 import numpy as np
 import pytest
 
@@ -42,8 +43,8 @@ def test_load_fuente_borrada_error_claro(tmp_path):
     with pytest.raises(FileNotFoundError) as ei:
         SQ8DiskStore.load(str(dump))
     msg = str(ei.value)
-    assert "float_path" in msg, msg           # nombra el remedio
-    assert str(src) in msg, msg                # nombra el archivo faltante
+    assert "float_path" in msg, msg  # nombra el remedio
+    assert str(src) in msg, msg  # nombra el archivo faltante
 
 
 def test_load_float_path_override(tmp_path):

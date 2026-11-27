@@ -52,7 +52,9 @@ def test_search_layer_returns_closest_first():
         c = h._search_layer(q, h._entry_point, 16, 0)
         assert len(c) == 16
         dists = [d for d, _ in c]
-        assert dists == sorted(dists), f"_search_layer no devuelve closest-first: {dists[:4]} ... {dists[-4:]}"
+        assert dists == sorted(
+            dists
+        ), f"_search_layer no devuelve closest-first: {dists[:4]} ... {dists[-4:]}"
         assert c[0][0] <= c[-1][0]
 
 
@@ -109,7 +111,9 @@ def test_built_hierarchy_has_paper_density():
     h, _ = _hnsw(n=400, M=16)
     levels = np.array([node.level for node in h._nodes])
     frac = float((levels >= 1).mean())
-    assert 0.5 / 16 <= frac <= 1.5 / 16, f"fracción en capa >= 1 = {frac:.3f} (esperado 1/16 = 0.0625)"
+    assert (
+        0.5 / 16 <= frac <= 1.5 / 16
+    ), f"fracción en capa >= 1 = {frac:.3f} (esperado 1/16 = 0.0625)"
     assert levels.max() <= 3, f"nivel máximo {levels.max()} con N=400: jerarquía demasiado densa"
     # El grafo sigue siendo recorrible: todos los nodos conectados desde el entry point.
     seen, stack = {h._entry_point}, [h._entry_point]
@@ -172,10 +176,7 @@ def _recall_uniform(n=4000, dim=384, n_q=60, **cfg):
     gt = np.argsort(-(Q @ X.T), axis=1)[:, :10]
     idx = CrossPolytopeLSH(LSHConfig(dim=dim, **cfg))
     idx.index(X)
-    hits = sum(
-        len(set(idx.query(q, k=10)[0].tolist()) & set(g.tolist()))
-        for q, g in zip(Q, gt)
-    )
+    hits = sum(len(set(idx.query(q, k=10)[0].tolist()) & set(g.tolist())) for q, g in zip(Q, gt))
     return hits / (n_q * 10)
 
 
@@ -185,7 +186,11 @@ def test_lsh_uniform_defaults_low_recall_is_flagged_experimental():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         CrossPolytopeLSH(LSHConfig(dim=384))
-    flagged = [w for w in caught if issubclass(w.category, UserWarning) and "experimental" in str(w.message).lower()]
+    flagged = [
+        w
+        for w in caught
+        if issubclass(w.category, UserWarning) and "experimental" in str(w.message).lower()
+    ]
     recall = _recall_uniform()
     if recall < 0.5:
         assert len(flagged) == 1, (

@@ -6,6 +6,7 @@ Cubre el punto 4 del plan de integracion (probe E):
   c) RAM de fase 1 ~ r/D del store full-D.
   d) determinismo: dos builds con la misma data -> codigos identicos.
 """
+
 import os
 
 import numpy as np
@@ -35,10 +36,9 @@ def _quantize_reference(x: np.ndarray):
 
 
 def _recall_at_k(out, gt, k=10):
-    return float(np.mean([
-        len(set(out[i][:k].tolist()) & set(gt[i].tolist())) / k
-        for i in range(len(out))
-    ]))
+    return float(
+        np.mean([len(set(out[i][:k].tolist()) & set(gt[i].tolist())) / k for i in range(len(out))])
+    )
 
 
 # ---------------------------------------------------------------- a) bitwise
@@ -88,23 +88,20 @@ def test_recall_real_corpus_spectral_matches_full(tmp_path):
     xp = str(tmp_path / "X.npy")
     np.save(xp, X)
     st_full = SQ8DiskStore.build_from_float_npy(xp, dump_dir=str(tmp_path / "full"))
-    st_proj = SQ8DiskStore.build_from_float_npy(
-        xp, dump_dir=str(tmp_path / "proj"), spectral_r=16)
+    st_proj = SQ8DiskStore.build_from_float_npy(xp, dump_dir=str(tmp_path / "proj"), spectral_r=16)
     rng = np.random.RandomState(3)
     Q = X[rng.choice(n, 100, replace=False)]
-    S = 2 * Q @ X.T - (X ** 2).sum(1)[None] - (Q ** 2).sum(1)[:, None]
+    S = 2 * Q @ X.T - (X**2).sum(1)[None] - (Q**2).sum(1)[:, None]
     gt = np.argsort(-S, axis=1)[:, :10]
     rec_full = _recall_at_k(st_full.search_batch(Q, k=10, oversample=3), gt)
     assert rec_full >= 0.99  # sanity: el modo actual ya esta en paridad
     ladder = [3, 5, 10, 20, 30, 50]  # K' = 30, 50, 100, 200, 300, 500
-    recalls = [_recall_at_k(st_proj.search_batch(Q, k=10, oversample=ov), gt)
-               for ov in ladder]
+    recalls = [_recall_at_k(st_proj.search_batch(Q, k=10, oversample=ov), gt) for ov in ladder]
     # el recall mejora monotonicamente con K' (mas candidatos -> mas recall)
     assert all(b >= a - 1e-9 for a, b in zip(recalls, recalls[1:]))
     best = max(recalls)
     assert best >= rec_full - 0.005, (
-        f"mejor recall espectral {best:.4f} < full {rec_full:.4f} - 0.005 "
-        f"(escala K'={ladder})"
+        f"mejor recall espectral {best:.4f} < full {rec_full:.4f} - 0.005 " f"(escala K'={ladder})"
     )
 
 
@@ -113,16 +110,16 @@ def test_recall_synthetic_spectral_roundtrip(tmp_path):
     rng = np.random.RandomState(7)
     D, dr, N = 64, 6, 1500
     basis = rng.randn(D, dr).astype(np.float32)
-    X = np.stack([basis @ (rng.randn(dr) * 2.0 + rng.randn(dr) * 0.4)
-                  for _ in range(N)]).astype(np.float32)
+    X = np.stack([basis @ (rng.randn(dr) * 2.0 + rng.randn(dr) * 0.4) for _ in range(N)]).astype(
+        np.float32
+    )
     X += rng.randn(N, D).astype(np.float32) * 0.5
     xp = str(tmp_path / "X.npy")
     np.save(xp, X)
-    st = SQ8DiskStore.build_from_float_npy(
-        xp, dump_dir=str(tmp_path / "auto"), spectral_r="auto")
+    st = SQ8DiskStore.build_from_float_npy(xp, dump_dir=str(tmp_path / "auto"), spectral_r="auto")
     assert st._rdim <= 12, f"auto detecto r={st._rdim}, esperaba ~dr"
     Q = X[rng.choice(N, 40, replace=False)] + 0.01
-    S = 2 * Q @ X.T - (X ** 2).sum(1)[None] - (Q ** 2).sum(1)[:, None]
+    S = 2 * Q @ X.T - (X**2).sum(1)[None] - (Q**2).sum(1)[:, None]
     gt = np.argsort(-S, axis=1)[:, :10]
     out = st.search_batch(Q, k=10, oversample=3)
     assert _recall_at_k(out, gt) >= 0.95
@@ -139,8 +136,7 @@ def test_phase1_ram_reduction(tmp_path):
     xp = str(tmp_path / "X.npy")
     np.save(xp, X)
     st_full = SQ8DiskStore.build_from_float_npy(xp, dump_dir=str(tmp_path / "full"))
-    st_proj = SQ8DiskStore.build_from_float_npy(
-        xp, dump_dir=str(tmp_path / "proj"), spectral_r=r)
+    st_proj = SQ8DiskStore.build_from_float_npy(xp, dump_dir=str(tmp_path / "proj"), spectral_r=r)
     assert st_proj._q.shape == (N, r)
     # RAM fase 1 = N*(r+8) bytes (uint8 r-dim + scale/zero float32); la
     # relacion exacta es (r+8)/(D+8): con r=16, D=384 -> 16.33x (probe E).
@@ -169,8 +165,14 @@ def test_determinism_same_seed_same_codes(tmp_path):
         st = SQ8DiskStore(dim=96, spectral_r=16)
         st.add(data)
         st.flush(str(tmp_path / f"d{i}"))
-        codes.append((st._q.copy(), st._scale.copy(), st._zero.copy(),
-                      st._P.copy() if st._P is not None else None))
+        codes.append(
+            (
+                st._q.copy(),
+                st._scale.copy(),
+                st._zero.copy(),
+                st._P.copy() if st._P is not None else None,
+            )
+        )
     (q0, s0, z0, P0), (q1, s1, z1, P1) = codes
     assert np.array_equal(q0, q1)
     assert np.array_equal(s0, s1)
@@ -208,7 +210,7 @@ def test_online_add_after_flush_spectral(tmp_path):
     X2 = np.vstack([X, extra])
     rng = np.random.RandomState(4)
     Q = X2[rng.choice(len(X2), 30, replace=False)]
-    S = 2 * Q @ X2.T - (X2 ** 2).sum(1)[None] - (Q ** 2).sum(1)[:, None]
+    S = 2 * Q @ X2.T - (X2**2).sum(1)[None] - (Q**2).sum(1)[:, None]
     gt = np.argsort(-S, axis=1)[:, :10]
     out = st.search_batch(Q, k=10, oversample=10)
     assert _recall_at_k(out, gt) >= 0.9
@@ -230,8 +232,7 @@ def test_auto_r_on_real_corpus(tmp_path):
     X = np.load(REAL_NPY)
     xp = str(tmp_path / "X.npy")
     np.save(xp, X)
-    st = SQ8DiskStore.build_from_float_npy(
-        xp, dump_dir=str(tmp_path / "auto"), spectral_r="auto")
+    st = SQ8DiskStore.build_from_float_npy(xp, dump_dir=str(tmp_path / "auto"), spectral_r="auto")
     assert 8 <= st._rdim <= 384
     # P ortonormal (columnas de eigh)
     assert st._P is not None

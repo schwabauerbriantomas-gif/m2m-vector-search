@@ -16,9 +16,7 @@ class M2MVectorStore(VectorStore):
     es el ``as_retriever()`` heredado de ``VectorStore`` [audit P15].
     """
 
-    def __init__(
-        self, embeddings: Embeddings, m2m_engine=None, config=None, **kwargs: Any
-    ):
+    def __init__(self, embeddings: Embeddings, m2m_engine=None, config=None, **kwargs: Any):
         """
         Initialize M2M VectorStore with embeddings and M2M config.
         """
@@ -86,9 +84,7 @@ class M2MVectorStore(VectorStore):
 
         return ids
 
-    def similarity_search(
-        self, query: str, k: int = 4, **kwargs: Any
-    ) -> List[Document]:
+    def similarity_search(self, query: str, k: int = 4, **kwargs: Any) -> List[Document]:
         """
         Return k most similar documents to the query.
         """
@@ -155,9 +151,7 @@ class M2MVectorStore(VectorStore):
         if not ids:
             return
         id_set = set(ids)
-        indices_to_remove = [
-            idx for idx, info in self._store.items() if info["id"] in id_set
-        ]
+        indices_to_remove = [idx for idx, info in self._store.items() if info["id"] in id_set]
         for idx in indices_to_remove:
             del self._store[idx]
 
@@ -173,9 +167,7 @@ class M2MVectorStore(VectorStore):
         if ids is None:
             ids = [doc.metadata.get("id") for doc in documents]
 
-        id_to_idx = {
-            info["id"]: idx for idx, info in self._store.items()
-        }
+        id_to_idx = {info["id"]: idx for idx, info in self._store.items()}
 
         for doc_id, doc in zip(ids, documents):
             if doc_id is None:
@@ -193,10 +185,11 @@ class M2MVectorStore(VectorStore):
                     new_emb = self._embeddings.embed_query(doc.page_content)
                     new_emb = np.array(new_emb, dtype=np.float32)
                     from m2m import normalize_sphere
+
                     new_emb = normalize_sphere(new_emb)
 
                     # Update the splat center in-place if engine supports it
-                    if hasattr(self._m2m, 'm2m') and hasattr(self._m2m.m2m, 'splats'):
+                    if hasattr(self._m2m, "m2m") and hasattr(self._m2m.m2m, "splats"):
                         splats = self._m2m.m2m.splats
                         if store_idx < splats.n_active:
                             splats.mu[store_idx] = new_emb
@@ -212,23 +205,14 @@ class M2MVectorStore(VectorStore):
         """
         matching = []
         for idx, info in self._store.items():
-            if all(
-                info["metadata"].get(key) == value
-                for key, value in metadata.items()
-            ):
+            if all(info["metadata"].get(key) == value for key, value in metadata.items()):
                 matching.append(info)
 
         if len(matching) <= k:
-            return [
-                Document(page_content=m["text"], metadata=m["metadata"])
-                for m in matching
-            ]
+            return [Document(page_content=m["text"], metadata=m["metadata"]) for m in matching]
 
         # Return first k matches
-        return [
-            Document(page_content=m["text"], metadata=m["metadata"])
-            for m in matching[:k]
-        ]
+        return [Document(page_content=m["text"], metadata=m["metadata"]) for m in matching[:k]]
 
     @classmethod
     def from_texts(

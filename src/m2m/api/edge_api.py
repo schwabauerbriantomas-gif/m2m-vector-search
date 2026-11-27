@@ -275,9 +275,7 @@ def _rate_limit_per_min() -> int:
     try:
         limit = int(raw.strip())
     except ValueError:
-        logger.warning(
-            "M2M_RATE_LIMIT_PER_MIN=%r is not an integer; rate limiting is OFF", raw
-        )
+        logger.warning("M2M_RATE_LIMIT_PER_MIN=%r is not an integer; rate limiting is OFF", raw)
         return 0
     return max(0, limit)
 
@@ -436,9 +434,7 @@ def _validate_api_key(request: Request, admin: bool = False) -> None:
             )
         return
     token = _extract_token(request)
-    if not token or not hmac.compare_digest(
-        token.encode("utf-8"), expected.encode("utf-8")
-    ):
+    if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
@@ -659,9 +655,7 @@ def get_vector(name: str, vector_id: str, request: Request):
 
 
 @app.put("/v1/collections/{name}/vectors/{vector_id}")
-def update_vector(
-    name: str, vector_id: str, req: UpdateVectorRequest, request: Request
-):
+def update_vector(name: str, vector_id: str, req: UpdateVectorRequest, request: Request):
     """Actualiza un vector existente (valida la API key si está configurada [audit P15])."""
     _validate_api_key(request)
     _check_rate_limit(request.client.host if request.client else "unknown")
@@ -752,8 +746,14 @@ def search(name: str, req: SearchRequest, request: Request):
             mu, alpha, kappa = results_raw
         # T2: el engine HRM2 devuelve mu/alpha con batch dim (1, k); el path
         # LSH (k,). Aplanar el batch dim para el scoring legacy.
-        alpha = np.asarray(alpha).reshape(-1)[: len(mu) if mu.ndim < 2 else mu.shape[-2]] if hasattr(alpha, "reshape") else alpha
-        results = [{"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(alpha)))]
+        alpha = (
+            np.asarray(alpha).reshape(-1)[: len(mu) if mu.ndim < 2 else mu.shape[-2]]
+            if hasattr(alpha, "reshape")
+            else alpha
+        )
+        results = [
+            {"id": f"idx_{i}", "score": float(alpha[i])} for i in range(min(req.k, len(alpha)))
+        ]
     else:
         results = []
         for r in results_raw:
@@ -957,7 +957,8 @@ def checkpoint(request: Request, name: Optional[str] = None):
         return JSONResponse(
             status_code=500,
             content={
-                "detail": f"Checkpoint failed for {len(failed)} collection(s): " + "; ".join(failed),
+                "detail": f"Checkpoint failed for {len(failed)} collection(s): "
+                + "; ".join(failed),
                 "collections": names,
                 "results": results,
             },

@@ -73,9 +73,7 @@ class SplatStore:
             batch_size=min(10000, self.max_splats),
             config=config,
             k_selection=ksel,
-            gate_target_docs_per_cluster=getattr(
-                config, "gate_target_docs_per_cluster", 25
-            ),
+            gate_target_docs_per_cluster=getattr(config, "gate_target_docs_per_cluster", 25),
         )
 
         # Keep track of tensors for Energy / SOC functions that access properties directly
@@ -209,7 +207,7 @@ class SplatStore:
             centroids = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
             new_points = self.mu[old_n:n]
             # ||x-c||^2 = ||x||^2 - 2x.c + ||c||^2; ||x||^2 es constante por fila
-            d2 = -2.0 * (new_points @ centroids.T) + (centroids ** 2).sum(axis=1)[None, :]
+            d2 = -2.0 * (new_points @ centroids.T) + (centroids**2).sum(axis=1)[None, :]
             new_assign = np.argmin(d2, axis=1)
 
             prev_assign = eng.coarse_assignments
@@ -240,9 +238,7 @@ class SplatStore:
                     eng.bump_cluster_radius(cid, new_points[new_assign == cid])
                 prev_idx = eng.coarse_cluster_indices.get(cid)
                 eng.coarse_cluster_indices[cid] = (
-                    np.concatenate([prev_idx, extra])
-                    if prev_idx is not None
-                    else extra
+                    np.concatenate([prev_idx, extra]) if prev_idx is not None else extra
                 )
                 prev_emb = eng.coarse_cluster_embeddings.get(cid)
                 assert prev_emb is not None, f"cluster {cid} sin embeddings precomputados"
@@ -360,9 +356,7 @@ class SplatStore:
                 # verificado diff ~1e-7, pero ~20x más rápido por query).
                 centroids = getattr(self.engine.coarse_model, "centroids_", None)
                 if centroids is not None:
-                    coarse_dists = np.sqrt(
-                        np.maximum(((centroids - q) ** 2).sum(axis=1), 0.0)
-                    )
+                    coarse_dists = np.sqrt(np.maximum(((centroids - q) ** 2).sum(axis=1), 0.0))
                 else:
                     coarse_dists = self.engine.coarse_model.transform(q.reshape(1, -1))[0]
 
@@ -433,7 +427,12 @@ class SplatStore:
             else:
                 # Gaussian two-phase search (default, probabilistic re-ranking)
                 result_indices, result_scores, _, _ = two_phase_search(
-                    q, cand_mu, cand_alpha, cand_kappa, k=k, overfetch=1.5,
+                    q,
+                    cand_mu,
+                    cand_alpha,
+                    cand_kappa,
+                    k=k,
+                    overfetch=1.5,
                     precomputed_m_sq=_non_hrm2_m_sq if full_scan else None,
                     with_ranks=False,
                 )
@@ -548,7 +547,12 @@ class SplatStore:
         for i in range(batch_size):
             q = queries_np[i]
             result_indices, scores, _, _ = two_phase_search(
-                q, index_data, index_alpha, index_kappa, k=k, overfetch=2.0,
+                q,
+                index_data,
+                index_alpha,
+                index_kappa,
+                k=k,
+                overfetch=2.0,
                 precomputed_m_sq=_m_sq,
                 with_ranks=False,
             )

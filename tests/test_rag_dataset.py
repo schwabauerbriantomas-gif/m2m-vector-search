@@ -24,7 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Skip all tests in this module if the dataset is not present
 _HAS_DATASET = (DATASET_DIR / "embeddings.npy").exists()
-pytestmark = [pytest.mark.embeddings, pytest.mark.skipif(not _HAS_DATASET, reason="RAG test dataset not built")]
+pytestmark = [
+    pytest.mark.embeddings,
+    pytest.mark.skipif(not _HAS_DATASET, reason="RAG test dataset not built"),
+]
 
 
 # ── Fixtures ────────────────────────────────────────────────────────

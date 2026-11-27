@@ -10,6 +10,7 @@ Cubre el contrato de T3:
       (baseline capturado ANTES del cambio con bench_t3.py, mismas seeds);
   (d) grado del grafo <= M (capas >0) y <= 2M (capa 0) en todos los casos.
 """
+
 import os
 from collections import deque
 
@@ -64,6 +65,7 @@ def _queries(X, seed, n=100):
 
 
 # ---------------------------------------------------------------- (a) anillo
+
 
 class TestRingDiversity:
     def test_far_edge_survives_alg4_pruning(self):
@@ -153,12 +155,13 @@ class TestRingDiversity:
                 if nb not in seen:
                     seen.add(nb)
                     dq.append(nb)
-        assert seen == set(range(len(X))), (
-            f"grafo no conexo en capa 0: faltan {set(range(len(X))) - seen}"
-        )
+        assert seen == set(
+            range(len(X))
+        ), f"grafo no conexo en capa 0: faltan {set(range(len(X))) - seen}"
 
 
 # ---------------------------------------------------- (b) corpus clusterizado
+
 
 class TestClusteredRecall:
     def test_clustered_recall_at_least_095(self):
@@ -171,6 +174,7 @@ class TestClusteredRecall:
 
 
 # ------------------------------------------------------- (c) corpus uniforme
+
 
 class TestUniformNoRegression:
     def test_uniform_recall_no_drop_gt_001(self):
@@ -186,6 +190,7 @@ class TestUniformNoRegression:
 
 
 # -------------------------------------------------------- (d) grado contrato
+
 
 class TestDegreeContract:
     @pytest.mark.parametrize("tag", ["clustered", "uniform", "real"])
@@ -203,6 +208,5 @@ class TestDegreeContract:
             for lev, nbrs in enumerate(node.neighbors):
                 limit = h.M_max0 if lev == 0 else h.M
                 assert len(nbrs) <= limit, (
-                    f"{tag}: nodo {node.idx} nivel {lev} "
-                    f"grado {len(nbrs)} > {limit}"
+                    f"{tag}: nodo {node.idx} nivel {lev} " f"grado {len(nbrs)} > {limit}"
                 )

@@ -35,7 +35,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
     """
 
     # Module-level dataclasses that are safe to reconstruct
-    _MODULE_NAME = __name__ if '__name__' in dir() else 'm2m.dataset_transformer'
+    _MODULE_NAME = __name__ if "__name__" in dir() else "m2m.dataset_transformer"
 
     _SAFE_MODULES = {
         "numpy": {"ndarray", "dtype", "float32", "float64", "int32", "int64", "uint32", "uint64"},
@@ -43,7 +43,20 @@ class _RestrictedUnpickler(pickle.Unpickler):
         "numpy._core.multiarray": {"_reconstruct", "scalar"},
         "numpy.core.numeric": {"_frombuffer"},
         "numpy._core.numeric": {"_frombuffer"},
-        "builtins": {"dict", "list", "tuple", "float", "int", "str", "bytes", "bool", "set", "frozenset", "NoneType", "complex"},
+        "builtins": {
+            "dict",
+            "list",
+            "tuple",
+            "float",
+            "int",
+            "str",
+            "bytes",
+            "bool",
+            "set",
+            "frozenset",
+            "NoneType",
+            "complex",
+        },
         "collections": {"OrderedDict", "defaultdict"},
         # Allow our own dataclasses (GaussianSplat, HRM2Node, TransformConfig)
         _MODULE_NAME: {"GaussianSplat", "HRM2Node", "TransformConfig"},
@@ -53,9 +66,9 @@ class _RestrictedUnpickler(pickle.Unpickler):
         allowed = self._SAFE_MODULES.get(module, set())
         if name in allowed:
             return super().find_class(module, name)
-        raise pickle.UnpicklingError(
-            f"Blocked unsafe class during unpickling: {module}.{name}"
-        )
+        raise pickle.UnpicklingError(f"Blocked unsafe class during unpickling: {module}.{name}")
+
+
 from sklearn.cluster import MiniBatchKMeans
 
 

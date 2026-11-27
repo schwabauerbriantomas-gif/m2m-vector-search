@@ -16,7 +16,8 @@ y con otro tope: el mismo punto daba 10.0 en una API y 69.08 (= -log 1e-30) en l
 
 import numpy as np
 
-from .ebm.energy_api import OOD_ENERGY, splat_energy_batch as _canonical_energy_batch
+from .ebm.energy_api import OOD_ENERGY
+from .ebm.energy_api import splat_energy_batch as _canonical_energy_batch
 
 
 class EnergyFunction:

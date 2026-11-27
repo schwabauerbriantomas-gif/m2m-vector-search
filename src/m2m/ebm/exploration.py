@@ -208,9 +208,7 @@ class EBMExploration:
         """
         temperature = float(temperature)
         if not np.isfinite(temperature) or temperature < 0:
-            raise ValueError(
-                f"temperature must be a finite number >= 0 (got {temperature!r})"
-            )
+            raise ValueError(f"temperature must be a finite number >= 0 (got {temperature!r})")
 
         if self.all_vectors is None or len(self.all_vectors) == 0:
             return []

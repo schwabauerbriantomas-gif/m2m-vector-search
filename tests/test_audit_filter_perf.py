@@ -10,6 +10,7 @@ Ahora: cache de mascaras por filtro dict (clave = forma canonica + ``_meta_versi
 primera evaluacion, con paridad EXACTA contra ``match_metadata_filter`` (helper unico de
 semantica de filtros). Los tests de cache son por CONTEO de evaluaciones, no por tiempo.
 """
+
 import json
 import threading
 
@@ -58,8 +59,10 @@ def _python_mask(db, flt, n):
     out = np.zeros(n, dtype=bool)
     for i in range(min(n, len(order))):
         doc_id = order[i]
-        if doc_id in db._vectors and doc_id not in db._deleted and match_metadata_filter(
-            db._metadata.get(doc_id, {}), flt
+        if (
+            doc_id in db._vectors
+            and doc_id not in db._deleted
+            and match_metadata_filter(db._metadata.get(doc_id, {}), flt)
         ):
             out[i] = True
     return out
@@ -118,7 +121,7 @@ def test_vectorized_mask_matches_python_path(count_evals, flt):
     assert count_evals["n"] == 0, "filtro simple: debio evaluarse vectorizado (0 calls Python)"
     np.testing.assert_array_equal(got, ref)
     # End-to-end: search devuelve exactamente los docs de la mascara (k >= #matches)
-    res = db.search(X[0], k=10 ** 6, filter=flt, include_metadata=True)
+    res = db.search(X[0], k=10**6, filter=flt, include_metadata=True)
     assert {r.id for r in res} == {db._splat_id_order[i] for i in np.flatnonzero(ref)}
 
 
@@ -144,7 +147,25 @@ def test_vectorized_mask_random_filters_parity(count_evals):
     n = _n_active_splats(db)
     keys = ["cat", "score", "tag", "vec", "absent"]
     ops = ["$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin"]
-    comps = [0, 1, 2, 3, 4, 0.5, -1.0, 2.5, "a", "b", "c", True, None, [0, 1], ["a", "c"], (2, 4), {1, 2, 3}]
+    comps = [
+        0,
+        1,
+        2,
+        3,
+        4,
+        0.5,
+        -1.0,
+        2.5,
+        "a",
+        "b",
+        "c",
+        True,
+        None,
+        [0, 1],
+        ["a", "c"],
+        (2, 4),
+        {1, 2, 3},
+    ]
     n_vectorized = 0
     n_checked = 0
     for _ in range(200):
@@ -253,7 +274,9 @@ def test_cache_rebuilt_after_restore_from_storage(tmp_path):
     X = rng.standard_normal((n, d)).astype(np.float32)
     path = str(tmp_path / "db")
     db = SimpleVectorDB(latent_dim=d, storage_path=path)
-    db.add(ids=[f"d{i}" for i in range(n)], vectors=X, metadata=[{"cat": int(i % 4)} for i in range(n)])
+    db.add(
+        ids=[f"d{i}" for i in range(n)], vectors=X, metadata=[{"cat": int(i % 4)} for i in range(n)]
+    )
     flt = {"cat": {"$eq": 1}}
     assert len(db.search(X[0], k=1000, filter=flt, include_metadata=True)) == 50
     db.save()
@@ -276,7 +299,9 @@ def test_search_batch_filtered_accepts_dict_filter(count_evals):
     assert got.shape == (8, K)
     order = db._splat_id_order
     ref = db.search_batch_filtered(
-        Q, k=K, filter_fn=lambda i: order[i] in db._vectors and db._metadata[order[i]]["cat"] in (1, 3)
+        Q,
+        k=K,
+        filter_fn=lambda i: order[i] in db._vectors and db._metadata[order[i]]["cat"] in (1, 3),
     )
     np.testing.assert_array_equal(got, ref)
     for row in got:
@@ -299,14 +324,18 @@ def test_lsh_mode_dict_filter_matches_filter_fn():
     n, d = 400, 16
     X = rng.standard_normal((n, d)).astype(np.float32)  # uniforme -> silueta baja -> LSH
     db = SimpleVectorDB(latent_dim=d, enable_lsh_fallback=True)
-    db.add(ids=[f"d{i}" for i in range(n)], vectors=X, metadata=[{"cat": int(i % 4)} for i in range(n)])
+    db.add(
+        ids=[f"d{i}" for i in range(n)], vectors=X, metadata=[{"cat": int(i % 4)} for i in range(n)]
+    )
     assert db._use_lsh
     flt = {"cat": {"$eq": 1}}
     res = db.search(X[0], k=20, filter=flt, include_metadata=True)
     assert len(res) == 20 and all(r.metadata["cat"] == 1 for r in res)
     Q = X[:6]
     a = db.search_batch_filtered(Q, k=20, filter=flt)
-    b = db.search_batch_filtered(Q, k=20, filter_fn=lambda i: db._metadata[db._lsh_id_map[i]]["cat"] == 1)
+    b = db.search_batch_filtered(
+        Q, k=20, filter_fn=lambda i: db._metadata[db._lsh_id_map[i]]["cat"] == 1
+    )
     np.testing.assert_array_equal(a, b)
     db.update("d1", metadata={"cat": 0})
     res = db.search(X[1], k=1000, filter=flt, include_metadata=True)
@@ -334,7 +363,9 @@ def test_filtered_search_under_concurrent_writes():
                 # Violacion medida sobre la metadata DEL resultado (snapshot al momento
                 # de la busqueda): un cache stale dejaria pasar 'toggle' con kind=other.
                 for r_ in res:
-                    assert r_.metadata.get("kind") == "base", f"filtro violado: {r_.id} {r_.metadata}"
+                    assert (
+                        r_.metadata.get("kind") == "base"
+                    ), f"filtro violado: {r_.id} {r_.metadata}"
                 n_searches[r] += 1
         except Exception as e:  # pragma: no cover - se reporta en el assert de abajo
             errors.append(e)
