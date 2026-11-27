@@ -44,7 +44,9 @@ def _validate_coordinator_key(request: Request) -> None:
         return
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth[:7].lower() == "bearer " else request.headers.get("X-API-Key", "")
-    if not hmac.compare_digest(token, _COORDINATOR_API_KEY):
+    # compare_digest() solo acepta str ASCII o bytes: con una clave no ASCII en el header
+    # levantaba TypeError (500). Se comparan bytes UTF-8, igual que en la edge API.
+    if not hmac.compare_digest(token.encode("utf-8"), _COORDINATOR_API_KEY.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 

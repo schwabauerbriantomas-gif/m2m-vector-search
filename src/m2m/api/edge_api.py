@@ -287,10 +287,18 @@ app = FastAPI(
     max_body_size=_max_body_bytes(),
 )
 
+
 # -- SECURITY: CORS configuration (M-01 fix) ----------------------------
 # allow_origins=["*"] + allow_credentials=True is invalid per CORS spec.
 # Default: permissive for development. Override via env for production.
-_cors_origins = os.environ.get("M2M_CORS_ORIGINS", "*").split(",")
+def _parse_cors_origins(raw: str) -> List[str]:
+    """``M2M_CORS_ORIGINS``: lista separada por comas; se toleran espacios alrededor de
+    cada origen ("https://a, https://b"), que antes dejaban el segundo fuera [validador D15].
+    """
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+_cors_origins = _parse_cors_origins(os.environ.get("M2M_CORS_ORIGINS", "*"))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -733,13 +741,18 @@ def search(name: str, req: SearchRequest, request: Request):
     query = np.array(req.vector, dtype=np.float32)
     start = time.time()
 
-    results_raw = db.search(
-        query,
-        k=req.k,
-        filter=req.filter,
-        include_energy=req.include_energy,
-        include_metadata=req.include_metadata,
-    )
+    try:
+        results_raw = db.search(
+            query,
+            k=req.k,
+            filter=req.filter,
+            include_energy=req.include_energy,
+            include_metadata=req.include_metadata,
+        )
+    except ValueError as e:
+        # Filtro de metadatos invalido (operador desconocido, operando mal formado) o
+        # vector invalido: es un error del cliente. Antes respondia 500 [validador D02].
+        raise HTTPException(status_code=400, detail=str(e))
 
     elapsed_ms = (time.time() - start) * 1000
 
@@ -794,6 +807,16 @@ def query_advanced(name: str, req: SearchRequest, request: Request):
     query = np.array(req.vector, dtype=np.float32)
 
     if db.ebm_enabled and req.include_energy:
+        if req.filter is not None:
+            # search_with_energy() no aplica filtros: antes el filtro se ignoraba en
+            # silencio. Falla cerrado y manda a /search, que lo aplica antes del top-k.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "filter is not supported together with include_energy=True on /query; "
+                    "use /search, which applies the filter before the top-k"
+                ),
+            )
         sr = db.search_with_energy(query, k=req.k)
         results = []
         for r in sr.results:
@@ -816,7 +839,9 @@ def query_advanced(name: str, req: SearchRequest, request: Request):
             "uncertainty_regions": len(sr.uncertainty_regions),
         }
     else:
-        return search(name, req)
+        # El endpoint `search` necesita el `request` para validar la key y el rate limit:
+        # sin el respondia 500 en toda coleccion sin EBM [validador D04].
+        return search(name, req, request)
 
 
 # ---------------------------------------------------------------------------
