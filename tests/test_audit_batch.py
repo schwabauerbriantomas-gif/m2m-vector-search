@@ -245,9 +245,10 @@ def test_lsh_mode_filtered_batch_returns_valid_positions():
         rows = db.search_batch(X[i:i + 1], k=5, include_metadata=True)[0]
         assert [r.id for r in rows] == single
 
-    # filtro restrictivo: solo las primeras 100 posiciones
+    # filtro restrictivo: solo las primeras 100 posiciones -> todo resultado dentro del
+    # filtro; -1 cuando el sondeo del LSH no junta k candidatos (no hay expansion en LSH)
     out = db.search_batch_filtered(X[:4], k=5, filter_fn=lambda i: i < 100)
-    assert (out >= 0).all() and (out < 100).all()
+    assert (out >= 0).any(axis=1).all() and (out < 100)[out >= 0].all()
     # filtro que no admite nada -> padding -1
     out = db.search_batch_filtered(X[:2], k=5, filter_fn=lambda i: False)
     assert (out == -1).all()

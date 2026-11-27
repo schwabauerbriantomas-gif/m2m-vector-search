@@ -1305,7 +1305,8 @@ class SimpleVectorDB:
         # (n_active=0 en splats), por lo que el path HRM2 de abajo devolvia
         # -1/[] para toda query. Routear al LSH igual que search() single.
         if self._use_lsh and self.lsh is not None:
-            return self._search_batch_lsh(queries, k=k, include_metadata=include_metadata)
+            out_idx, rows = self._lsh_batch_topk(queries, k=k, include_metadata=include_metadata)
+            return rows if include_metadata else out_idx
 
         store = self.engine.m2m.splats
         n = store.n_active
@@ -1389,6 +1390,10 @@ class SimpleVectorDB:
             raise ValueError(f"k must be >= 1 (got {k})")
         if filter_fn is None:
             return self.search_batch(queries, k=k, include_metadata=False)
+        if self._use_lsh and self.lsh is not None:
+            # Modo LSH: los vectores viven en el indice LSH (n_active=0 en splats); sin
+            # esta rama search_batch_filtered devolvia todo -1 [audit r1-07].
+            return self._lsh_batch_topk(queries, k=k, filter_fn=filter_fn)[0]
 
         B = len(queries)
         store = self.engine.m2m.splats
@@ -1515,6 +1520,53 @@ class SimpleVectorDB:
             out_d2[i, :k_eff] = np.maximum(d2[part] + q_sq[i], 0.0)
             out_idx[i, :k_eff] = part if cand is None else cand[part]
         return out_idx, out_d2
+
+    def _lsh_batch_topk(
+        self,
+        queries: np.ndarray,
+        k: int,
+        filter_fn=None,
+        include_metadata: bool = False,
+    ) -> Tuple[np.ndarray, Any]:
+        """Top-k POR QUERY en modo LSH; las posiciones indexan _lsh_id_map [audit r1-07].
+
+        Candidatos = todos los que sondea el LSH para la query (lsh.query_candidates,
+        sin truncar a k), para que el filtro y la exclusión de docs borrados puedan
+        rellenar hasta k. Sin filtro y sin borrados devuelve exactamente lo mismo que
+        search() single (mismo sondeo, mismo RNG pineado).
+        Devuelve (out_idx [B, k] con -1 si falta, rows List[List[DocResult]] o None)."""
+        id_map = self._lsh_id_map
+        B = len(queries)
+        out_idx = np.full((B, k), -1, dtype=np.int64)
+        rows: List[List[DocResult]] = (
+            [[] for _ in range(B)] if include_metadata else None
+        )
+        alive = self._batch_alive_mask(len(id_map), id_map=id_map)
+        if alive is not None and not alive.any():
+            return np.full((B, 0), -1, dtype=np.int64), rows  # sin activos: (B, 0)
+        ok = alive
+        if filter_fn is not None:
+            allowed = np.fromiter(
+                (bool(filter_fn(i)) for i in range(len(id_map))), dtype=bool, count=len(id_map)
+            )
+            ok = allowed if ok is None else (allowed & ok)
+        for i in range(B):
+            state = np.random.get_state()
+            np.random.seed(0)  # mismo pineado que _lsh_query_deterministic (fallback RNG)
+            try:
+                idx, dist = self.lsh.query_candidates(queries[i], k=k)
+            finally:
+                np.random.set_state(state)
+            if ok is not None and len(idx):
+                keep = ok[idx]
+                idx, dist = idx[keep], dist[keep]
+            m = min(k, len(idx))
+            out_idx[i, :m] = idx[:m]
+            if include_metadata:
+                rows[i] = self._doc_results_from_lsh(
+                    idx[:m], dist[:m], k=k, include_metadata=True
+                )
+        return out_idx, rows
 
     def search_with_energy(self, query: np.ndarray, k: int = 10) -> SearchResult:
         """

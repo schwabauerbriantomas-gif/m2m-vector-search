@@ -118,13 +118,18 @@ class CrossPolytopeLSH:
                     self.tables[t][hash_key] = []
                 self.tables[t][hash_key].append(idx)
 
-    def query(
+    def query_candidates(
         self,
         query: np.ndarray,
         k: int = 10,
         n_candidates: Optional[int] = None,
         n_probes: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
+        """Mismo sondeo que query(), pero devuelve TODOS los candidatos re-ranqueados
+        por distancia L2 (indices, distancias), sin truncar a k. `k` solo gobierna el
+        fallback aleatorio de candidatos (misma condicion que query()), asi que
+        query(q, k) == query_candidates(q, k)[:k]. Lo usa search_batch_filtered para
+        aplicar filtro / exclusion de borrados y rellenar hasta k [audit r1-07]."""
         if query.ndim == 2:
             query = query.squeeze(0)
 
@@ -161,9 +166,22 @@ class CrossPolytopeLSH:
         candidate_vectors = self.vectors[candidates_arr]
 
         distances = np.linalg.norm(candidate_vectors - query, axis=1)
-        sorted_indices = np.argsort(distances)[: min(k, len(distances))]
+        sorted_indices = np.argsort(distances)
 
         return candidates_arr[sorted_indices], distances[sorted_indices]
+
+    def query(
+        self,
+        query: np.ndarray,
+        k: int = 10,
+        n_candidates: Optional[int] = None,
+        n_probes: Optional[int] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Top-k de los candidatos sondeados (ver query_candidates)."""
+        indices, distances = self.query_candidates(
+            query, k=k, n_candidates=n_candidates, n_probes=n_probes
+        )
+        return indices[:k], distances[:k]
 
     def get_recall(self, queries: np.ndarray, ground_truth: np.ndarray, k: int = 10) -> float:
         n_queries = queries.shape[0]
