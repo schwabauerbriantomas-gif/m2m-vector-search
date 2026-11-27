@@ -22,8 +22,10 @@ Endpoints:
   POST /v1/admin/backup
 """
 
+import hmac
 import os
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -251,40 +253,103 @@ _rate_limit_store: Dict[str, List[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_MAX_REQUESTS = 100  # per window per IP
 _RATE_LIMIT_MAX_VECTORS_PER_INSERT = 100_000
+# Memoria acotada (audit r3a-17 resto): a lo sumo _RATE_LIMIT_MAX_CLIENTS IPs en
+# memoria. Las IPs sin pedidos dentro de la ventana se purgan en un barrido
+# amortizado (a lo sumo uno cada _RATE_LIMIT_SWEEP_INTERVAL s, además del prune
+# por-IP); si aun con el barrido se supera el tope, se evicta la IP con la
+# actividad más vieja. Los defaults (100 pedidos / 60 s) no cambian.
+_RATE_LIMIT_MAX_CLIENTS = 10_000
+_RATE_LIMIT_SWEEP_INTERVAL = 5.0
+_rate_limit_last_sweep = 0.0
+_rate_limit_lock = threading.Lock()
 
 
-def _check_rate_limit(client_ip: str) -> None:
+def _trim_rate_limit_store(now: float) -> None:
+    """Recorta la tabla a ``_RATE_LIMIT_MAX_CLIENTS`` (evicta la IP con actividad más vieja)."""
+    store = _rate_limit_store
+    overflow = len(store) - _RATE_LIMIT_MAX_CLIENTS
+    if overflow > 0:
+        # Una entrada sin timestamps registrados cuenta como recién tocada (ahora).
+        oldest_first = sorted(store, key=lambda ip: store[ip][-1] if store[ip] else now)
+        for ip in oldest_first[:overflow]:
+            store.pop(ip, None)
+
+
+def _sweep_rate_limit_store(now: float) -> None:
+    """Purga las IPs sin pedidos dentro de la ventana y recorta la tabla al tope."""
+    store = _rate_limit_store
+    for ip in [ip for ip, ts in store.items() if not ts or now - ts[-1] >= _RATE_LIMIT_WINDOW]:
+        store.pop(ip, None)
+    _trim_rate_limit_store(now)
+
+
+def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
     """Basic rate limiting per IP. Raises HTTPException if exceeded."""
-    import time as _time
+    global _rate_limit_last_sweep
 
-    now = _time.time()
-    if client_ip not in _rate_limit_store:
-        _rate_limit_store[client_ip] = []
-    # Prune old entries
-    _rate_limit_store[client_ip] = [
-        t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
-    ]
-    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    if now is None:
+        now = time.time()
+    with _rate_limit_lock:
+        if now - _rate_limit_last_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
+            _sweep_rate_limit_store(now)
+            _rate_limit_last_sweep = now
+        if client_ip not in _rate_limit_store:
+            _rate_limit_store[client_ip] = []
+            _trim_rate_limit_store(now)
+        # Prune old entries
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+        ]
+        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
 
 # -- SECURITY: API Key validation (C-01, P-06 fix) ---------------------
+# Modelo de autenticación (audit r3a-17 resto):
+#   * SIN M2M_API_KEY (default): la API queda ABIERTA en los endpoints normales
+#     (desarrollo local / Quick Start). Decisión conservada a propósito.
+#   * CON M2M_API_KEY: los endpoints que validan exigen ``Authorization: Bearer
+#     <key>`` o ``X-API-Key: <key>``, comparados en tiempo constante.
+#   * ``/v1/admin/*`` (checkpoint, backup) EXIGEN key: sin key configurada
+#     responden 503 (fail closed) en vez de quedar abiertos.
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
-def _validate_api_key(request: Request) -> None:
-    """Validates API key if configured via M2M_API_KEY environment variable."""
-    import os
+def _configured_api_key() -> Optional[str]:
+    """Key efectiva: la global ``_API_KEY`` si se seteó a mano; si no, ``M2M_API_KEY``."""
+    return _API_KEY if _API_KEY is not None else os.environ.get("M2M_API_KEY")
 
-    global _API_KEY
-    if _API_KEY is None:
-        _API_KEY = os.environ.get("M2M_API_KEY")
-    if _API_KEY is not None:
-        auth = request.headers.get("Authorization", "")
-        api_key = request.headers.get("X-API-Key", "")
-        token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else api_key
-        if not token or token != _API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+def _extract_token(request: Request) -> str:
+    """Token del pedido: ``Authorization: Bearer <tok>`` (scheme case-insensitive,
+    RFC 7235) o el header ``X-API-Key``. Otro scheme de Authorization no es una key."""
+    auth = request.headers.get("Authorization", "")
+    scheme, _, credential = auth.partition(" ")
+    if scheme.strip().lower() == "bearer":
+        return credential.strip()
+    return request.headers.get("X-API-Key", "").strip()
+
+
+def _validate_api_key(request: Request, admin: bool = False) -> None:
+    """Valida la API key si está configurada (M2M_API_KEY o ``edge_api._API_KEY``).
+
+    La comparación es en tiempo constante (``hmac.compare_digest``). Con
+    ``admin=True`` el endpoint es de administración y falla cerrado: sin key
+    configurada responde 503 en vez de quedar abierto.
+    """
+    expected = _configured_api_key()
+    if expected is None:
+        if admin:
+            raise HTTPException(
+                status_code=503,
+                detail="Admin endpoints require an API key: M2M_API_KEY is not configured",
+            )
+        return
+    token = _extract_token(request)
+    if not token or not hmac.compare_digest(
+        token.encode("utf-8"), expected.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 # -- SECURITY: Collection name sanitization (H-01, P-03 fix) -----------
@@ -678,11 +743,13 @@ def explore(name: str, req: ExploreRequest, request: Request):
 
 
 @app.get("/v1/collections/{name}/suggest")
-def suggest_exploration(name: str, n: int = 3):
+def suggest_exploration(name: str, request: Request, n: int = 3):
     """Sugerencias de exploración (GET)."""
     req = ExploreRequest()
     req.n_suggestions = n
-    return explore(name, req)
+    # El Request viaja a explore(): con key configurada validaba ``request=None``
+    # y devolvía 500 (AttributeError) en vez de 401/200.
+    return explore(name, req, request)
 
 
 # ---------------------------------------------------------------------------
@@ -709,8 +776,7 @@ def collection_stats(name: str):
 @app.post("/v1/admin/checkpoint")
 def checkpoint(name: Optional[str] = None, request: Request = None):
     """Crea checkpoint del WAL."""
-    if request:
-        _validate_api_key(request)
+    _validate_api_key(request, admin=True)
     names = [name] if name else _manager.list_names()
     for n in names:
         try:
@@ -724,7 +790,7 @@ def checkpoint(name: Optional[str] = None, request: Request = None):
 @app.post("/v1/admin/backup")
 def backup(req: BackupRequest, request: Request):
     """Crea backup de todas las colecciones con storage."""
-    _validate_api_key(request)
+    _validate_api_key(request, admin=True)
     results = {}
     for name in _manager.list_names():
         try:
