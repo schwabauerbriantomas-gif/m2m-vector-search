@@ -447,8 +447,9 @@ def stats(request: Request):
             db = _manager.get(name)
             s = db.get_stats()
             collections.append({"name": name, **s})
-        except Exception:
-            pass
+        except Exception as e:
+            # Antes: `pass` → la colección desaparecía del informe sin rastro.
+            collections.append({"name": name, "error": str(e)})
     return {
         "collections_count": len(_manager.list_names()),
         "collections": collections,
@@ -852,24 +853,61 @@ def collection_stats(name: str):
 
 
 @app.post("/v1/admin/checkpoint")
-def checkpoint(name: Optional[str] = None, request: Request = None):
-    """Crea checkpoint del WAL."""
+def checkpoint(request: Request, name: Optional[str] = None):
+    """Crea checkpoint (flush + fsync del WAL) de una colección o de todas.
+
+    No silencia errores (audit r3a-17 resto). ``name`` inexistente → 404. Una
+    colección sin ``storage_path`` pedida por nombre → 400 (no hay WAL que
+    flushear); en el barrido de todas se informa como ``skipped``. Un fallo real
+    de ``db.save()`` → 500 con el mensaje y el resultado por colección (antes:
+    ``except Exception: pass`` y un "Checkpoint created" falso).
+    """
     _validate_api_key(request, admin=True)
+    if name is not None and name not in _manager._collections:
+        raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
     names = [name] if name else _manager.list_names()
+    results: Dict[str, Dict[str, str]] = {}
+    failed = []
     for n in names:
+        db = _manager.get(n)
+        if not db.storage:
+            if name:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Collection '{n}' has no storage_path: nothing to checkpoint",
+                )
+            results[n] = {"status": "skipped", "reason": "no storage configured"}
+            continue
         try:
-            db = _manager.get(n)
-            db.save(path="")
-        except Exception:
-            pass
-    return {"message": "Checkpoint created", "collections": names}
+            path = db.save()
+        except Exception as e:
+            results[n] = {"status": "error", "reason": str(e)}
+            failed.append(f"{n}: {e}")
+        else:
+            results[n] = {"status": "ok", "path": str(path)}
+    if failed:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Checkpoint failed for {len(failed)} collection(s): " + "; ".join(failed),
+                "collections": names,
+                "results": results,
+            },
+        )
+    return {"message": "Checkpoint created", "collections": names, "results": results}
 
 
 @app.post("/v1/admin/backup")
 def backup(req: BackupRequest, request: Request):
-    """Crea backup de todas las colecciones con storage."""
+    """Crea backup de todas las colecciones con storage.
+
+    Sin ``storage_path`` → ``skipped``. ``ValueError`` (entrada inválida, p.ej.
+    path traversal) → 400. Cualquier otro fallo → 500 con el motivo por
+    colección (antes: HTTP 200 con el error escondido adentro del body).
+    """
     _validate_api_key(request, admin=True)
     results = {}
+    failed = []
     for name in _manager.list_names():
         try:
             db = _manager.get(name)
@@ -878,8 +916,20 @@ def backup(req: BackupRequest, request: Request):
                 results[name] = {"status": "ok", "path": path}
             else:
                 results[name] = {"status": "skipped", "reason": "no storage configured"}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"{name}: {e}")
         except Exception as e:
             results[name] = {"status": "error", "reason": str(e)}
+            failed.append(name)
+    if failed:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Backup failed for {len(failed)} collection(s): " + ", ".join(failed),
+                "backup_path": req.backup_path,
+                "results": results,
+            },
+        )
     return {"backup_path": req.backup_path, "results": results}
 
 
