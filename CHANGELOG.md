@@ -26,7 +26,7 @@ It is **not published on PyPI yet**: the `publish` workflow runs on
 ### Note on the entries below
 
 This release is the result of a full audit of the code, its claims and its
-benchmarks (2026-11). 99 commits (merges excluded) fix the behaviour of the engine, the
+benchmarks (2026-11). 112 commits (merges excluded) fix the behaviour of the engine, the
 persistence layer and the HTTP API; the documentation was rewritten to describe
 what the code does. Every behavioural change listed here cites the audit id of
 the finding it closes, and each has a regression test that cites the id; ids without a

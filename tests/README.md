@@ -29,7 +29,8 @@ Measured on 2026-11-27 on the dev machine (Linux/WSL2, Python 3.12, 1 BLAS threa
 final 2.4.0 branch:
 
 ```
-823 passed / 22 skipped / 41 deselected / 0 failed      (3.4 min wall time)
+920 passed / 22 skipped / 41 deselected / 0 failed      (5.1 min wall time with coverage,
+                                                     branch coverage 74.77 %)
 ```
 
 ### Markers
