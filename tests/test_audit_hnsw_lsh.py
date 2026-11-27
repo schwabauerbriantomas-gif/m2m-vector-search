@@ -162,3 +162,42 @@ def test_lsh_fallback_deterministic_and_independent_of_global_rng():
         assert idx.query(q, k=5)[0].tolist() == a, "la misma query dos veces da distinto resultado"
 
 
+# ------------------------------------------------------------------ r2-03
+
+
+def _recall_uniform(n=4000, dim=384, n_q=60, **cfg):
+    rng = np.random.default_rng(0)
+    X = _unit(rng.standard_normal((n, dim)).astype(np.float32))
+    Q = _unit(rng.standard_normal((n_q, dim)).astype(np.float32))
+    gt = np.argsort(-(Q @ X.T), axis=1)[:, :10]
+    idx = CrossPolytopeLSH(LSHConfig(dim=dim, **cfg))
+    idx.index(X)
+    hits = sum(
+        len(set(idx.query(q, k=10)[0].tolist()) & set(g.tolist()))
+        for q, g in zip(Q, gt)
+    )
+    return hits / (n_q * 10)
+
+
+def test_lsh_uniform_defaults_low_recall_is_flagged_experimental():
+    """Mide recall@10 con defaults en uniforme (N=4k, d=384). Si sigue < 0.5, el índice
+    TIENE que avisar (UserWarning, una vez por instancia) que es experimental."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        CrossPolytopeLSH(LSHConfig(dim=384))
+    flagged = [w for w in caught if issubclass(w.category, UserWarning) and "experimental" in str(w.message).lower()]
+    recall = _recall_uniform()
+    if recall < 0.5:
+        assert len(flagged) == 1, (
+            f"recall@10={recall:.4f} con defaults y el constructor emite {len(flagged)} "
+            "avisos 'experimental' (esperado 1 por instancia)"
+        )
+
+
+def test_simplevectordb_lsh_mode_warns_experimental():
+    rng = np.random.default_rng(0)
+    X = _unit(rng.standard_normal((2000, 640)).astype(np.float32))
+    db = SimpleVectorDB(device="cpu", latent_dim=640, enable_lsh_fallback=True)
+    with pytest.warns(UserWarning, match="(?i)experimental"):
+        db.add(vectors=X)
+    assert db._use_lsh and db.lsh is not None

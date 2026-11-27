@@ -1,4 +1,5 @@
 import hashlib
+import warnings
 import itertools
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -42,6 +43,22 @@ class CrossPolytopeLSH:
         self.tables: List[dict] = [{} for _ in range(self.n_tables)]
         self.vectors: Optional[np.ndarray] = None
         self.n_vectors = 0
+
+        # Una vez por instancia, en el unico lugar donde se construye el indice
+        # (SimpleVectorDB lo crea solo cuando activa el fallback LSH). Medido en
+        # uniforme N=10k d=384, GT exacta: recall@10 ~0.02 con queries aleatorias
+        # y ~0.11 near-duplicate, a ~7 ms/query vs 0.2 ms del scan batched
+        # [audit r2-03].
+        warnings.warn(
+            "CrossPolytopeLSH es EXPERIMENTAL: con la configuracion por defecto "
+            "(n_tables=15, n_bits=18, n_probes=50, n_candidates=500) el recall@10 "
+            "medido en datos uniformes (N=10k, d=384) es < 0.05 con queries "
+            "aleatorias (~0.11 near-duplicate) y cuesta mas que un scan lineal "
+            "batched de numpy a ese N. Midio el recall en tus datos antes de usarlo "
+            "como fallback [audit r2-03].",
+            UserWarning,
+            stacklevel=2,
+        )
 
     def _random_rotation(self, dim: int) -> np.ndarray:
         """Generate a random orthogonal matrix via QR decomposition."""
