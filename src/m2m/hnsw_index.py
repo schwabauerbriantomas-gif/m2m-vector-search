@@ -194,6 +194,8 @@ class HNSWIndex(VectorIndex):
                     )
 
             if candidates:
+                # closest-first (ver _search_layer): el mas cercano de W es el entry
+                # point de la capa inferior [audit r2-07].
                 ep = candidates[0][1]
 
         if level > self._max_level:
@@ -225,7 +227,11 @@ class HNSWIndex(VectorIndex):
     def _search_layer(
         self, query: np.ndarray, entry: int, ef: int, level: int
     ) -> List[Tuple[float, int]]:
-        """Search a single layer, returning (distance, index) pairs sorted by distance."""
+        """Search a single layer.
+
+        Returns (distance, index) pairs sorted from CLOSEST to farthest; _insert
+        enters the layer below through the first one [audit r2-07].
+        """
         visited: Set[int] = {entry}
         dist_ep = self._distance(query, self._vectors[entry])
 
@@ -259,7 +265,9 @@ class HNSWIndex(VectorIndex):
                     if len(results) > ef:
                         heapq.heappop(results)
 
-        return [(abs(d), idx) for d, idx in sorted(results)]
+        # results es un max-heap de (-dist, idx): ordenarlo tal cual da el MAS LEJANO
+        # primero. Devolver closest-first [audit r2-07].
+        return sorted((-neg_d, idx) for neg_d, idx in results)
 
     def _select_neighbors(
         self,
