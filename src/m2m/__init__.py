@@ -1281,6 +1281,9 @@ class SimpleVectorDB:
             raise ValueError(
                 f"queries dim mismatch: expected {self.latent_dim}, got {queries.shape[1]}"
             )
+        if not isinstance(k, (int, np.integer)):
+            raise TypeError(f"k must be an integer, got {type(k).__name__} ({k!r})")
+        k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
 
@@ -1386,6 +1389,9 @@ class SimpleVectorDB:
             raise ValueError(
                 f"queries dim mismatch: expected {self.latent_dim}, got {queries.shape[1]}"
             )
+        if not isinstance(k, (int, np.integer)):
+            raise TypeError(f"k must be an integer, got {type(k).__name__} ({k!r})")
+        k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
         if filter_fn is None:
@@ -1393,6 +1399,9 @@ class SimpleVectorDB:
 
         store = self.engine.m2m.splats
         n = store.n_active
+        if n == 0 or len(queries) == 0:
+            # DB vacia (o lote vacio): misma convencion que search_batch [audit r1-27]
+            return np.full((len(queries), 0), -1, dtype=np.int64)
         index_data = store.mu[:n]
         n_probe = int(getattr(store.engine, "n_probe", 5) or 5)
         B = len(queries)
