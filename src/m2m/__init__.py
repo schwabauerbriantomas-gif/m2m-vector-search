@@ -23,6 +23,9 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, Callable, Union
 
 import numpy as np
+import json
+import operator
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -657,6 +660,81 @@ def match_metadata_filter(meta: dict, filter_dict) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Cache de máscaras de filtro + evaluación vectorizada (P13, medición del orquestador)
+# search(filter=dict) armaba `allowed` con un bucle O(n) EN PYTHON por query (dos
+# funciones por posición): 20k docs -> 32-37 ms/query (27-31 QPS) vs 0.5 ms sin
+# filtro; 100k -> 190 ms. Ahora: (1) la máscara se cachea por (forma canónica del
+# filtro, _meta_version, n_splats) y TODO writer de metadata / posiciones /
+# soft-deletes incrementa _meta_version; (2) la primera evaluación va por columnas
+# de metadata (cacheadas por versión) con operadores vectorizados; callable u
+# operadores no vectorizables caen al camino Python de siempre. Paridad EXACTA con
+# match_metadata_filter (helper único de semántica): ante la duda se vuelve a Python.
+# ---------------------------------------------------------------------------
+_FILTER_MASK_CACHE_MAX = 32  # entradas (LRU) de máscaras por filtro
+_META_COL_CACHE_MAX = 64  # columnas de metadata cacheadas por versión
+_FILTER_SCALARS = (type(None), bool, int, float, str, bytes)  # tipos EXACTOS vectorizables
+_FILTER_VEC_OPS = {
+    "$eq": operator.eq,
+    "$ne": operator.ne,
+    "$gt": operator.gt,
+    "$gte": operator.ge,
+    "$lt": operator.lt,
+    "$lte": operator.le,
+}
+
+
+def _canonical_filter_value(v):
+    """Valor canónico (JSON) de un componente de un filtro: escalares tal cual,
+    listas/tuplas etiquetadas por tipo, sets ordenados, numpy pasado a Python,
+    dicts como pares ordenados. None si no es representable (-> no se cachea)."""
+    t = type(v)
+    if t is bytes:
+        return ["bytes", v.hex()]
+    if t in (type(None), bool, int, float, str):
+        return v
+    if t in (list, tuple, set, frozenset):
+        items = [_canonical_filter_value(x) for x in v]
+        if any(i is None for i in items):
+            return None
+        if t in (set, frozenset):
+            items.sort(key=lambda i: json.dumps(i, sort_keys=True))
+            return ["set", items]
+        return [t.__name__, items]
+    if isinstance(v, np.ndarray):
+        items = [_canonical_filter_value(x) for x in v.reshape(-1).tolist()]
+        if any(i is None for i in items):
+            return None
+        return ["ndarray", v.dtype.str, [int(d) for d in v.shape], items]
+    if isinstance(v, np.generic):
+        return _canonical_filter_value(v.item())
+    if isinstance(v, dict):
+        pairs = []
+        for k, val in v.items():
+            ck = _canonical_filter_value(k)
+            cv = _canonical_filter_value(val)
+            if ck is None or cv is None:
+                return None
+            pairs.append([ck, cv])
+        pairs.sort(key=lambda pr: json.dumps(pr, sort_keys=True))
+        return ["dict", pairs]
+    return None
+
+
+def _canonical_filter(filter_dict) -> Optional[str]:
+    """Clave de cache: forma canónica (JSON ordenado) de un filtro dict. Dos filtros
+    con la misma clave evalúan igual sobre los mismos docs. None si tiene un
+    componente no representable: entonces no se cachea (se evalúa en Python en
+    cada query, como antes) [P13]."""
+    canon = _canonical_filter_value(filter_dict)
+    if canon is None:
+        return None
+    try:
+        return json.dumps(canon, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):  # pragma: no cover - defensivo
+        return None
+
+
 class SimpleVectorDB:
     """
     SimpleVectorDB: 'The SQLite of Vector DBs'
@@ -749,6 +827,17 @@ class SimpleVectorDB:
         self._metadata: Dict[str, Dict] = {}
         self._documents: Dict[str, str] = {}
         self._deleted: set = set()
+        # [P13] Cache de máscaras de filtro (ver _filter_position_mask): la clave
+        # lleva _meta_version, que incrementa TODO writer de metadata / posiciones /
+        # soft-deletes (add, update, delete, _restore_from_storage, consolidate).
+        # Mutar un dict de metadata IN PLACE desde afuera no incrementa la versión:
+        # usar update(metadata=...). Se lee/escribe sólo bajo _rw_lock.
+        self._meta_version = 0
+        self._filter_mask_cache: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+        self._meta_cols: Dict[Any, tuple] = {}
+        self._meta_cols_ver: Optional[tuple] = None
+        self._alive_ver: Optional[tuple] = None
+        self._alive_mask: Optional[np.ndarray] = None
 
         # Thread safety: protect all mutations to shared dicts
         import threading as _threading
@@ -808,6 +897,7 @@ class SimpleVectorDB:
         from .storage.persistence import IndexTamperedError
 
         # Reset del estado en memoria + engine (idempotente)
+        self._meta_version += 1  # [P13] invalida el cache de máscaras de filtro
         self._vectors.clear()
         self._metadata.clear()
         self._documents.clear()
@@ -899,6 +989,7 @@ class SimpleVectorDB:
                                 self._deleted.add(doc_id)
                         self._lsh_id_map = [r[0] for r in restored]
                         self._splat_id_order = [r[0] for r in restored]
+                        self._meta_version += 1  # [P13] metadata / posiciones nuevas
                     logger.info(
                         "Restored %d documents from storage (LSH index rebuilt)", n
                     )
@@ -930,6 +1021,7 @@ class SimpleVectorDB:
                     if deleted:
                         self._deleted.add(doc_id)
                 self._splat_id_order = [r[0] for r in restored[:n_added]]
+                self._meta_version += 1  # [P13] metadata / posiciones nuevas
             logger.info(
                 "Restored %d documents from storage (%d splats indexed, %d soft-deleted)",
                 n,
@@ -1004,6 +1096,7 @@ class SimpleVectorDB:
             self._documents[doc_id] = documents[i] if documents else None
             # Re-add de un id soft-deleted: revive (audit r1-04)
             self._deleted.discard(doc_id)
+        self._meta_version += 1  # [P13] metadata / posiciones / soft-deletes cambiaron
         if self.storage:
             # Cada lote a su propio shard (shard_001, shard_002, ...); la
             # metadata referencia el shard real vía _last_shard_idx. Para un id
@@ -1400,6 +1493,7 @@ class SimpleVectorDB:
 
             if metadata is not None:
                 self._metadata[id] = metadata
+                self._meta_version += 1  # [P13] invalida el cache de máscaras de filtro
 
             if document is not None:
                 self._documents[id] = document
@@ -1567,6 +1661,8 @@ class SimpleVectorDB:
                 self._metadata = {k: v for k, v in self._metadata.items() if k not in gone}
                 self._documents = {k: v for k, v in self._documents.items() if k not in gone}
                 self._deleted = self._deleted - gone
+            if soft_new or hard_ids:
+                self._meta_version += 1  # [P13] soft-deletes / posiciones cambiaron
 
             # Storage I/O (dentro del lock: serializado con add/update)
             if self.storage:
@@ -1590,6 +1686,144 @@ class SimpleVectorDB:
         if self.storage:
             return self.storage._matches_filter(meta, filter_dict)
         return match_metadata_filter(meta, filter_dict)
+
+    def _position_alive_mask(self, order: List[Any], n: int) -> Optional[np.ndarray]:
+        """[P13] `_batch_alive_mask(n, id_map=order)` cacheado por (_meta_version, n).
+        None = todas las posiciones están vivas (caso común). Lock tomado."""
+        ver = (self._meta_version, n)
+        if self._alive_ver != ver:
+            self._alive_mask = self._batch_alive_mask(n, id_map=order)
+            self._alive_ver = ver
+        return self._alive_mask
+
+    def _meta_column(self, key, order: List[Any], n: int, alive) -> tuple:
+        """[P13] Columna de metadata `key` sobre las posiciones vivas: (vals, idx,
+        simple). vals[j] es el valor de la clave en la posición idx[j] (sólo docs
+        activos que TIENEN la clave: un doc sin la clave no cumple ninguna
+        condición sobre ella); simple = todos los valores son escalares Python
+        exactos. Cacheada por (_meta_version, n). Lock tomado."""
+        ver = (self._meta_version, n)
+        if self._meta_cols_ver != ver:
+            self._meta_cols = {}
+            self._meta_cols_ver = ver
+        col = self._meta_cols.get(key)
+        if col is None:
+            if len(self._meta_cols) >= _META_COL_CACHE_MAX:
+                self._meta_cols.clear()
+            metadata = self._metadata
+            vals, idx = [], []
+            for i in range(min(n, len(order))):
+                if alive is not None and not alive[i]:
+                    continue
+                m = metadata.get(order[i])
+                if m is not None and key in m:
+                    vals.append(m[key])
+                    idx.append(i)
+            simple = all(type(v) in _FILTER_SCALARS for v in vals)
+            col = (np.array(vals, dtype=object), np.array(idx, dtype=np.int64), simple)
+            self._meta_cols[key] = col
+        return col
+
+    def _vectorized_filter_mask(
+        self, filter_dict, order: List[Any], n: int, alive
+    ) -> Optional[np.ndarray]:
+        """[P13] Máscara [n] (posición viva Y cumple el filtro) evaluada por columnas
+        con operadores vectorizados, con la MISMA semántica que
+        match_metadata_filter ($eq/$ne/$gt/$gte/$lt/$lte sobre escalares, $in/$nin
+        sobre listas/tuplas/sets de escalares; condiciones por clave = AND). None si
+        el filtro no es vectorizable (ndarray de comparación, valores no escalares,
+        operador fuera de la tabla): el llamador usa el camino Python. Ante cualquier
+        excepción también devuelve None: el camino Python decide si es un error real
+        (p. ej. comparar str con int -> ValueError fail-closed) o si el doc que la
+        provocaba nunca se evaluaba (condición anterior en AND, posición borrada)."""
+        if not isinstance(filter_dict, dict):
+            return None
+        mask = np.ones(n, dtype=bool) if alive is None else alive.copy()
+        try:
+            for key, cond in filter_dict.items():
+                vals, idx, simple = self._meta_column(key, order, n, alive)
+                if not simple:
+                    return None
+                res = np.ones(len(vals), dtype=bool)
+                if isinstance(cond, dict):
+                    for op, comp in cond.items():
+                        if op in _FILTER_IN_OPS:
+                            if type(comp) not in (list, tuple, set, frozenset):
+                                return None
+                            if not all(type(v) in _FILTER_SCALARS for v in comp):
+                                return None
+                            cset = frozenset(comp)
+                            if op == "$in":
+                                res &= np.fromiter(
+                                    (v in cset for v in vals), dtype=bool, count=len(vals)
+                                )
+                            else:
+                                res &= np.fromiter(
+                                    (v not in cset for v in vals), dtype=bool, count=len(vals)
+                                )
+                        else:
+                            if type(comp) not in _FILTER_SCALARS:
+                                return None
+                            res &= np.asarray(_FILTER_VEC_OPS[op](vals, comp), dtype=bool)
+                else:
+                    if type(cond) not in _FILTER_SCALARS:
+                        return None
+                    res &= np.asarray(vals == cond, dtype=bool)
+                col_mask = np.zeros(n, dtype=bool)
+                col_mask[idx] = res
+                mask &= col_mask
+        except Exception:
+            return None
+        return mask
+
+    def _filter_position_mask(self, filter, order: List[Any], n: int) -> np.ndarray:
+        """[P13] Máscara [n] de posiciones admitidas por un filtro: la posición mapea
+        a un doc ACTIVO (no soft ni hard-deleted) Y su metadata cumple el filtro.
+        Reemplaza el bucle O(n) en Python que search() hacía por query.
+
+        dict: máscara cacheada (LRU <= 32) por (forma canónica, _meta_version, n);
+        la primera evaluación es vectorizada por columnas (_vectorized_filter_mask)
+        y, si el filtro no es vectorizable, el camino Python de siempre. callable:
+        nunca se cachea (puede depender de estado externo) -> camino Python.
+        Lock tomado (search / search_batch_filtered). El array devuelto puede ser
+        el del cache: es de sólo lectura, no lo muten.
+        """
+        validate_metadata_filter(filter)
+        vectors, deleted, metadata, match = (
+            self._vectors,
+            self._deleted,
+            self._metadata,
+            self._match_filter,
+        )
+
+        def python_mask() -> np.ndarray:
+            out = np.zeros(n, dtype=bool)
+            for i in range(min(n, len(order))):
+                doc_id = order[i]
+                if doc_id in vectors and doc_id not in deleted and match(metadata.get(doc_id, {}), filter):
+                    out[i] = True
+            return out
+
+        if callable(filter):
+            return python_mask()
+        key = _canonical_filter(filter)
+        if key is None:
+            return python_mask()
+        cache_key = (key, self._meta_version, n)
+        cache = self._filter_mask_cache
+        hit = cache.get(cache_key)
+        if hit is not None:
+            cache.move_to_end(cache_key)
+            return hit
+        alive = self._position_alive_mask(order, n)
+        allowed = self._vectorized_filter_mask(filter, order, n, alive)
+        if allowed is None:
+            allowed = python_mask()
+        allowed.flags.writeable = False
+        cache[cache_key] = allowed
+        while len(cache) > _FILTER_MASK_CACHE_MAX:
+            cache.popitem(last=False)
+        return allowed
 
     def search(
         self,
@@ -1689,9 +1923,6 @@ class SimpleVectorDB:
                 doc_id = order[pos]
                 return doc_id in self._vectors and doc_id not in self._deleted
 
-            def passes_filter(doc_id: str) -> bool:
-                return filter is None or self._match_filter(self._metadata.get(doc_id, {}), filter)
-
             # r1-05: en modo LSH la posicion LSH == posicion en _splat_id_order (ambas se
             # extienden en el mismo orden en add()).
             n_splats = int(self.lsh.n_vectors) if use_lsh else int(self.engine.m2m.splats.n_active)
@@ -1702,10 +1933,10 @@ class SimpleVectorDB:
             if filter is None:
                 n_bad = max(0, n_splats - n_active_docs)
             else:
-                allowed = np.array(
-                    [position_ok(i) and passes_filter(order[i]) for i in range(n_splats)],
-                    dtype=bool,
-                )
+                # [P13] Mascara cacheada por filtro (clave = forma canonica +
+                # _meta_version + n_splats; LRU <= 32) y vectorizada por columnas en
+                # la primera evaluacion: antes un bucle O(n) EN PYTHON por query.
+                allowed = self._filter_position_mask(filter, order, n_splats)
                 n_bad = n_splats - int(allowed.sum())
             k_eff = min(n_splats, k + n_bad) if n_splats > 0 else 0
 
@@ -1777,8 +2008,11 @@ class SimpleVectorDB:
                         if not position_ok(s_idx):
                             continue
                         doc_id = order[s_idx]
-                        # Defensa en profundidad (dict o callable): nada que viole el filtro
-                        if not passes_filter(doc_id) or doc_id in seen:
+                        # Defensa en profundidad: la posicion tiene que estar en `allowed`
+                        # (armada en ESTA llamada bajo el mismo lock: doc activo Y cumple
+                        # el filtro). [P13] antes se re-evaluaba el filtro contra la
+                        # metadata por resultado: k evaluaciones Python por query.
+                        if s_idx >= len(allowed) or not allowed[s_idx] or doc_id in seen:
                             continue
                         seen.add(doc_id)
                         mu_i = store.mu[s_idx]
@@ -2573,6 +2807,7 @@ class AdvancedVectorDB(SimpleVectorDB):
                 self._metadata.pop(doc_id, None)
                 self._documents.pop(doc_id, None)
                 self._deleted.discard(doc_id)
+            self._meta_version += 1  # [P13] invalida el cache de máscaras de filtro
             logger.info("SOC cleanup: removed %d orphaned doc_ids", len(orphans))
 
         return n_removed
