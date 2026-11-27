@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+# setuptools>=77: mínimo para PEP 639 (license como expresion SPDX + license-files) [audit r3b-09].
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +8,11 @@ name = "m2m-vector-search"
 version = "2.4.0"
 description = "M2M (Machine-to-Memory) - High-performance vector database with GPU acceleration and energy-based features"
 readme = "README.md"
-license = {text = "AGPL-3.0"}
+# PEP 639: expresion SPDX + archivos de licencia (requiere setuptools>=77). "AGPL-3.0-only"
+# reproduce fielmente el classifier anterior ("...GNU Affero General Public License v3", sin
+# "or later"); pasar a -or-later es una decision del autor [audit r3b-09].
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     {name = "Brian Schwabauer", email = "schwabauerbriantomas@gmail.com"}
@@ -30,7 +35,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -109,6 +113,10 @@ distributed = [
 all = [
     "m2m-vector-search[core,api,langchain,bench,distributed,dev,embeddings,vulkan]",
 ]
+
+# CLI: `m2m` = `python -m m2m` (serve de la edge API; necesita el extra `api`) [audit r3b-09].
+[project.scripts]
+m2m = "m2m.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/schwabauerbriantomas-gif/m2m-vector-search"
