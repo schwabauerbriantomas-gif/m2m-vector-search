@@ -23,6 +23,8 @@ Endpoints:
 """
 
 import hmac
+import json
+import logging
 import os
 import re
 import threading
@@ -30,12 +32,16 @@ import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 from .. import AdvancedVectorDB, SimpleVectorDB
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -230,10 +236,37 @@ class CollectionManager:
 # App setup
 # ---------------------------------------------------------------------------
 
+# -- SECURITY: Request body size limit (audit r3a-17 resto) ---------------
+# Un body mayor a M2M_MAX_BODY_BYTES (default 32 MiB) se rechaza con HTTP 413
+# ANTES de parsearse: con Content-Length, sin leer ni un byte; sin
+# Content-Length (chunked) la lectura se corta al superar el tope. Lo implementa
+# el max_body_size nativo de FastAPI/Starlette; se lee al construir la app.
+_DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
+
+
+def _max_body_bytes() -> int:
+    raw = os.environ.get("M2M_MAX_BODY_BYTES")
+    if raw is None:
+        return _DEFAULT_MAX_BODY_BYTES
+    try:
+        limit = int(raw)
+    except ValueError:
+        limit = -1
+    if limit < 0:
+        logger.warning(
+            "M2M_MAX_BODY_BYTES=%r is not a non-negative integer; using %d",
+            raw,
+            _DEFAULT_MAX_BODY_BYTES,
+        )
+        return _DEFAULT_MAX_BODY_BYTES
+    return limit
+
+
 app = FastAPI(
     title="M2M EBM Vector Database API",
     description="REST API para M2M Vector Search con features EBM",
     version="2.0.0",
+    max_body_size=_max_body_bytes(),
 )
 
 # -- SECURITY: CORS configuration (M-01 fix) ----------------------------
@@ -473,8 +506,53 @@ def delete_collection(name: str, request: Request):
 # ---------------------------------------------------------------------------
 
 
+async def _parse_insert_request(request: Request) -> InsertVectorsRequest:
+    """Body del insert en dos pasos: JSON → CONTEO de vectores → validación.
+
+    El tope de vectores por request se chequea por conteo sobre el JSON ya
+    decodificado y ANTES de que pydantic convierta/valide los arrays (audit
+    r3a-17 resto): antes el validador del tope corría último, así 100.001
+    vectores quemaban segundos de CPU en validación para terminar en 422.
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as e:
+        # Mismo 422 ("json_invalid") que produce FastAPI para JSON inválido.
+        raise RequestValidationError(
+            [
+                {
+                    "type": "json_invalid",
+                    "loc": ("body", e.pos),
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": e.msg},
+                }
+            ],
+            body=e.doc,
+        ) from e
+    vectors = body.get("vectors") if isinstance(body, dict) else None
+    if isinstance(vectors, list) and len(vectors) > _RATE_LIMIT_MAX_VECTORS_PER_INSERT:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", "vectors"],
+                    "msg": f"Value error, Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request",
+                    "type": "value_error",
+                    "input": {"count": len(vectors)},
+                }
+            ],
+        )
+    try:
+        return InsertVectorsRequest.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=jsonable_encoder(e.errors())) from e
+
+
 @app.post("/v1/collections/{name}/vectors")
-def insert_vectors(name: str, req: InsertVectorsRequest, request: Request):
+def insert_vectors(
+    name: str, request: Request, req: InsertVectorsRequest = Depends(_parse_insert_request)
+):
     """Inserta vectores en una colección."""
     _validate_api_key(request)
     _check_rate_limit(request.client.host if request.client else "unknown")

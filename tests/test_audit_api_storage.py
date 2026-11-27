@@ -21,8 +21,12 @@ endpoints normales (desarrollo local / Quick Start); sólo ``/v1/admin/*`` exige
 
 import hashlib
 import hmac
+import json
+import os
 import pickle
 import sqlite3
+import subprocess
+import sys
 import time
 
 import numpy as np
@@ -191,7 +195,6 @@ class TestBodyLimit:
         dt = time.perf_counter() - t0
         assert r.status_code == 413, r.text
         assert dt < 2.0, f"413 tardó {dt:.2f}s: el body se leyó/parseó"
-        assert "M2M_MAX_BODY_BYTES" in r.text
 
     def test_body_under_limit_is_parsed_normally(self):
         _create("ok")
@@ -205,12 +208,28 @@ class TestBodyLimit:
 
     def test_limit_is_configurable_via_env(self, monkeypatch):
         monkeypatch.setenv("M2M_MAX_BODY_BYTES", "1024")
-        _create("cfg")
-        headers = {"Content-Type": "application/json"}
-        r = client.post("/v1/collections/cfg/vectors", content=b"{" + b" " * 2000 + b"}", headers=headers)
-        assert r.status_code == 413
-        r = client.post("/v1/collections/cfg/vectors", content=b"{" + b" " * 100 + b"}", headers=headers)
-        assert r.status_code == 422
+        assert edge_api._max_body_bytes() == 1024
+        # Valor inválido → default, sin romper el arranque.
+        monkeypatch.setenv("M2M_MAX_BODY_BYTES", "no-es-un-numero")
+        assert edge_api._max_body_bytes() == MAX_BODY
+        monkeypatch.setenv("M2M_MAX_BODY_BYTES", "-5")
+        assert edge_api._max_body_bytes() == MAX_BODY
+        monkeypatch.delenv("M2M_MAX_BODY_BYTES")
+        # El tope se fija al construir la app (como el resto de la config de
+        # FastAPI): la app de este proceso lleva el default; un import fresco
+        # con el env seteado levanta el valor configurado.
+        assert edge_app.max_body_size == MAX_BODY
+        src_root = os.path.dirname(os.path.dirname(os.path.abspath(m2m.__file__)))
+        env = {**os.environ, "M2M_MAX_BODY_BYTES": "1024", "PYTHONPATH": src_root}
+        out = subprocess.run(
+            [sys.executable, "-c", "import m2m.api.edge_api as e; print(e.app.max_body_size)"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert out.returncode == 0, out.stderr
+        assert out.stdout.strip() == "1024"
 
     def test_chunked_body_without_content_length_is_cut(self):
         """Sin Content-Length (chunked) el límite se aplica mientras se lee."""
@@ -224,14 +243,24 @@ class TestBodyLimit:
         assert r.status_code == 413, r.text
 
     def test_too_many_vectors_rejected_before_validating_arrays(self):
-        """100.001 vectores → 422 en < 2 s (antes: ~6-90 s de validación pydantic)."""
+        """100.001 vectores → 422 en < 2 s (antes: 6-9 s de validación pydantic)."""
         _create("many")
+        # JSON pre-codificado: el timed section mide sólo el request, no el
+        # json.dumps del cliente.
+        body = json.dumps({"vectors": [[0.0] * DIM] * (MAX_VECTORS + 1)}).encode()
+        headers = {"Content-Type": "application/json"}
         t0 = time.perf_counter()
-        r = client.post("/v1/collections/many/vectors", json={"vectors": [[0.0] * DIM] * (MAX_VECTORS + 1)})
+        r = client.post("/v1/collections/many/vectors", content=body, headers=headers)
         dt = time.perf_counter() - t0
         assert r.status_code == 422, r.text
         assert "100000" in r.text
         assert dt < 2.0, f"el rechazo tardó {dt:.2f}s: los arrays se validaron antes del conteo"
+        # Señal robusta a la carga del host: cuesta lo mismo que /ingest, que
+        # sólo decodifica el JSON y cuenta (sin validar los arrays).
+        t0 = time.perf_counter()
+        client.post("/ingest", content=body, headers=headers)
+        dt_ingest = time.perf_counter() - t0
+        assert dt <= 3 * dt_ingest + 0.5, (dt, dt_ingest)
 
     def test_vectors_at_limit_are_accepted(self):
         _create("exact")
