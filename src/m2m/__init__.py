@@ -1970,7 +1970,10 @@ class SimpleVectorDB:
                     query=query,
                 )[:k]
 
-            raw = self.engine.search(query, k_eff)
+            # [P13] En el camino con filtro `raw` no se usa (el ranking sale del kernel
+            # con `allowed`): pedirle al indice k + n_bad (= casi todos los docs
+            # filtrados) era trabajo muerto (4.2 ms/query a 100k docs).
+            raw = None if filter is not None else self.engine.search(query, k_eff)
 
             if legacy:
                 if n_bad == 0:
