@@ -111,6 +111,7 @@ __all__ = [
     "EnergyResult",
     "EntityCandidate",
     "ExplorationSuggestion",
+    "FeedbackResult",
     "GaussianGraphStore",
     "GraphEdge",
     "GraphSplat",
@@ -887,7 +888,9 @@ class SimpleVectorDB:
         5. si n_restored > max_splats: indexa los primeros max_splats en ese
            orden y lo avisa con un warning (los demás siguen en storage);
         6. con enable_lsh_fallback decide LSH igual que add() y reconstruye el
-           índice LSH.
+           índice LSH;
+        7. re-aplica el estado aprendido de los splats (α/κ/μ por id,
+           ``energy/landscape.npz``) también en esta clase [audit P15].
 
         Idempotente (load() lo reusa): resetea el estado en memoria y el engine.
         Con M2M_HMAC_SECRET seteado verifica antes la firma del storage.
@@ -1028,6 +1031,13 @@ class SimpleVectorDB:
                 n_added,
                 len(self._deleted),
             )
+            # Estado aprendido (α/κ/μ por id de feedback/avalanche/relax): antes sólo
+            # lo re-aplicaba el override de AdvancedVectorDB; un SimpleVectorDB con
+            # storage_path perdía lo aprendido en cada reopen [audit P15].
+            try:
+                self._restore_splat_state()
+            except Exception as e:  # best-effort, igual que _write_splat_state
+                logger.warning("splat state not restored on reopen: %s: %s", type(e).__name__, e)
         except IndexTamperedError:
             raise  # firma inválida: no se carga nada (audit r3a-17)
         except Exception as e:
@@ -2970,7 +2980,11 @@ class SimpleVectorDB:
         if applied:
             store._m_sq_dirty = True
             self._sync_index_mu(drifted)
-            self._update_ebm_splats()
+            # En el constructor el EBM todavía no existe (ebm_enabled se asigna
+            # después de _restore_from_storage): ahí no hay nada que actualizar
+            # [audit P15]; AdvancedVectorDB lo hace tras crear el SOC.
+            if getattr(self, "ebm_enabled", False):
+                self._update_ebm_splats()
         return applied > 0
 
 
