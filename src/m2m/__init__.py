@@ -814,6 +814,10 @@ class SimpleVectorDB:
                     raise ValueError(
                         f"vector shape mismatch: expected ({self.latent_dim},), got {vec.shape}"
                     )
+                # Mismo criterio que add(): NaN/Inf nunca entran al splat store
+                # (audit r1-02: envenenaban mu y rompían el próximo retrain completo).
+                if not np.all(np.isfinite(vec)):
+                    raise ValueError("vector contains NaN or Inf values")
                 self._vectors[id] = vec
 
                 # Propagar al indice: el splat de este doc vive en la posicion
