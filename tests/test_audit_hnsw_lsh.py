@@ -73,3 +73,39 @@ def test_insert_enters_next_layer_from_closest_candidate(monkeypatch):
     assert checked >= 10, f"solo {checked} inserts de varias capas: el spy no probó nada"
 
 
+# ------------------------------------------------------------------ r2-09
+
+
+def test_default_level_multiplier_is_one_over_ln_M():
+    for M in (8, 16):
+        h = HNSWIndex(dim=16, M=M)
+        assert math.isclose(h.max_level_mult, 1.0 / math.log(M)), h.max_level_mult
+    h = HNSWIndex(dim=16, M=16)
+    levels = [h._random_level() for _ in range(4000)]
+    frac = sum(l >= 1 for l in levels) / len(levels)
+    assert 0.04 <= frac <= 0.09, f"fracción de nodos en capa >= 1 = {frac:.3f} (esperado ~1/16)"
+
+
+def test_explicit_level_multiplier_is_honored():
+    h = HNSWIndex(dim=16, M=16, max_level_mult=2.0)
+    assert h.max_level_mult == 2.0
+    levels = [h._random_level() for _ in range(2000)]
+    assert 0.55 <= sum(l >= 1 for l in levels) / len(levels) <= 0.67  # e^-0.5 = 0.607
+
+
+def test_built_hierarchy_has_paper_density():
+    h, _ = _hnsw(n=400, M=16)
+    levels = np.array([node.level for node in h._nodes])
+    frac = float((levels >= 1).mean())
+    assert 0.5 / 16 <= frac <= 1.5 / 16, f"fracción en capa >= 1 = {frac:.3f} (esperado 1/16 = 0.0625)"
+    assert levels.max() <= 3, f"nivel máximo {levels.max()} con N=400: jerarquía demasiado densa"
+    # El grafo sigue siendo recorrible: todos los nodos conectados desde el entry point.
+    seen, stack = {h._entry_point}, [h._entry_point]
+    while stack:
+        for nb in h._nodes[stack.pop()].neighbors[0]:
+            if nb not in seen:
+                seen.add(nb)
+                stack.append(nb)
+    assert len(seen) == len(h._nodes)
+
+
