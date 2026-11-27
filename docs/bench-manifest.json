@@ -1,30 +1,39 @@
 {
- "commit_after": "2109459c3",
+ "ancho_pulgadas": 13.0,
+ "commit_after": "626e4ff9a",
  "commit_before": "a74d9e41a",
+ "determinista": true,
+ "dpi": 150,
  "figuras": {
   "docs/bench-filtered.png": {
    "fuentes": [
     {
      "ruta": "benchmarks/results/bench_filtered.json",
-     "sha256": "9eface83bda3f7f3aa5c1eb9f39a7fc5a684c0a953b01858ad218a291486fe81"
-    },
-    {
-     "ruta": "benchmarks/results/before_a74d9e4/bench_filtered.json",
-     "sha256": "f88d4363946f28d14a8d7b73697074a767b22b48434616b01d4759d5e958917d"
+     "sha256": "84ec1c676bf7b67d9fb9a299b6ff6a1bab2cb579d7e7c5299c44b7b11f0bc788"
     }
    ],
    "pixeles": [
-    1556,
-    628
+    1950,
+    1620
    ],
-   "sha256_png": "16a5c045b1b9f88f5ff7b483d320745848117bf376628338651cf69b76d576b8",
-   "titulo": "Filtered search recall by filter and path"
+   "pulgadas": [
+    13.0,
+    10.8
+   ],
+   "sha256_png": "e3678eaf9e1b495e0ad0c899fd2d6c5b096a110565ffe3a2fd7a69462f51eed2",
+   "titulo": "Filtered search: recall@10 by filter and path, and throughput of each path",
+   "verificacion": {
+    "fuera_de_lienzo": 0,
+    "rotulo_sobre_barra": 0,
+    "solapamientos": 0,
+    "textos": 80
+   }
   },
   "docs/bench-hero.png": {
    "fuentes": [
     {
      "ruta": "benchmarks/results/bench_search.json",
-     "sha256": "2c413c3a06ae068880dda47dcd06b3b76d6a89ed403fd5da1fb0f4e6f546a496"
+     "sha256": "de27f5273863a3cd8174fd89db16b55b6f8ca3c730092fe3033715143efa95f9"
     },
     {
      "ruta": "benchmarks/results/before_a74d9e4/bench_search.json",
@@ -32,43 +41,104 @@
     }
    ],
    "pixeles": [
-    1575,
-    627
+    1950,
+    1260
    ],
-   "sha256_png": "7ae439095519d49c9059ba5d20109e3cd48a29254c4248d7a80f4904ebd0b793",
-   "titulo": "Search throughput and recall (dot-plot + before/after)"
+   "pulgadas": [
+    13.0,
+    8.4
+   ],
+   "sha256_png": "7830f7a970e0aa67fbe0f6247c272ab11d520c8bca8f73667c682e86a7c6982b",
+   "titulo": "Single-query throughput (linear scan vs before vs after) and recall@10 by dataset",
+   "verificacion": {
+    "fuera_de_lienzo": 0,
+    "rotulo_sobre_barra": 0,
+    "solapamientos": 0,
+    "textos": 70
+   }
+  },
+  "docs/bench-index.png": {
+   "fuentes": [
+    {
+     "ruta": "benchmarks/results/bench_index_types.json",
+     "sha256": "d3fd93cc526ac772e413ab6662d57f4365725d21cc93ca3016be7f14182faa2c"
+    },
+    {
+     "ruta": "benchmarks/results/bench_search.json",
+     "sha256": "de27f5273863a3cd8174fd89db16b55b6f8ca3c730092fe3033715143efa95f9"
+    }
+   ],
+   "pixeles": [
+    1950,
+    1590
+   ],
+   "pulgadas": [
+    13.0,
+    10.6
+   ],
+   "sha256_png": "5e20dac0d1befda39df05499c4c820ff98f11ff3e60c59e7da752b593dca6ae2",
+   "titulo": "Index types: HRM2 by level of detail, SQ8 on disk (QPS and MB), HNSW and LSH vs linear scan",
+   "verificacion": {
+    "fuera_de_lienzo": 0,
+    "rotulo_sobre_barra": 0,
+    "solapamientos": 0,
+    "textos": 66
+   }
   },
   "docs/bench-qps.png": {
    "fuentes": [
     {
      "ruta": "benchmarks/results/bench_search.json",
-     "sha256": "2c413c3a06ae068880dda47dcd06b3b76d6a89ed403fd5da1fb0f4e6f546a496"
+     "sha256": "de27f5273863a3cd8174fd89db16b55b6f8ca3c730092fe3033715143efa95f9"
     }
    ],
    "pixeles": [
-    1532,
-    617
+    1950,
+    1080
    ],
-   "sha256_png": "55bf32c69336a617bfa4892aa18df6a374ab8edf3c5cbc0f787426c5e6300edb",
-   "titulo": "Batch throughput by batch size and index build time"
+   "pulgadas": [
+    13.0,
+    7.2
+   ],
+   "sha256_png": "f5825996c6e1f58143167859c7f2860feb60c99771aa31a26e0693b68d8d87aa",
+   "titulo": "search_batch throughput by batch size against the NumPy linear scan",
+   "verificacion": {
+    "fuera_de_lienzo": 0,
+    "rotulo_sobre_barra": 0,
+    "solapamientos": 0,
+    "textos": 38
+   }
   },
   "docs/bench-storage.png": {
    "fuentes": [
     {
      "ruta": "benchmarks/results/bench_storage.json",
-     "sha256": "84ca465ca93dc94063c2c837fe0be56d10e1b8de40326ec7003f4605ffa71cf7"
+     "sha256": "fcc659d4134ef4959fa8eb7e8bcf5d6e63f8073ecce033fcf812e51b627d8380"
     }
    ],
    "pixeles": [
-    1695,
-    659
+    1950,
+    990
    ],
-   "sha256_png": "eaa9588b9fa1ceeecb3485868b38701c7727aa62418cde1a97f803e775c1ac7f",
-   "titulo": "Storage: arrays vs RSS, snapshot size, reopen time"
+   "pulgadas": [
+    13.0,
+    6.6
+   ],
+   "sha256_png": "a199c98d7b720428d15065c09c7b9347382008e650891beac0104cfbd1ed6d4a",
+   "titulo": "Storage: build vs reopen, add() throughput with and without storage_path, add(1 doc) latency",
+   "verificacion": {
+    "fuera_de_lienzo": 0,
+    "rotulo_sobre_barra": 0,
+    "solapamientos": 0,
+    "textos": 41
+   }
   }
  },
  "generador": "scripts/make_readme_figures.py",
  "matplotlib": "3.11.2",
+ "numpy": "2.5.5",
+ "pil": "13.0.0",
  "protocolo": "bench/_protocol.py",
- "regenerar": "python scripts/make_readme_figures.py"
+ "regenerar": "PYTHONPATH=$PWD/src python scripts/make_readme_figures.py",
+ "verificacion": "cero colisiones texto/leyenda, cero textos fuera del lienzo, cero rotulos sobre barras, PNG identicos en dos corridas seguidas (sha256)"
 }
