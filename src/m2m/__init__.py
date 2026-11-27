@@ -38,6 +38,7 @@ try:
     from .config import M2MConfig
     from .ebm import EBMEnergy, EBMExploration, SOCEngine
     from .ebm.energy_api import EnergyResult as EnergyResult  # re-export
+    from .ebm.energy_api import confidence_from_energy, splat_energy
     from .ebm.exploration import EnergyRegion, ExplorationSuggestion
     from .ebm.soc import AvalancheResult, CriticalityReport, RelaxationResult
     from .energy import EnergyFunction
@@ -417,8 +418,53 @@ class M2MEngine:
 # ---------------------------------------------------------------------------
 
 
+def _cosine_to_query(qn: np.ndarray, mu_i: np.ndarray) -> float:
+    """Similitud coseno entre la query normalizada y el vector almacenado (normalizado)."""
+    return float(np.clip(np.dot(qn, mu_i), -1.0, 1.0))
+
+
+def _result_energy(qn: np.ndarray, mu_i, alpha_i: float, kappa_i: float) -> float:
+    """Energía por resultado [audit r3a-02]: la implementación canónica aplicada al
+    splat de UN resultado, Eᵢ(q̂) = -ln αᵢ + κᵢ·‖q̂−μᵢ‖² (tope OOD_ENERGY). αᵢ y κᵢ
+    son los del splat que produjo el resultado (los mismos de ``DocResult.alpha``)."""
+    return splat_energy(qn, np.asarray(mu_i, dtype=np.float32)[None, :], [alpha_i], [kappa_i])
+
+
+def _l2_to_query(qn: np.ndarray, mu_i: np.ndarray) -> float:
+    """Distancia L2 entre la query normalizada y el vector almacenado (d² = 2 − 2·cos)."""
+    diff = np.asarray(mu_i, dtype=np.float64) - qn
+    return float(np.sqrt(np.maximum((diff**2).sum(), 0.0)))
+
+
 class DocResult:
-    """Resultado de una operación de base de datos."""
+    """Resultado de una operación de base de datos.
+
+    Semántica de los campos [audit r1-13]:
+
+    - ``score``: similitud COSENO en [-1, 1] entre la query normalizada a la esfera y
+      el vector almacenado (normalizado). IGUAL en todos los caminos: ``search()`` con
+      o sin metadata, con o sin filtro, con o sin energía, modo LSH y
+      ``search_batch(include_metadata=True)``. Mayor = más parecido. (Antes eran
+      varias semánticas: α = 1.0 constante sin filtro, -dist con filtro, -sqrt(d²)
+      contra la query cruda en batch y la distancia propia del LSH.)
+    - ``alpha``: peso αᵢ del splat (lo que antes devolvía ``score`` sin filtro).
+      None en modo LSH (ahí no hay splats por documento).
+    - ``distance``: distancia L2 entre la query normalizada y el vector almacenado;
+      sobre la esfera ``distance² = 2 − 2·score``.
+    - ``energy`` (solo con ``include_energy=True`` y ``enable_ebm=True``): la energía
+      canónica del paisaje (``m2m.ebm.energy_api.splat_energy``) de la query normalizada
+      bajo el splat de ESTE resultado, ``Eᵢ(q̂) = -ln αᵢ + κᵢ·‖q̂−μᵢ‖²`` con tope
+      ``OOD_ENERGY`` (10). Depende de la relación query-resultado, así que resultados
+      distintos tienen energías distintas [audit r3a-02]; es ≥ la energía del paisaje
+      en la query (``-ln Σⱼ exp(−Eⱼ)``). Antes se evaluaba el paisaje en la posición
+      del propio documento: un valor igual para todos los resultados. None si no se
+      pidió energía.
+    - ``confidence``: ``sigmoid(−energy) = 1 / (1 + e^E)`` ∈ (0, 1), monotona
+      decreciente en la energía (elección del pack P7a [audit r2-15]; antes
+      ``1/(1+E)``, que daba negativa para E < −1). None si no se pidió energía.
+    - ``vector``: el vector almacenado NORMALIZADO (μᵢ), no el crudo que se insertó;
+      None en ``search_batch(include_metadata=True)``.
+    """
 
     def __init__(
         self,
@@ -429,6 +475,8 @@ class DocResult:
         document: Optional[str] = None,
         energy: Optional[float] = None,
         confidence: Optional[float] = None,
+        alpha: Optional[float] = None,
+        distance: Optional[float] = None,
     ):
         self.id = id
         self.score = score
@@ -437,10 +485,13 @@ class DocResult:
         self.document = document
         self.energy = energy
         self.confidence = confidence
+        self.alpha = alpha  # aditivo [audit r1-13]: default None, no rompe constructores
+        self.distance = distance
 
     def __repr__(self):
         return (
             f"DocResult(id={self.id!r}, score={self.score:.4f}, "
+            f"alpha={self.alpha}, distance={self.distance}, "
             f"energy={self.energy}, confidence={self.confidence})"
         )
 
@@ -1566,7 +1617,10 @@ class SimpleVectorDB:
             Si include_energy=True, include_metadata=True o filter is not None:
                 ``List[DocResult]`` con a lo sumo ``k`` docs activos que cumplen el
                 filtro (sin ids borrados ni repetidos). Con energía el filtro se aplica
-                igual (mismos ids que sin energía).
+                igual (mismos ids que sin energía). ``score`` es la similitud coseno
+                en [-1, 1] entre la query normalizada y el vector almacenado, IGUAL
+                en todos los caminos (ver ``DocResult``) [audit r1-13]; el peso del
+                splat queda en ``alpha`` y la distancia L2 en ``distance``.
             Si no: 4-tupla legacy ``(mu, alpha, kappa, idx)`` SIEMPRE (también con la
                 DB vacía y en modo LSH): ``mu`` [1, m, D] (o [m, D] en LSH), ``alpha`` y
                 ``kappa`` [1, m] (o [m]) e ``idx`` [1, m] (o [m]) con ``m <= k``.
@@ -1682,6 +1736,7 @@ class SimpleVectorDB:
                     k=k,
                     include_metadata=include_metadata,
                     include_energy=include_energy,
+                    query=query,
                 )[:k]
 
             raw = self.engine.search(query, k_eff)
@@ -1698,6 +1753,11 @@ class SimpleVectorDB:
                 return mu[:, sel], alpha[:, sel], kappa[:, sel], idx[:, sel]
 
             store = self.engine.m2m.splats
+            # [audit r1-13] MISMA query para el ranking, el score, la distancia y la
+            # energia en todos los caminos: la normalizada del camino principal
+            # (M2MMemory.retrieve normaliza antes de buscar). Antes el indice rankeaba
+            # con la query cruda y el score usaba otra (o el alpha del splat).
+            qn = normalize_sphere(query)
 
             if filter is not None:
                 # H8: pre-filtro ACORN-lite (con o sin energia, r1-10): el filtro corre sobre
@@ -1705,10 +1765,6 @@ class SimpleVectorDB:
                 # docs borrados, asi que aca no hace falta backfill.
                 results: List[DocResult] = []
                 if allowed is not None and allowed.any():
-                    # MISMA query para el ranking y para la distancia/score: la normalizada
-                    # del camino principal (M2MMemory.retrieve normaliza antes de buscar).
-                    # Antes el indice rankeaba con la query cruda y el score usaba otra.
-                    qn = normalize_sphere(query)
                     # `allowed` ya esta calculada (y excluye borrados): se pasa directo al
                     # kernel en vez de re-entrar por search_batch_filtered, que rehace el
                     # bucle O(n) del filtro por llamada.
@@ -1730,19 +1786,23 @@ class SimpleVectorDB:
                         energy_val = None
                         confidence_val = None
                         if include_energy and self.ebm_enabled and self._ebm_energy:
-                            vec = self._vectors.get(doc_id)
-                            if vec is not None:
-                                energy_val = self._ebm_energy.energy(vec)
-                                confidence_val = 1.0 / (1.0 + energy_val)
+                            # [audit r3a-02] misma energía por resultado que el camino sin filtro
+                            energy_val = _result_energy(
+                                qn, mu_i, float(store.alpha[s_idx]), float(store.kappa[s_idx])
+                            )
+                            confidence_val = confidence_from_energy(energy_val)
                         results.append(
                             DocResult(
                                 id=doc_id,
-                                score=-dist,
+                                # [audit r1-13] antes -dist: el mismo coseno que el resto
+                                score=_cosine_to_query(qn, mu_i),
                                 vector=(mu_i.copy() if include_metadata else None),
                                 metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
                                 document=(self._documents.get(doc_id) if include_metadata else None),
                                 energy=energy_val,
                                 confidence=confidence_val,
+                                alpha=float(store.alpha[s_idx]),
+                                distance=dist,
                             )
                         )
                         if len(results) >= k:
@@ -1775,25 +1835,38 @@ class SimpleVectorDB:
                     continue  # posicion huerfana + re-add del mismo id: una fila por doc
                 seen.add(doc_id)
 
-                score = float(np.asarray(alpha[i]).flat[0]) if i < len(alpha) else 0.0
+                mu_i = mu[i]
+                # [audit r1-13] score = similitud coseno (query normalizada · μᵢ) en todos
+                # los caminos; antes acá era alpha[i] = 1.0 constante. α queda en `alpha`.
+                score = _cosine_to_query(qn, mu_i)
+                dist = _l2_to_query(qn, mu_i)
+                alpha_val = float(np.asarray(alpha[i]).flat[0]) if i < len(alpha) else None
                 energy_val = None
                 confidence_val = None
 
-                if include_energy and self.ebm_enabled and self._ebm_energy:
-                    vec = self._vectors.get(doc_id)
-                    if vec is not None:
-                        energy_val = self._ebm_energy.energy(vec)
-                        confidence_val = 1.0 / (1.0 + energy_val)
+                if (
+                    include_energy
+                    and self.ebm_enabled
+                    and self._ebm_energy
+                    and alpha_val is not None
+                ):
+                    # [audit r3a-02] energía de la QUERY normalizada bajo el splat de ESTE
+                    # resultado. Antes: el paisaje en la posición del propio documento
+                    # (10.0 para todos con el vector crudo; ≈ -ln αᵢ con unitarios).
+                    energy_val = _result_energy(qn, mu_i, alpha_val, float(kappa[i]))
+                    confidence_val = confidence_from_energy(energy_val)
 
                 results.append(
                     DocResult(
                         id=doc_id,
                         score=score,
-                        vector=mu[i] if include_metadata else None,
+                        vector=mu_i if include_metadata else None,
                         metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
                         document=(self._documents.get(doc_id) if include_metadata else None),
                         energy=energy_val,
                         confidence=confidence_val,
+                        alpha=alpha_val,
+                        distance=dist,
                     )
                 )
                 if len(results) >= k:
@@ -1821,13 +1894,25 @@ class SimpleVectorDB:
         include_metadata: bool,
         include_energy: bool = False,
         filter: Optional[Dict] = None,
+        query: Optional[np.ndarray] = None,
     ) -> List[Any]:
         """Ensambla List[DocResult] desde indices posicionales del LSH.
 
         Logica comun extraida del path LSH de search() single (T2): el mapeo
         _lsh_id_map + skip de borrados + filtro + energia. La usa search()
         single y el camino LSH de search_batch() para garantizar parity exacta.
+
+        `query` (aditivo, requerida) es la query cruda de esta busqueda: `score` es la
+        similitud coseno entre su version normalizada y el vector del LSH —la misma
+        semantica que en modo splats [audit r1-13]— y `distance` la L2. En modo LSH el
+        engine no tiene splats (n_active = 0), asi que NO hay energia por resultado:
+        `alpha` es None y `energy` es la del paisaje EBM en la query normalizada —igual
+        para todos los resultados de esa query—; con ``enable_ebm=True`` y el EBM sin
+        splats es ``OOD_ENERGY`` (10) y ``confidence = sigmoid(-10) ≈ 4.5e-5``.
         """
+        if query is None:
+            raise ValueError("_doc_results_from_lsh requiere `query` (score = similitud coseno)")
+        qn = normalize_sphere(np.asarray(query, dtype=np.float32))
         candidate_vectors = self.lsh.vectors[indices]
         results: List[Any] = []
         for i, idx in enumerate(indices):
@@ -1842,20 +1927,24 @@ class SimpleVectorDB:
             meta = self._metadata.get(doc_id, {}) if include_metadata else {}
             if filter and not self._match_filter(meta, filter):
                 continue
-            score = float(distances[i])
+            mu_i = candidate_vectors[i]
+            score = _cosine_to_query(qn, mu_i)  # [audit r1-13] antes: la distancia del LSH
             energy_val = None
+            confidence_val = None
             if include_energy and self.ebm_enabled and self._ebm_energy:
-                vec = self._vectors.get(doc_id, candidate_vectors[i])
-                energy_val = self._ebm_energy.energy(vec)
+                energy_val = self._ebm_energy.energy(qn)
+                confidence_val = confidence_from_energy(energy_val)
             results.append(
                 DocResult(
                     id=doc_id,
                     score=score,
-                    vector=candidate_vectors[i] if include_metadata else None,
+                    vector=mu_i if include_metadata else None,
                     metadata=meta,
                     document=(self._documents.get(doc_id) if include_metadata else None),
                     energy=energy_val,
-                    confidence=(1.0 / (1.0 + energy_val) if energy_val is not None else None),
+                    confidence=confidence_val,
+                    alpha=None,
+                    distance=_l2_to_query(qn, mu_i),
                 )
             )
         return results[:k]
@@ -1883,7 +1972,9 @@ class SimpleVectorDB:
         Returns:
             include_metadata=False -> np.ndarray [B, k] de posiciones (-1 si falta):
                 índice en _splat_id_order (modo HRM2) o en _lsh_id_map (modo LSH).
-            include_metadata=True -> List[List[DocResult]].
+            include_metadata=True -> List[List[DocResult]]. ``score`` es la similitud
+                coseno contra la query normalizada: la MISMA semántica que ``search()``
+                single [audit r1-13]; ``alpha`` y ``distance`` también se informan.
             (B, 0) / listas vacías si la DB no tiene documentos activos.
         """
         queries = np.asarray(queries, dtype=np.float32)
@@ -1938,6 +2029,9 @@ class SimpleVectorDB:
 
             results: List[List[DocResult]] = []
             order = self._splat_id_order
+            # [audit r1-13] mismo score (coseno contra la query normalizada) que search()
+            # single; antes -sqrt(d²) contra la query CRUDA (dependía de su norma).
+            qn = normalize_sphere(queries)
             for i in range(B):
                 row: List[DocResult] = []
                 for j in range(k):
@@ -1947,15 +2041,18 @@ class SimpleVectorDB:
                     doc_id = order[s_idx]
                     if doc_id in self._deleted or doc_id not in self._vectors:
                         continue  # defensa: la máscara viva ya los excluyó del ranking
+                    mu_i = store.mu[s_idx]
                     row.append(
                         DocResult(
                             id=doc_id,
-                            score=float(-np.sqrt(out_d2[i, j])),
+                            score=_cosine_to_query(qn[i], mu_i),
                             vector=None,
                             metadata=self._metadata.get(doc_id, {}),
                             document=self._documents.get(doc_id),
                             energy=None,
                             confidence=None,
+                            alpha=float(store.alpha[s_idx]),
+                            distance=_l2_to_query(qn[i], mu_i),
                         )
                     )
                 results.append(row[:k])
@@ -2179,7 +2276,7 @@ class SimpleVectorDB:
             out_idx[i, :m] = idx[:m]
             if include_metadata:
                 rows[i] = self._doc_results_from_lsh(
-                    idx[:m], dist[:m], k=k, include_metadata=True
+                    idx[:m], dist[:m], k=k, include_metadata=True, query=queries[i]
                 )
         return out_idx, rows
 
