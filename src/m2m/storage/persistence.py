@@ -638,9 +638,17 @@ class M2MPersistence:
 
     def filter_by_metadata(self, filter_dict: Dict) -> List[str]:
         """
-        Filtra documentos por metadata.
+        Filtra documentos no borrados por metadata y devuelve sus ids.
 
-        Soporta operadores: $eq, $gt, $gte, $lt, $lte, $ne
+        ``filter_dict`` es ``{campo: valor}`` (equivale a ``$eq``),
+        ``{campo: {operador: valor}}`` con operadores ``$eq``, ``$ne``, ``$in``,
+        ``$nin``, ``$gt``, ``$gte``, ``$lt``, ``$lte``, o un callable
+        ``metadata -> bool``. Varios campos se combinan con AND.
+
+        Fail closed (audit r1-14): operador desconocido (p. ej. ``$gtt``),
+        condición ``{}`` o tipo inválido levantan ``ValueError`` en vez de dejar
+        pasar todo. ``None`` matchea todo. Misma semántica que
+        ``SimpleVectorDB.search(filter=...)`` (``m2m.match_metadata_filter``).
         """
         conn = self._get_conn()
         try:

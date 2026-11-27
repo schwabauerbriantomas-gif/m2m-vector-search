@@ -2161,9 +2161,13 @@ class SimpleVectorDB:
                 continue  # stale index, skip
             if doc_id in self._deleted or doc_id not in self._vectors:
                 continue
-            meta = self._metadata.get(doc_id, {}) if include_metadata else {}
-            if filter and not self._match_filter(meta, filter):
+            # El filtro se evalúa contra la metadata REAL siempre; `meta` es sólo
+            # lo que se devuelve (audit P15: con include_metadata=False el filtro se
+            # evaluaba contra {} y descartaba todos los resultados).
+            full_meta = self._metadata.get(doc_id, {})
+            if filter and not self._match_filter(full_meta, filter):
                 continue
+            meta = full_meta if include_metadata else {}
             mu_i = candidate_vectors[i]
             score = _cosine_to_query(qn, mu_i)  # [audit r1-13] antes: la distancia del LSH
             energy_val = None
@@ -2726,6 +2730,10 @@ class SimpleVectorDB:
             "deleted_documents": len(self._deleted),
             "lsh_active": self._use_lsh,
             "ebm_enabled": self.ebm_enabled,
+            # backend EFECTIVO de búsqueda (cpu/cuda/vulkan) según el selector
+            # (m2m.engine), vs. el dispositivo que se pidió [audit P15].
+            "backend": self.engine.backend,
+            "requested_device": self.config.device,
         }
         if self.storage:
             storage_stats = self.storage.get_stats()
