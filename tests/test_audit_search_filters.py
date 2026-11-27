@@ -250,13 +250,21 @@ def test_r1_06_legacy_never_returns_hard_deleted_positions():
     old_vec = db._vectors[victim].copy()
     assert db.delete(id=victim, hard=True).deleted == 1
     assert victim not in db._vectors and victim not in db._deleted
-    # El splat huerfano sigue en el indice (lado escritor: otro pack); el lector no lo entrega.
-    assert victim in db._splat_id_order
+    # Desde el pack P6 el hard-delete compacta el indice: ya no queda huerfano.
+    assert victim not in db._splat_id_order
+    # Defensa del lector (en profundidad): se inyecta a mano un huerfano — una posicion
+    # de splat con el vector viejo que apunta al id borrado y que no esta en _vectors —
+    # como lo dejaria un indice cargado de un storage viejo o un escritor externo.
+    assert db.engine.add_splats(old_vec[np.newaxis, :]) == 1
+    orphan_pos = len(db._splat_id_order)
+    db._splat_id_order.append(victim)
+    assert orphan_pos < db.engine.m2m.splats.n_active
     for q in (old_vec, X[0], np.ones(16, dtype=np.float32)):
         legacy = db.search(q, k=20)
         pos = _legacy_positions(db, legacy)
         assert len(pos) == 19
         assert _all_active_positions(db, legacy)
+        assert orphan_pos not in pos
         assert victim not in {db._splat_id_order[i] for i in pos}
         # k=10: el backfill cubre el hueco del huerfano
         assert len(_legacy_positions(db, db.search(q, k=10))) == 10
@@ -267,7 +275,13 @@ def test_r1_06_legacy_never_returns_hard_deleted_positions():
 def test_r1_06_no_duplicate_ids_after_hard_delete_and_readd():
     db, X = _random_db(20, seed=4)
     db.delete(id="d7", hard=True)
-    db.add(ids=["d7"], vectors=X[7:8])  # re-add: dos posiciones de splat para el mismo id
+    db.add(ids=["d7"], vectors=X[7:8])
+    # Tras el pack P6 el hard-delete compacta: el re-add deja UNA sola posicion para el id.
+    assert db._splat_id_order.count("d7") == 1
+    # Defensa del lector: si un indice externo tuviera DOS posiciones vivas para el mismo
+    # id (huerfano + re-add), el resultado no lo duplica y sigue devolviendo k docs.
+    assert db.engine.add_splats(X[7:8]) == 1
+    db._splat_id_order.append("d7")
     assert db._splat_id_order.count("d7") == 2
     for q in (X[7], X[0]):
         res = db.search(q, k=20, include_metadata=True)
