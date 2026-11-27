@@ -104,7 +104,7 @@ def main():
     out["mem_float32_mb"] = round(data.nbytes / 1e6, 2)
     out["mem_sq8_mb"] = round(data_q.nbytes / 1e6, 2)
     out["quant_time_s"] = round(t_q, 2)
-    with open(os.path.join(os.path.dirname(__file__), "h10_sq8.json"), "w") as f:
+    with open(os.path.join(os.path.dirname(__file__), "bench/history/h10_sq8.json"), "w") as f:
         json.dump(out, f, indent=2)
     print(f"memoria: {out['mem_float32_mb']}MB -> {out['mem_sq8_mb']}MB (4x)")
 
