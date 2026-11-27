@@ -759,8 +759,42 @@ class M2MPersistence:
         return str(dest)
 
     def restore(self, backup_path: str):
-        """Restaura desde un backup."""
+        """Restaura el storage desde un backup escrito por ``backup()``.
+
+        La fuente se valida ANTES de tocar el storage (audit P15): antes
+        ``rmtree(storage_path)`` corría primero, así que una fuente inexistente
+        o que no es un directorio dejaba el storage BORRADO, y una fuente dentro
+        del propio storage borraba además su propia copia. Se rechaza con:
+
+        * ``ValueError``: ``..`` en la ruta (igual que ``backup()``/``load()``), o
+          una fuente que al resolver queda igual, dentro o por encima del
+          directorio de storage (incluye symlinks que apuntan adentro);
+        * ``FileNotFoundError`` / ``NotADirectoryError``: la fuente no existe o
+          no es un directorio.
+
+        Las rutas absolutas y los symlinks a un backup EXTERNO al storage se
+        aceptan (se resuelven con ``Path.resolve()``), igual que ``load()``.
+        """
         import shutil
+
+        src = Path(backup_path)
+        if ".." in src.parts:
+            raise ValueError(f"Path traversal detected in backup_path: {backup_path}")
+        if not src.exists():
+            raise FileNotFoundError(f"restore(): backup path does not exist: {src}")
+        if not src.is_dir():
+            raise NotADirectoryError(f"restore(): {src} is not a directory")
+        src_resolved = src.resolve()
+        dst_resolved = Path(self.storage_path).resolve()
+        if (
+            src_resolved == dst_resolved
+            or dst_resolved in src_resolved.parents
+            or src_resolved in dst_resolved.parents
+        ):
+            raise ValueError(
+                "restore(): backup_path must not be the storage directory, inside it "
+                f"or contain it (backup={src_resolved}, storage={dst_resolved})"
+            )
 
         # El storage se reemplaza entero: las filas pendientes de un lote
         # incompleto corresponden al estado previo y se descartan.
