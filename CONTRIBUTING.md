@@ -34,8 +34,8 @@ bandit -c pyproject.toml -r src/m2m -ll
 pre-commit run --all-files             # mypy is manual
 ```
 
-Line length is 100. `flake8 --select=E9,F63,F7,F82,F401` must stay clean on the files you
-touch; the repository carries pre-existing warnings elsewhere.
+Line length is 100. `flake8 src tests` reports 0 findings on the 2.4.0 branch;
+keep it there.
 
 ## Public API rules
 
@@ -48,6 +48,9 @@ touch; the repository carries pre-existing warnings elsewhere.
 
 Every code block in `README.md` and `docs/*.md` must run as written. If you change a
 signature, update `docs/API.md` and `docs/CONFIGURATION.md` in the same change.
+- Benchmark figures in the documentation are read from `benchmarks/results/*.json` and
+  rounded to 3 significant figures; never type one from memory. A behavioural claim cites
+  the test file that covers it.
 
 ## Pull requests
 

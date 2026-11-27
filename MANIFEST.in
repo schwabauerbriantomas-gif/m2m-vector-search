@@ -2,6 +2,7 @@ include LICENSE
 include README.md
 include CHANGELOG.md
 include SECURITY.md
+include CONTRIBUTING.md
 
 # Paquete: código, shaders Vulkan y el marcador PEP 561 para mypy [audit r3b-09].
 recursive-include src *.py

@@ -6,8 +6,9 @@ described a `unit/`, `integration/` and `benchmarks/` tree, LlamaIndex/MCP tests
 
 ## Structure
 
-Flat: 40 `test_*.py` files in `tests/`, no subdirectories (count on the 2.4.0 branch). `tests/test_audit_*.py` are the
-regression tests of the 2026-11 audit fix pass. `tests/validate_vulkan.py` is a manual script
+Flat: 45 `test_*.py` files in `tests/`, no subdirectories (count on the 2.4.0 branch). `tests/test_audit_*.py` are the
+regression tests of the 2026-11 audit fix pass, like `test_p17_exact_filter.py` and
+`test_sq8_disk_load.py`. `tests/validate_vulkan.py` is a manual script
 and is not collected by pytest.
 
 ## Running
@@ -24,10 +25,11 @@ pytest -q -m "not slow and not integration and not gpu and not embeddings"
 
 That `-m` expression is exactly what CI runs (`.github/workflows/ci.yml`, job `test`).
 
-Measured on 2026-11-27 on the dev machine (Linux/WSL2, Python 3.12, 1 BLAS thread):
+Measured on 2026-11-27 on the dev machine (Linux/WSL2, Python 3.12, 1 BLAS thread) on the
+final 2.4.0 branch:
 
 ```
-619 passed / 22 skipped / 41 deselected / 0 failed      (8.6 min wall time)
+823 passed / 22 skipped / 41 deselected / 0 failed      (3.4 min wall time)
 ```
 
 ### Markers
@@ -42,20 +44,20 @@ Measured on 2026-11-27 on the dev machine (Linux/WSL2, Python 3.12, 1 BLAS threa
 ### The 22 skips (machine without GPU or local datasets)
 
 | count | where                                                     | reason (`-ra` output)                                     |
-| ----- | --------------------------------------------------------- | --------------------------------------------------------- |
-| 13    | `test_cuda_backend.py`                                    | `CUDA not available (no NVIDIA GPU or PyTorch not installed)` |
-| 5     | `test_search_batch_lsh.py` (4), `test_hnsw_diversity.py` (1) | `dataset real no disponible` (`/tmp/m2mvs/embeddings.npy`) |
-| 2     | `test_gate_select_k.py`                                   | `dataset de validación ausente` (`/tmp/m2mvs/embeddings.npy`) |
-| 2     | `test_sq8_spectral.py`                                    | `corpus real no disponible`                               |
+| 13 | `test_cuda_backend.py` | `CUDA not available (no NVIDIA GPU or PyTorch not installed)` |
+| 4 | `test_search_batch_lsh.py` | `dataset real no disponible` |
+| 2 | `test_gate_select_k.py` | `dataset de validación ausente` |
+| 2 | `test_sq8_spectral.py` | `corpus real no disponible` |
+| 1 | `test_hnsw_diversity.py` | `dataset real no disponible` |
 
 All of them are explicit `skipif` / `skip` with a reason: nothing fails (or passes vacuously)
 when a dataset or a GPU is missing.
 
-**LangChain** (`test_langchain.py`, `test_langchain_full.py`, 11 tests): they run when
-`langchain-core` is installed, as in the measurement above. GitHub CI installs `.[dev]`,
-which does not include `langchain-core` yet, so there they are skipped through
-`pytest.importorskip("langchain_core")`: 11 extra skips in CI until `langchain-core` is
-added to the `dev` extra.
+**LangChain** (`test_langchain.py`, `test_langchain_full.py`): they run when
+`langchain-core` is installed, as in the measurement above. The `dev` extra pulls the `api`
+and `langchain` extras (`pyproject.toml`), and GitHub CI installs `.[dev]`
+(`.github/workflows/ci.yml`), so they run in CI too; without the package they are skipped
+through `pytest.importorskip("langchain_core")`.
 
 ### The 41 deselected
 
@@ -71,8 +73,9 @@ pytest -m "not slow and not integration and not gpu and not embeddings" \
     --cov=m2m --cov-report=term
 ```
 
-Measured with the CI selection: **70.57 %** (branch coverage; configuration in
-`[tool.coverage.*]` of `pyproject.toml`). CI fails below **68 %** (`--cov-fail-under`
+Last measured with the CI selection on 2026-11-27, before the audit closure added its
+tests: **70.57 %** (branch coverage; configuration in `[tool.coverage.*]` of
+`pyproject.toml`) — re-measure before quoting it. CI fails below **68 %** (`--cov-fail-under`
 in `ci.yml` = the measured value rounded down, minus 2 points).
 
 ## Timing-dependent tests

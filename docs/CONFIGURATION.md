@@ -8,17 +8,17 @@ grepping `os.environ` in `src/`; there is no other configuration file and no
 
 ## Environment variables
 
-<!-- P10b: verificar P15 -->
 | Variable | Read in | Default | Effect |
 |---|---|---|---|
 | `M2M_HOST` | `src/m2m/__main__.py:25` | `127.0.0.1` | Host `python -m m2m` binds to. The Dockerfiles set it to `0.0.0.0`. A warning is logged if the host is not loopback and `M2M_API_KEY` is unset (`src/m2m/__main__.py:51`). Only affects `python -m m2m` / the `m2m` script; `uvicorn m2m.api.edge_api:app` takes `--host` from the command line. |
 | `M2M_PORT` | `src/m2m/__main__.py:26` | `8080` | Port of `python -m m2m`. Must parse as an integer. |
-| `M2M_API_KEY` | `src/m2m/api/edge_api.py:353` | unset = no authentication | When set, the endpoints that validate authentication require it as `Authorization: Bearer <key>` or `X-API-Key: <key>` (constant-time compare). `/v1/admin/*` answer `503` when it is unset. Read per request. |
+| `M2M_API_KEY` | `src/m2m/api/edge_api.py:408` | unset = no authentication | When set, every edge endpoint requires it as a bearer token in the `Authorization` header or in `X-API-Key` (constant-time compare), except `GET /health` and `GET /v1/health`; `/v1/admin/*` answer `503` when it is unset. Read per request. |
 | `M2M_COORDINATOR_API_KEY` | `src/m2m/api/coordinator_api.py:26` | unset = no authentication | Key of the coordinator's `/register`, `/heartbeat`, `/route` and `/search`. **Read once at import time**: set it before importing the module. |
-| `M2M_CORS_ORIGINS` | `src/m2m/api/edge_api.py:275` | `*` (open) | Comma-separated list of allowed origins for the edge API. With the wildcard, credentials are not allowed. Read once at import time. The coordinator has no CORS middleware. |
+| `M2M_EDGE_API_KEY` | `src/m2m/api/coordinator_api.py:39` | unset = no key sent to the edges | Key the coordinator sends to each edge on a fan-out (in the `X-API-Key` request header). It must equal the edges' `M2M_API_KEY`; the coordinator's own key is never forwarded. Read per request. |
+| `M2M_CORS_ORIGINS` | `src/m2m/api/edge_api.py:293` | `*` (open) | Comma-separated list of allowed origins for the edge API. With the wildcard, credentials are not allowed. Read once at import time. The coordinator has no CORS middleware. |
 | `M2M_MAX_BODY_BYTES` | `src/m2m/api/edge_api.py:248` | `33554432` (32 MiB) | Requests with a larger body get `413` before the body is read. A value that is not a non-negative integer logs a warning and falls back to the default. Read when the app object is built. |
-| `M2M_HMAC_SECRET` | `src/m2m/storage/persistence.py:539, 554, 682, 698` | unset = no signing | When set, `save()`/checkpoint writes an HMAC-SHA256 manifest of the storage that is verified on reopen and by `load()` (mismatch: `IndexTamperedError`); a storage without a manifest loads with a warning. `M2MPersistence.save_index()`/`load_index()` require it (`RuntimeError` otherwise). Not encryption: it detects modification, it does not hide content. |
-| `M2M_RATE_LIMIT_PER_MIN` | not read yet | absent / `0` = off | <!-- P10b: verificar P15 --> Real per-client rate limit, opt-in. Not implemented in 2.4.0: the existing limiter never records requests, so its `100` requests/minute cap is never enforced. |
+| `M2M_HMAC_SECRET` | `src/m2m/storage/persistence.py:552, 567, 703, 719` | unset = no signing | When set, `save()`/checkpoint writes an HMAC-SHA256 manifest of the storage that is verified on reopen and by `load()` (mismatch: `IndexTamperedError`); a storage without a manifest loads with a warning. `M2MPersistence.save_index()`/`load_index()` require it (`RuntimeError` otherwise). Not encryption: it detects modification, it does not hide content. |
+| `M2M_RATE_LIMIT_PER_MIN` | `src/m2m/api/edge_api.py:272` | absent / `0` / negative = off | Opt-in rate limit per client IP over a sliding 60 s window; above the limit the edge answers `429` with `Retry-After`, and rejected requests are not counted. Read per request; a value that is not an integer is ignored with a warning (limit off) [P15; `tests/test_audit_closure.py`]. |
 
 No other `M2M_*` variable is read by `src/`. `EDGE_ID` and `COORDINATOR_URL`
 used to be listed by the deployment files and are gone; the edge node takes its
@@ -82,8 +82,11 @@ db = SimpleVectorDB(
 | `gate_target_docs_per_cluster` | `None` | Operational `k` for hierarchical corpora (`k = N // target`). |
 
 `AdvancedVectorDB` adds `enable_soc=True` and `enable_energy_features=True` and
-exposes `consolidate()`, `check_criticality()`, `relax()`,
-`trigger_avalanche()` and `generate()` on top of the `SimpleVectorDB` API.
+exposes `consolidate()`, `maybe_consolidate()`, `check_criticality()`, `relax()`,
+`trigger_avalanche()` and `generate()` on top of the `SimpleVectorDB` API (which
+includes `feedback()`). Its constructor also takes `auto_consolidate` (default `False`):
+with `True`, `maybe_consolidate()` runs after every change of the store; by default
+consolidation only happens when you call it.
 
 ### `HRM2Config` / `HRM2Engine`
 

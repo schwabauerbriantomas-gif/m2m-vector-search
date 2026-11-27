@@ -26,20 +26,20 @@ Constructor parameters are documented in [`CONFIGURATION.md`](CONFIGURATION.md).
 
 | Method | Behaviour |
 |---|---|
-| `add(ids=None, vectors=None, metadata=None, documents=None) -> int` | Adds `[N, D]` vectors. Ids are auto-generated when omitted. Raises `ValueError` before mutating anything for `NaN`/`Inf`, norm `< 1e-6`, duplicate or unhashable ids in the batch. Re-adding an active id rewrites its splat; re-adding a soft-deleted id revives it. Returns the number of vectors added. Vectors beyond `max_splats` are skipped with a warning. |
+| `add(ids=None, vectors=None, metadata=None, documents=None) -> int` | Adds `[N, D]` vectors. Ids are auto-generated when omitted. Raises `ValueError` before mutating anything for `NaN`/`Inf`, norm `< 1e-6`, duplicate or unhashable ids in the batch. Re-adding an active id rewrites its splat; re-adding a soft-deleted id revives it. Returns the number of vectors added. Vectors beyond `max_splats` are skipped with a warning. With `storage_path` every call writes to disk: one document costs about 85.8 ms against 0.176 ms in memory, so add in batches. |
 | `update(id, vector=None, metadata=None, document=None, upsert=False) -> UpdateResult` | Updates a document; `upsert=True` creates it (or revives it) — a vector is then required. |
 | `delete(id=None, ids=None, filter=None, hard=False) -> DeleteResult` | Soft-deletes by default. `hard=True` also removes the splat from the index (compact + rebuild, `O(n)` per call) and frees capacity. `filter` uses the metadata-filter syntax below. `DeleteResult.deleted` counts only active-to-deleted transitions. |
-| `get_stats() -> dict` | Counters of the database. For the hardware backend in use ask `db.engine.backend` or `db.engine.get_backend_info()`. |
+| `get_stats() -> dict` | Counters of the database, plus `backend` (the backend in use) and `requested_device` (what was asked for). `db.engine.get_backend_info()` has the details [P15; `tests/test_audit_closure.py`]. |
 
 #### Searching
 
 | Method | Returns |
 |---|---|
-| `search(query, k=10, filter=None, include_energy=False, include_metadata=False)` | With `include_metadata=True`, `include_energy=True` or `filter`: `list[DocResult]`, at most `k` active documents that pass the filter. Otherwise the legacy tuple `(mu, alpha, kappa, splat_indices)` — always four values, also when empty or in LSH mode. |
-| `search_batch(queries, k=10, include_metadata=False)` | `include_metadata=False`: `np.ndarray` `[B, k]` of positions (`-1` when missing); `True`: `list[list[DocResult]]`. `(B, 0)` for an empty database. Each query is scored against the rows of **its own** probed clusters, never the union of the batch. |
-| `search_batch_filtered(queries, k=10, filter_fn=None, filter=None)` | `np.ndarray` `[B, k]` of positions. The filter runs **before** the top-k; `filter_fn` is `callable(position) -> bool`, `filter` a dict or `callable(metadata) -> bool` (same syntax as `search`). Both together: `ValueError`. |
+| `search(query, k=10, filter=None, include_energy=False, include_metadata=False)` | With `include_metadata=True`, `include_energy=True` or `filter`: `list[DocResult]`, at most `k` active documents that pass the filter. Otherwise the legacy tuple `(mu, alpha, kappa, splat_indices)` — always four values, also when empty or in LSH mode. With a filter in IVF mode the top-k is **exact** (pruning bound on the cluster radius [P17]; `tests/test_p17_exact_filter.py`). |
+| `search_batch(queries, k=10, include_metadata=False)` | `include_metadata=False`: `np.ndarray` `[B, k]` of positions (`-1` when missing); `True`: `list[list[DocResult]]`. `(B, 0)` for an empty database. Each query is scored against the rows of **its own** probed clusters, never the union of the batch. Without a filter the probe is **not widened** to replace soft-deleted documents: in HRM2 mode (`n > 3000`) rows can hold fewer than `k` positions (`-1`) when most documents of the probed clusters are deleted; a filter widens the probe and is exact (known limitation, see [PERFORMANCE.md](PERFORMANCE.md); `tests/test_audit_batch.py`). |
+| `search_batch_filtered(queries, k=10, filter_fn=None, filter=None)` | `np.ndarray` `[B, k]` of positions. The filter runs **before** the top-k; `filter_fn` is `callable(position) -> bool`, `filter` a dict or `callable(metadata) -> bool` (same syntax as `search`). Both together: `ValueError`. Exact top-k in IVF mode [P17]. |
 | `search_with_energy(query, k=10) -> SearchResult` | `SearchResult.results` (list of `DocResult` with `energy`/`confidence`), `total_confidence`, `query_energy`. Needs the energy features (`enable_ebm=True`, `mode="ebm"` or `AdvancedVectorDB`). |
-| `get_energy(vector) -> float`, `suggest_exploration(n=3)`, `find_knowledge_gaps(n=5)` | Energy features (same requirement as above). <!-- verificar: gate on enable_ebm --> |
+| `get_energy(vector) -> float`, `suggest_exploration(n=3)`, `find_knowledge_gaps(n=5)` | Energy features; they raise `RuntimeError` without the energy features (`tests/test_crud.py`). |
 
 #### Persistence
 
@@ -58,11 +58,13 @@ and adds:
 
 | Method | Returns |
 |---|---|
-| `consolidate(threshold=None) -> int` | Runs SOC consolidation and returns the number of splats pruned. It is invoked by the caller; nothing runs in the background. <!-- P10b: feedback/SOC --> |
+| `consolidate(threshold=None) -> int` | Runs SOC consolidation and returns the number of splats pruned. It is invoked by the caller; nothing runs in the background. |
+| `feedback(query, relevant_ids=None, irrelevant_ids=None) -> FeedbackResult` | Also on `SimpleVectorDB`. Hebbian update by **document id**: `α`, `κ` up and `μ` towards the query for relevant ids; `α`, `κ` down for irrelevant ones; `μ` stays on the sphere. Unknown or soft-deleted ids go to `FeedbackResult.unknown_ids`. The HRM2 index is kept in sync, so `search()` sees the drift [audit r3a-08, r2-14; `tests/test_audit_learning_soc.py`]. |
+| `maybe_consolidate(threshold=None) -> ConsolidationDecision` | Consolidates **only** when the criticality index is SUPERCRITICAL; idempotent (a second call returns `triggered=False`). `auto_consolidate=True` in the constructor (default `False`) calls it after every change of the store [audit r3a-07; `tests/test_audit_learning_soc.py`]. |
 | `check_criticality() -> CriticalityReport` | Diagnostic with `state`, `index`, `energy_variance`, `size_variance`. |
 | `relax(iterations=10) -> RelaxationResult` | Relaxation step of the SOC engine. |
 | `trigger_avalanche(seed_point=None) -> AvalancheResult` | Triggers an SOC avalanche. |
-| `generate(query, n_steps=10) -> np.ndarray` | Langevin exploration: returns **one** sample of dimension `D`. `n_steps` is accepted but currently unused. <!-- verificar: n_steps --> |
+| `generate(query, n_steps=10) -> np.ndarray` | Langevin exploration: returns **one** sample of dimension `D`. `n_steps` is accepted and passed on, but `m2m.M2MEngine.generate()` ignores it. |
 
 ### `DocResult`
 
@@ -132,7 +134,9 @@ in place after `add()` is not seen by the cache — call `update()` instead.
 - `m2m.integrations.langchain.M2MVectorStore`: a LangChain `VectorStore` with
   `add_texts`, `similarity_search`, `update`, `delete`, `filter_by_metadata`;
   a retriever is `as_retriever()`. Requires `pip install "m2m-vector-search[langchain]"`.
-- `m2m.semantic_memory.SemanticMemoryDB`: hybrid BM25 + vector search with RRF.
+- `m2m.semantic_memory.SemanticMemoryDB`: hybrid BM25 + vector search with RRF. It needs an
+  `encoder`; without one `store()` raises `RuntimeError` (`No encoder set`) — use
+  `store_with_vector()` for pre-computed vectors (`tests/test_semantic_memory.py`).
 - There is **no** LlamaIndex integration. `examples/llamaindex_rag.py` builds a toy
   retriever on `M2MEngine` without importing `llama-index`.
 
@@ -159,6 +163,8 @@ uvicorn m2m.api.coordinator_api:app --port 8000 # cluster coordinator
 | `POST /v1/admin/checkpoint`, `POST /v1/admin/backup` | Checkpoint every collection with a `storage_path`; write a backup. Fail closed without a key. |
 | `POST /ingest`, `POST /search` | Legacy endpoints. |
 
+With `M2M_API_KEY` set, every endpoint of the table requires the key (`401` otherwise)
+except the two `/health` paths [P15; `tests/test_audit_closure.py`].
 The OpenAPI schema is served at `/docs` and `/openapi.json` by the running server.
 
 ### Status codes
@@ -170,17 +176,20 @@ The OpenAPI schema is served at `/docs` and `/openapi.json` by the running serve
 | `404` | Unknown collection or vector. |
 | `413` | Body larger than `M2M_MAX_BODY_BYTES`; rejected before being read (`text/plain`). |
 | `422` | Request body does not match the pydantic model, or more than `100_000` vectors in one insert. |
-| `429` | Rate limit exceeded — currently never returned (see [`SECURITY.md`](../SECURITY.md)). <!-- P10b: verificar P15 --> |
+| `429` | More than `M2M_RATE_LIMIT_PER_MIN` requests from one client IP in 60 s. Only when that variable is a positive number (opt-in, off by default); the response carries a `Retry-After` header [P15; `tests/test_audit_closure.py`]. |
 | `500` | Real failure of checkpoint/backup (returned with the error, not swallowed). |
 | `503` | `/v1/admin/*` with no API key configured. |
 
-<!-- P10b: verificar P15 -->
-Planned: key validation on the vector `GET`/`PUT`/`DELETE` endpoints, an opt-in
-rate limit (`M2M_RATE_LIMIT_PER_MIN`) and `GET /health` on the coordinator.
+The three gaps listed by the audit are closed [P15]: vector `GET`/`PUT`/`DELETE` validate the
+key (they answer `401` before the collection lookup), the rate limit is real and opt-in, and
+the coordinator has `GET /health`. `/health` and `/v1/health` are the only edge endpoints that
+never ask for a key.
 
 ### Coordinator API (`m2m.api.coordinator_api`)
 
 `POST /register`, `POST /heartbeat`, `POST /route`, `POST /search`. Edges register
 themselves, the router picks edges per query and the aggregator merges the
-results. Authenticated with `M2M_COORDINATOR_API_KEY` when set. See
+results. The four `POST` endpoints are authenticated with `M2M_COORDINATOR_API_KEY` when
+set; `GET /health` needs no key. On a fan-out the coordinator sends `M2M_EDGE_API_KEY` to each
+edge (the coordinator's own key is never forwarded) [P15; `tests/test_audit_closure.py`]. See
 [`cluster.md`](cluster.md).
