@@ -20,7 +20,7 @@ __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable, Union
 
 import numpy as np
 
@@ -416,6 +416,114 @@ class SearchResult:
 # ---------------------------------------------------------------------------
 # SimpleVectorDB - CRUD Completo + Persistencia + EBM opcional
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Filtros de metadata (audit r1-14)
+# Un solo lugar de semantica para SimpleVectorDB._match_filter (memoria) y
+# M2MPersistence._matches_filter (storage), que antes duplicaban el bucle y
+# divergian en silencio: un operador desconocido ($in, typos como $gtt) o una
+# condicion {} caian en la rama default y NO filtraban (dejaban pasar todo, y
+# delete(filter=...) borraba de mas). Ahora: fail closed (ValueError).
+# ---------------------------------------------------------------------------
+_METADATA_FILTER_OPERATORS = ("$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin")
+_FILTER_IN_OPS = ("$in", "$nin")
+# Contenedores: unicos argumentos validos de $in/$nin y NUNCA validos como
+# condicion directa (ambiguos: {"c": [3]} no es ni igualdad ni $in).
+_FILTER_CONTAINER_TYPES = (list, tuple, set, frozenset, np.ndarray)
+
+
+def _invalid_filter(msg: str) -> ValueError:
+    return ValueError(f"filtro de metadata invalido: {msg}")
+
+
+def validate_metadata_filter(filter_dict) -> None:
+    """Valida la ESTRUCTURA de un filtro sin evaluarlo contra ningun doc (fail closed).
+
+    Acepta ``None`` (sin filtro), un callable ``metadata -> bool`` o un dict
+    ``{campo: valor | {op: valor}}`` con ops en ``_METADATA_FILTER_OPERATORS``.
+    Operador desconocido, condicion ``{}``, filtro ``{}`` o tipo invalido ->
+    ``ValueError``. Se llama antes de tocar el indice (o de borrar algo, via
+    ``_match_filter``), asi un filtro mal escrito nunca "deja pasar todo".
+    """
+    if filter_dict is None or callable(filter_dict):
+        return
+    if not isinstance(filter_dict, dict):
+        raise _invalid_filter(
+            "se esperaba un dict o un callable metadata -> bool, "
+            f"se recibio {type(filter_dict).__name__}"
+        )
+    if not filter_dict:
+        raise _invalid_filter("filter vacio ({}) ; pasa filter=None para no filtrar")
+    for key, cond in filter_dict.items():
+        if isinstance(cond, dict):
+            if not cond:
+                raise _invalid_filter(f"condicion vacia para el campo {key!r} ({{}})")
+            for op, comp in cond.items():
+                if op not in _METADATA_FILTER_OPERATORS:
+                    raise _invalid_filter(
+                        f"operador {op!r} no soportado para {key!r} "
+                        f"(soportados: {', '.join(_METADATA_FILTER_OPERATORS)})"
+                    )
+                if op in _FILTER_IN_OPS and not isinstance(comp, _FILTER_CONTAINER_TYPES):
+                    raise _invalid_filter(
+                        f"{op} requiere una lista/conjunto de valores para {key!r}, "
+                        f"se recibio {type(comp).__name__}"
+                    )
+        elif isinstance(cond, _FILTER_CONTAINER_TYPES):
+            raise _invalid_filter(
+                f"condicion invalida para {key!r}: se esperaba un valor o un dict de "
+                f"operadores (p. ej. {{'$in': [...]}}), se recibio {type(cond).__name__}"
+            )
+
+
+def match_metadata_filter(meta: dict, filter_dict) -> bool:
+    """Evalua un filtro de metadata contra un doc (misma semantica en memoria y storage).
+
+    ``filter_dict`` es ``None`` (matchea todo), un callable ``metadata -> bool`` o
+    un dict ``{campo: valor | {op: valor}}``: todas las condiciones deben
+    cumplirse y un campo ausente en ``meta`` no cumple. La estructura se valida
+    primero: operador desconocido / condicion ``{}`` / tipos incomparables ->
+    ``ValueError`` [audit r1-14].
+    """
+    validate_metadata_filter(filter_dict)
+    if filter_dict is None:
+        return True
+    if callable(filter_dict):
+        return bool(filter_dict(meta))
+    for key, cond in filter_dict.items():
+        if key not in meta:
+            return False
+        val = meta[key]
+        if isinstance(cond, dict):
+            for op, comp in cond.items():
+                try:
+                    if op == "$eq":
+                        ok = bool(val == comp)
+                    elif op == "$ne":
+                        ok = bool(val != comp)
+                    elif op == "$gt":
+                        ok = bool(val > comp)
+                    elif op == "$gte":
+                        ok = bool(val >= comp)
+                    elif op == "$lt":
+                        ok = bool(val < comp)
+                    elif op == "$lte":
+                        ok = bool(val <= comp)
+                    elif op == "$in":
+                        ok = val in comp
+                    else:  # $nin
+                        ok = val not in comp
+                except (TypeError, ValueError) as e:
+                    raise _invalid_filter(
+                        f"no se puede evaluar {op} en {key!r}: valor {val!r} vs "
+                        f"comparador {comp!r} ({e})"
+                    ) from e
+                if not ok:
+                    return False
+        elif val != cond:
+            return False
+    return True
 
 
 class SimpleVectorDB:
@@ -1222,38 +1330,24 @@ class SimpleVectorDB:
 
         return DeleteResult(deleted=deleted_count, energy_freed=energy_freed)
 
-    def _match_filter(self, meta: dict, filter_dict: dict) -> bool:
-        """Evalúa filtro de metadata."""
+    def _match_filter(self, meta: dict, filter_dict) -> bool:
+        """Evalua filtro de metadata contra un doc.
+
+        Acepta un dict ``{campo: valor | {op: valor}}`` con ops ``$eq, $ne, $gt,
+        $gte, $lt, $lte, $in, $nin`` o un callable ``metadata -> bool``. Operador
+        desconocido (typos como ``$gtt``), condicion ``{}`` o tipo invalido ->
+        ValueError: fail closed en vez de dejar pasar todo [audit r1-14]. Misma
+        semantica con y sin storage (helper compartido ``match_metadata_filter``).
+        """
         if self.storage:
             return self.storage._matches_filter(meta, filter_dict)
-        for key, cond in filter_dict.items():
-            if key not in meta:
-                return False
-            val = meta[key]
-            if isinstance(cond, dict):
-                for op, comp in cond.items():
-                    if op == "$eq" and val != comp:
-                        return False
-                    elif op == "$ne" and val == comp:
-                        return False
-                    elif op == "$gt" and not (val > comp):
-                        return False
-                    elif op == "$gte" and not (val >= comp):
-                        return False
-                    elif op == "$lt" and not (val < comp):
-                        return False
-                    elif op == "$lte" and not (val <= comp):
-                        return False
-            else:
-                if val != cond:
-                    return False
-        return True
+        return match_metadata_filter(meta, filter_dict)
 
     def search(
         self,
         query: np.ndarray,
         k: int = 10,
-        filter: Optional[Dict] = None,
+        filter: Optional[Union[Dict, Callable]] = None,
         include_energy: bool = False,
         include_metadata: bool = False,  # Changed default to False for legacy compat
     ) -> Any:
@@ -1262,14 +1356,31 @@ class SimpleVectorDB:
 
         Args:
             query: Vector de consulta [D]
-            k: Número de resultados
-            filter: Filtro de metadata
+            k: Número de resultados (int o entero de numpy; cualquier otro tipo -> TypeError)
+            filter: Filtro de metadata: dict ``{campo: valor | {op: valor}}`` (ops
+                ``$eq,$ne,$gt,$gte,$lt,$lte,$in,$nin``) o callable ``metadata -> bool``.
+                Operador desconocido, condición ``{}`` o tipo inválido -> ValueError.
+                Se re-chequea antes de armar cada resultado: nunca se devuelven docs
+                que lo violen.
             include_energy: Si True, incluye información energética (requiere ebm_enabled)
             include_metadata: Si True, retorna List[DocResult]. False retorna tupla legacy.
 
         Returns:
-            Si include_energy=True o include_metadata=True: List[DocResult]
-            Si no: Tuple (vectors, alphas, kappas) para compatibilidad legacy.
+            Si include_energy=True, include_metadata=True o filter is not None:
+                ``List[DocResult]`` con a lo sumo ``k`` docs activos que cumplen el
+                filtro (sin ids borrados ni repetidos). Con energía el filtro se aplica
+                igual (mismos ids que sin energía).
+            Si no: 4-tupla legacy ``(mu, alpha, kappa, idx)`` SIEMPRE (también con la
+                DB vacía y en modo LSH): ``mu`` [1, m, D] (o [m, D] en LSH), ``alpha`` y
+                ``kappa`` [1, m] (o [m]) e ``idx`` [1, m] (o [m]) con ``m <= k``.
+                ``idx`` son posiciones en ``_splat_id_order`` de docs activos: nunca
+                incluyen un doc borrado (soft o hard). DB vacía -> cuatro arrays vacíos.
+
+        Backfill (audit r1-05): al índice se le piden ``k + #posiciones inválidas``
+        (docs soft/hard-deleted o que no pasan el filtro) y se descartan al armar el
+        resultado, así ``search(q, k)`` devuelve ``k`` resultados siempre que existan
+        ``>= k`` docs activos que cumplan el filtro. El chequeo de colección vacía es
+        O(1): no se arma una lista de activos por query (audit r1-16).
         """
         query = np.asarray(query, dtype=np.float32)
         if query.ndim > 1:
@@ -1284,145 +1395,211 @@ class SimpleVectorDB:
             )
         if not np.all(np.isfinite(query)):
             raise ValueError("query contains NaN or Inf values")
+        # r1-27: k entero (int o numpy integer); un float da TypeError claro en vez
+        # del "'float' object cannot be interpreted as an integer" del interior del indice
+        if not isinstance(k, (int, np.integer)):
+            raise TypeError(f"k must be an integer (got {type(k).__name__}: {k!r})")
+        k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
+        # r1-14: validar el filtro ANTES de tocar el indice (fail closed, tambien con DB vacia)
+        validate_metadata_filter(filter)
 
-        # Empty collection: return empty results, don't raise
-        active = [d for d in self._vectors if d not in self._deleted]
-        if len(active) == 0:
-            if not include_energy and not include_metadata and filter is None:
-                return (np.array([], dtype=np.float32), np.array([], dtype=np.float32), np.array([], dtype=np.float32))
-            return []
+        # Nota del pack P6 (r1-05/r1-18): TODO el cuerpo bajo el lock de escritores.
+        # engine.search lo toma como frontera, pero entre su retorno y el ensamblado del
+        # DocResult / tupla legacy un delete(hard=True) puede compactar y reordenar
+        # _splat_id_order y las posiciones ya no mapearian a los mismos ids. Es un RLock
+        # (reentrante): engine.search lo vuelve a tomar sin deadlock.
+        with self._rw_lock:
 
-        if self._use_lsh and self.lsh is not None:
-            indices, distances = self._lsh_query_deterministic(query, k=k)
-            candidate_vectors = self.lsh.vectors[indices]
-            dummy_alpha = np.ones(len(indices), dtype=np.float32)
-            dummy_kappa = np.ones(len(indices), dtype=np.float32) * 10.0
-
-            # Return legacy tuple if no metadata/energy requested
-            if not include_energy and not include_metadata and filter is None:
-                return candidate_vectors, dummy_alpha, dummy_kappa
-
-            # Build DocResult list from LSH indices using _lsh_id_map
-            # (T2: logica extraida a _doc_results_from_lsh, compartida con
-            # el camino LSH de search_batch() para garantizar parity single vs batch)
-            return self._doc_results_from_lsh(
-                indices,
-                distances,
-                k=k,
-                include_metadata=include_metadata,
-                include_energy=include_energy,
-                filter=filter,
-            )
-
-        raw = self.engine.search(query, k)
-
-        if not include_energy and not include_metadata and filter is None:
-            return raw  # Compatibilidad legacy
-
-        # H12 (A/B): rutear el single sin filtro por el kernel batch PERDIO
-        # 2.2x (450 vs 979 QPS @10k: routing+isin+copia con B=1 no amortiza;
-        # el engine legacy ya es el path rapido). El single batch solo gana
-        # con FILTRO (H8: post-filter tenia recall 0.26). Por eso:
-        #   - filter is None -> flujo original (raw de arriba + assembly)
-        #   - filter is not None -> pre-filtro ACORN-lite + assembly propio
-        if not include_energy and filter is not None:
-            store = self.engine.m2m.splats
-            n_active = store.n_active
+            # Retorno legacy (sin metadata, sin energia, sin filtro)
+            legacy = not include_energy and not include_metadata and filter is None
             order = self._splat_id_order
-            allowed = np.array(
-                [
-                    self._match_filter(self._metadata.get(order[i], {}), filter)
-                    if i < len(order)
-                    else False
-                    for i in range(n_active)
-                ],
-                dtype=bool,
-            )
-            idxs = self.search_batch_filtered(
-                query[np.newaxis, :], k=k, filter_fn=lambda i: bool(allowed[i])
-            )[0]
-            qn = normalize_sphere(query)
-            results: List[DocResult] = []
-            for s_idx in idxs:
-                if s_idx < 0 or int(s_idx) >= len(order):
+            use_lsh = self._use_lsh and self.lsh is not None
+
+            # Coleccion vacia en O(1) (r1-16; antes una lista O(n) de ids activos por query).
+            # _deleted es subconjunto de _vectors: invariante de add/delete (el soft-delete
+            # solo marca ids presentes en _vectors; el hard-delete los quita de ambos).
+            n_active_docs = len(self._vectors) - len(self._deleted)
+            if n_active_docs <= 0:
+                if legacy:
+                    return (
+                        np.array([], dtype=np.float32),
+                        np.array([], dtype=np.float32),
+                        np.array([], dtype=np.float32),
+                        np.array([], dtype=np.int64),
+                    )
+                return []
+
+            def position_ok(pos: int) -> bool:
+                """La posicion de splat mapea a un doc activo (no soft ni hard-deleted)."""
+                if pos < 0 or pos >= len(order):
+                    return False
+                doc_id = order[pos]
+                return doc_id in self._vectors and doc_id not in self._deleted
+
+            def passes_filter(doc_id: str) -> bool:
+                return filter is None or self._match_filter(self._metadata.get(doc_id, {}), filter)
+
+            # r1-05: en modo LSH la posicion LSH == posicion en _splat_id_order (ambas se
+            # extienden en el mismo orden en add()).
+            n_splats = int(self.lsh.n_vectors) if use_lsh else int(self.engine.m2m.splats.n_active)
+
+            # Mascara por posicion (solo con filtro: doc activo Y cumple el filtro, dict o
+            # callable). Posiciones invalidas = borradas o filtradas: se piden de sobra.
+            allowed = None
+            if filter is None:
+                n_bad = max(0, n_splats - n_active_docs)
+            else:
+                allowed = np.array(
+                    [position_ok(i) and passes_filter(order[i]) for i in range(n_splats)],
+                    dtype=bool,
+                )
+                n_bad = n_splats - int(allowed.sum())
+            k_eff = min(n_splats, k + n_bad) if n_splats > 0 else 0
+
+            if use_lsh:
+                indices, distances = self._lsh_query_deterministic(query, k=k_eff)
+                indices = np.asarray(indices, dtype=np.int64).reshape(-1)
+                distances = np.asarray(distances, dtype=np.float32).reshape(-1)
+                if allowed is None:
+                    keep = np.array([position_ok(int(i)) for i in indices], dtype=bool)
+                else:
+                    keep = np.array(
+                        [int(i) < n_splats and bool(allowed[int(i)]) for i in indices], dtype=bool
+                    )
+                indices, distances = indices[keep], distances[keep]
+                if legacy:
+                    indices = indices[:k]
+                    return (
+                        self.lsh.vectors[indices],
+                        np.ones(len(indices), dtype=np.float32),
+                        np.full(len(indices), 10.0, dtype=np.float32),
+                        indices,
+                    )
+                # El filtro ya se aplico sobre las posiciones: el helper solo saltea borrados
+                # (y con include_metadata=False evaluaria un meta={} contra el filtro).
+                return self._doc_results_from_lsh(
+                    indices,
+                    distances,
+                    k=k,
+                    include_metadata=include_metadata,
+                    include_energy=include_energy,
+                )[:k]
+
+            raw = self.engine.search(query, k_eff)
+
+            if legacy:
+                if n_bad == 0:
+                    return raw  # Compatibilidad legacy: sin posiciones invalidas, tal cual el indice
+                mu, alpha, kappa, idx = raw
+                rows = np.asarray(idx).reshape(-1)
+                sel = np.zeros(len(rows), dtype=bool)
+                for j, pos in enumerate(rows):
+                    sel[j] = position_ok(int(pos))
+                sel[np.flatnonzero(sel)[k:]] = False  # a lo sumo k posiciones validas
+                return mu[:, sel], alpha[:, sel], kappa[:, sel], idx[:, sel]
+
+            store = self.engine.m2m.splats
+
+            if filter is not None:
+                # H8: pre-filtro ACORN-lite (con o sin energia, r1-10): el filtro corre sobre
+                # la union de candidatos ANTES del top-k. `allowed` ya excluye posiciones de
+                # docs borrados, asi que aca no hace falta backfill.
+                results: List[DocResult] = []
+                if allowed is not None and allowed.any():
+                    # MISMA query para el ranking y para la distancia/score: la normalizada
+                    # del camino principal (M2MMemory.retrieve normaliza antes de buscar).
+                    # Antes el indice rankeaba con la query cruda y el score usaba otra.
+                    qn = normalize_sphere(query)
+                    idxs = self.search_batch_filtered(
+                        qn[np.newaxis, :], k=k, filter_fn=lambda i: bool(allowed[i])
+                    )[0]
+                    seen = set()
+                    for s_idx in idxs:
+                        s_idx = int(s_idx)
+                        if not position_ok(s_idx):
+                            continue
+                        doc_id = order[s_idx]
+                        # Defensa en profundidad (dict o callable): nada que viole el filtro
+                        if not passes_filter(doc_id) or doc_id in seen:
+                            continue
+                        seen.add(doc_id)
+                        mu_i = store.mu[s_idx]
+                        dist = float(np.sqrt(np.maximum(((mu_i - qn) ** 2).sum(), 0.0)))
+                        energy_val = None
+                        confidence_val = None
+                        if include_energy and self.ebm_enabled and self._ebm_energy:
+                            vec = self._vectors.get(doc_id)
+                            if vec is not None:
+                                energy_val = self._ebm_energy.energy(vec)
+                                confidence_val = 1.0 / (1.0 + energy_val)
+                        results.append(
+                            DocResult(
+                                id=doc_id,
+                                score=-dist,
+                                vector=(mu_i.copy() if include_metadata else None),
+                                metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
+                                document=(self._documents.get(doc_id) if include_metadata else None),
+                                energy=energy_val,
+                                confidence=confidence_val,
+                            )
+                        )
+                        if len(results) >= k:
+                            break
+                return results
+
+            # Path con metadata / energia (sin filtro): loop completo (energia per doc)
+            # Construir lista de DocResults usando splat indices
+            # raw = (mu, alpha, kappa, splat_indices)
+            # splat_indices maps each result to a position in _splat_id_order
+            mu, alpha, kappa, splat_indices = raw
+
+            results = []
+            # Handle batch dim: mu is (1, k, dim) for single query
+            if mu.ndim == 3:
+                mu = mu[0]       # (k, dim)
+                alpha = alpha[0]  # (k,)
+                kappa = kappa[0]  # (k,)
+                splat_indices = splat_indices[0]  # (k,)
+
+            seen = set()
+            for i in range(min(k_eff, len(mu))):
+                splat_idx = int(splat_indices[i]) if i < len(splat_indices) else -1
+
+                # Map splat index -> document ID via _splat_id_order; skip deleted (soft/hard)
+                if not position_ok(splat_idx):
                     continue
-                s_idx = int(s_idx)
-                doc_id = order[s_idx]
-                if doc_id in self._deleted or doc_id not in self._vectors:
-                    continue
-                mu_i = store.mu[s_idx]
-                dist = float(np.sqrt(np.maximum(((mu_i - qn) ** 2).sum(), 0.0)))
+                doc_id = order[splat_idx]
+                if doc_id in seen:
+                    continue  # posicion huerfana + re-add del mismo id: una fila por doc
+                seen.add(doc_id)
+
+                score = float(np.asarray(alpha[i]).flat[0]) if i < len(alpha) else 0.0
+                energy_val = None
+                confidence_val = None
+
+                if include_energy and self.ebm_enabled and self._ebm_energy:
+                    vec = self._vectors.get(doc_id)
+                    if vec is not None:
+                        energy_val = self._ebm_energy.energy(vec)
+                        confidence_val = 1.0 / (1.0 + energy_val)
+
                 results.append(
                     DocResult(
                         id=doc_id,
-                        score=-dist,
-                        vector=(mu_i.copy() if include_metadata else None),
+                        score=score,
+                        vector=mu[i] if include_metadata else None,
                         metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
                         document=(self._documents.get(doc_id) if include_metadata else None),
-                        energy=None,
-                        confidence=None,
+                        energy=energy_val,
+                        confidence=confidence_val,
                     )
                 )
-            return results[:k]
+                if len(results) >= k:
+                    break
 
-        # Path con EBM (include_energy=True): loop completo (energia per doc)
-        # Construir lista de DocResults usando splat indices
-        # raw = (mu, alpha, kappa, splat_indices)
-        # splat_indices maps each result to a position in _splat_id_order
-        mu, alpha, kappa, splat_indices = raw
-
-        results = []
-        # Handle batch dim: mu is (1, k, dim) for single query
-        if mu.ndim == 3:
-            mu = mu[0]       # (k, dim)
-            alpha = alpha[0]  # (k,)
-            kappa = kappa[0]  # (k,)
-            splat_indices = splat_indices[0]  # (k,)
-
-        for i in range(min(k, len(mu))):
-            splat_idx = int(splat_indices[i]) if i < len(splat_indices) else -1
-
-            # Map splat index → document ID via _splat_id_order
-            if 0 <= splat_idx < len(self._splat_id_order):
-                doc_id = self._splat_id_order[splat_idx]
-            else:
-                continue
-
-            # Skip deleted documents
-            if doc_id in self._deleted or doc_id not in self._vectors:
-                continue
-
-            # Filtro de metadata
-            if filter:
-                meta = self._metadata.get(doc_id, {})
-                if not self._match_filter(meta, filter):
-                    continue
-
-            score = float(np.asarray(alpha[i]).flat[0]) if i < len(alpha) else 0.0
-            energy_val = None
-            confidence_val = None
-
-            if include_energy and self.ebm_enabled and self._ebm_energy:
-                vec = self._vectors.get(doc_id)
-                if vec is not None:
-                    energy_val = self._ebm_energy.energy(vec)
-                    confidence_val = 1.0 / (1.0 + energy_val)
-
-            results.append(
-                DocResult(
-                    id=doc_id,
-                    score=score,
-                    vector=mu[i] if include_metadata else None,
-                    metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
-                    document=(self._documents.get(doc_id) if include_metadata else None),
-                    energy=energy_val,
-                    confidence=confidence_val,
-                )
-            )
-
-        return results[:k]
+            return results
 
     def _lsh_query_deterministic(self, query: np.ndarray, k: int):
         """lsh.query() con RNG global pineado: su fallback interno de

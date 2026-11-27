@@ -402,30 +402,18 @@ class M2MPersistence:
                 results.append(doc_id)
         return results
 
-    def _matches_filter(self, meta: dict, filter_dict: dict) -> bool:
-        """Evalúa si un documento cumple el filtro."""
-        for key, condition in filter_dict.items():
-            if key not in meta:
-                return False
-            val = meta[key]
-            if isinstance(condition, dict):
-                for op, comp in condition.items():
-                    if op == "$eq" and val != comp:
-                        return False
-                    elif op == "$ne" and val == comp:
-                        return False
-                    elif op == "$gt" and not (val > comp):
-                        return False
-                    elif op == "$gte" and not (val >= comp):
-                        return False
-                    elif op == "$lt" and not (val < comp):
-                        return False
-                    elif op == "$lte" and not (val <= comp):
-                        return False
-            else:
-                if val != condition:
-                    return False
-        return True
+    def _matches_filter(self, meta: dict, filter_dict) -> bool:
+        """Evalua si un documento cumple el filtro.
+
+        Delega en ``m2m.match_metadata_filter``: MISMA semantica de operadores que
+        ``SimpleVectorDB._match_filter`` ($eq,$ne,$gt,$gte,$lt,$lte,$in,$nin o
+        callable metadata -> bool); operador desconocido / condicion ``{}`` /
+        tipo invalido -> ValueError (fail closed) [audit r1-14]. Import diferido
+        porque ``m2m/__init__`` importa este modulo al arrancar.
+        """
+        from .. import match_metadata_filter
+
+        return match_metadata_filter(meta, filter_dict)
 
     # -------------------------------------------------------------------------
     # Index Persistence

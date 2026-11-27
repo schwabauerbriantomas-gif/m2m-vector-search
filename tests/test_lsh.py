@@ -104,6 +104,8 @@ def test_m2m_integration_with_lsh():
     query = query / np.linalg.norm(query)
 
     k = 10
-    result_vectors, _, _ = db.search(query, k=k)
+    # Retorno legacy SIEMPRE 4-tupla (mu, alpha, kappa, idx): decision del orquestador
+    # para el audit r1-18 (antes 3 en LSH/vacio y 4 en el camino HRM2).
+    result_vectors, _, _, _ = db.search(query, k=k)
     assert len(result_vectors) == k
     assert result_vectors.shape[1] == dim
