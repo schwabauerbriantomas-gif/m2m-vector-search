@@ -1518,6 +1518,10 @@ class SimpleVectorDB:
             if document is not None:
                 self.storage.update_metadata(id, document=document)
 
+        if vector is not None:
+            # El splat volvió a α/κ por defecto: el estado persistido ya no le aplica [P15]
+            self._refresh_splat_state_if_learned()
+
         return UpdateResult(success=True, energy_delta=energy_delta)
 
     def _remove_splats(self, doc_ids: set) -> set:
@@ -1681,6 +1685,10 @@ class SimpleVectorDB:
                         self.storage.hard_delete(doc_id)
                     else:
                         self.storage.soft_delete(doc_id)
+
+        if hard and deleted_count:
+            # El splat salió del store: su entrada del npz no debe resucitar [P15]
+            self._refresh_splat_state_if_learned()
 
         return DeleteResult(deleted=deleted_count, energy_freed=energy_freed)
 
@@ -2923,6 +2931,28 @@ class SimpleVectorDB:
                 self.storage.save_energy_state(state)
         except Exception as e:  # defensa: la persistencia del estado es best-effort
             logger.warning("splat state not persisted: %s: %s", type(e).__name__, e)
+
+    def _has_persisted_splat_state(self) -> bool:
+        """True si el storage ya guarda estado aprendido (``energy/landscape.npz``)."""
+        if self.storage is None:
+            return False
+        from pathlib import Path
+
+        return (Path(self.storage.storage_path) / "energy" / "landscape.npz").is_file()
+
+    def _refresh_splat_state_if_learned(self) -> None:
+        """Re-escribe ``energy/landscape.npz`` si el storage ya guarda estado
+        aprendido (α/κ/μ por id) [audit P15].
+
+        Lo llaman los writers que dejan entradas viejas en ese archivo:
+        ``update(vector=)`` (el splat vuelve a α/κ por defecto) y el hard-delete.
+        Sin esto, al reabrir, un doc re-agregado o vuelto a su vector anterior
+        resucitaba su α/κ/μ aprendidos. Sin estado persistido no hace nada.
+        """
+        if not self._has_persisted_splat_state():
+            return
+        with self._rw_lock:
+            self._write_splat_state()
 
     def _restore_splat_state(self) -> bool:
         """Re-aplica el estado aprendido (α, κ, μ) por id tras reconstruir el
