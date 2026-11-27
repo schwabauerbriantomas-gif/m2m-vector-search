@@ -20,7 +20,7 @@ __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable, Union
 
 import numpy as np
 
@@ -413,6 +413,114 @@ class SearchResult:
 # ---------------------------------------------------------------------------
 # SimpleVectorDB - CRUD Completo + Persistencia + EBM opcional
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Filtros de metadata (audit r1-14)
+# Un solo lugar de semantica para SimpleVectorDB._match_filter (memoria) y
+# M2MPersistence._matches_filter (storage), que antes duplicaban el bucle y
+# divergian en silencio: un operador desconocido ($in, typos como $gtt) o una
+# condicion {} caian en la rama default y NO filtraban (dejaban pasar todo, y
+# delete(filter=...) borraba de mas). Ahora: fail closed (ValueError).
+# ---------------------------------------------------------------------------
+_METADATA_FILTER_OPERATORS = ("$eq", "$ne", "$gt", "$gte", "$lt", "$lte", "$in", "$nin")
+_FILTER_IN_OPS = ("$in", "$nin")
+# Contenedores: unicos argumentos validos de $in/$nin y NUNCA validos como
+# condicion directa (ambiguos: {"c": [3]} no es ni igualdad ni $in).
+_FILTER_CONTAINER_TYPES = (list, tuple, set, frozenset, np.ndarray)
+
+
+def _invalid_filter(msg: str) -> ValueError:
+    return ValueError(f"filtro de metadata invalido: {msg}")
+
+
+def validate_metadata_filter(filter_dict) -> None:
+    """Valida la ESTRUCTURA de un filtro sin evaluarlo contra ningun doc (fail closed).
+
+    Acepta ``None`` (sin filtro), un callable ``metadata -> bool`` o un dict
+    ``{campo: valor | {op: valor}}`` con ops en ``_METADATA_FILTER_OPERATORS``.
+    Operador desconocido, condicion ``{}``, filtro ``{}`` o tipo invalido ->
+    ``ValueError``. Se llama antes de tocar el indice (o de borrar algo, via
+    ``_match_filter``), asi un filtro mal escrito nunca "deja pasar todo".
+    """
+    if filter_dict is None or callable(filter_dict):
+        return
+    if not isinstance(filter_dict, dict):
+        raise _invalid_filter(
+            "se esperaba un dict o un callable metadata -> bool, "
+            f"se recibio {type(filter_dict).__name__}"
+        )
+    if not filter_dict:
+        raise _invalid_filter("filter vacio ({}) ; pasa filter=None para no filtrar")
+    for key, cond in filter_dict.items():
+        if isinstance(cond, dict):
+            if not cond:
+                raise _invalid_filter(f"condicion vacia para el campo {key!r} ({{}})")
+            for op, comp in cond.items():
+                if op not in _METADATA_FILTER_OPERATORS:
+                    raise _invalid_filter(
+                        f"operador {op!r} no soportado para {key!r} "
+                        f"(soportados: {', '.join(_METADATA_FILTER_OPERATORS)})"
+                    )
+                if op in _FILTER_IN_OPS and not isinstance(comp, _FILTER_CONTAINER_TYPES):
+                    raise _invalid_filter(
+                        f"{op} requiere una lista/conjunto de valores para {key!r}, "
+                        f"se recibio {type(comp).__name__}"
+                    )
+        elif isinstance(cond, _FILTER_CONTAINER_TYPES):
+            raise _invalid_filter(
+                f"condicion invalida para {key!r}: se esperaba un valor o un dict de "
+                f"operadores (p. ej. {{'$in': [...]}}), se recibio {type(cond).__name__}"
+            )
+
+
+def match_metadata_filter(meta: dict, filter_dict) -> bool:
+    """Evalua un filtro de metadata contra un doc (misma semantica en memoria y storage).
+
+    ``filter_dict`` es ``None`` (matchea todo), un callable ``metadata -> bool`` o
+    un dict ``{campo: valor | {op: valor}}``: todas las condiciones deben
+    cumplirse y un campo ausente en ``meta`` no cumple. La estructura se valida
+    primero: operador desconocido / condicion ``{}`` / tipos incomparables ->
+    ``ValueError`` [audit r1-14].
+    """
+    validate_metadata_filter(filter_dict)
+    if filter_dict is None:
+        return True
+    if callable(filter_dict):
+        return bool(filter_dict(meta))
+    for key, cond in filter_dict.items():
+        if key not in meta:
+            return False
+        val = meta[key]
+        if isinstance(cond, dict):
+            for op, comp in cond.items():
+                try:
+                    if op == "$eq":
+                        ok = bool(val == comp)
+                    elif op == "$ne":
+                        ok = bool(val != comp)
+                    elif op == "$gt":
+                        ok = bool(val > comp)
+                    elif op == "$gte":
+                        ok = bool(val >= comp)
+                    elif op == "$lt":
+                        ok = bool(val < comp)
+                    elif op == "$lte":
+                        ok = bool(val <= comp)
+                    elif op == "$in":
+                        ok = val in comp
+                    else:  # $nin
+                        ok = val not in comp
+                except (TypeError, ValueError) as e:
+                    raise _invalid_filter(
+                        f"no se puede evaluar {op} en {key!r}: valor {val!r} vs "
+                        f"comparador {comp!r} ({e})"
+                    ) from e
+                if not ok:
+                    return False
+        elif val != cond:
+            return False
+    return True
 
 
 class SimpleVectorDB:
@@ -1017,38 +1125,24 @@ class SimpleVectorDB:
 
         return DeleteResult(deleted=deleted_count, energy_freed=energy_freed)
 
-    def _match_filter(self, meta: dict, filter_dict: dict) -> bool:
-        """Evalúa filtro de metadata."""
+    def _match_filter(self, meta: dict, filter_dict) -> bool:
+        """Evalua filtro de metadata contra un doc.
+
+        Acepta un dict ``{campo: valor | {op: valor}}`` con ops ``$eq, $ne, $gt,
+        $gte, $lt, $lte, $in, $nin`` o un callable ``metadata -> bool``. Operador
+        desconocido (typos como ``$gtt``), condicion ``{}`` o tipo invalido ->
+        ValueError: fail closed en vez de dejar pasar todo [audit r1-14]. Misma
+        semantica con y sin storage (helper compartido ``match_metadata_filter``).
+        """
         if self.storage:
             return self.storage._matches_filter(meta, filter_dict)
-        for key, cond in filter_dict.items():
-            if key not in meta:
-                return False
-            val = meta[key]
-            if isinstance(cond, dict):
-                for op, comp in cond.items():
-                    if op == "$eq" and val != comp:
-                        return False
-                    elif op == "$ne" and val == comp:
-                        return False
-                    elif op == "$gt" and not (val > comp):
-                        return False
-                    elif op == "$gte" and not (val >= comp):
-                        return False
-                    elif op == "$lt" and not (val < comp):
-                        return False
-                    elif op == "$lte" and not (val <= comp):
-                        return False
-            else:
-                if val != cond:
-                    return False
-        return True
+        return match_metadata_filter(meta, filter_dict)
 
     def search(
         self,
         query: np.ndarray,
         k: int = 10,
-        filter: Optional[Dict] = None,
+        filter: Optional[Union[Dict, Callable]] = None,
         include_energy: bool = False,
         include_metadata: bool = False,  # Changed default to False for legacy compat
     ) -> Any:
@@ -1058,7 +1152,9 @@ class SimpleVectorDB:
         Args:
             query: Vector de consulta [D]
             k: Número de resultados
-            filter: Filtro de metadata
+            filter: Filtro de metadata: dict ``{campo: valor | {op: valor}}`` (ops
+                ``$eq,$ne,$gt,$gte,$lt,$lte,$in,$nin``) o callable ``metadata -> bool``.
+                Operador desconocido, condición ``{}`` o tipo inválido -> ValueError.
             include_energy: Si True, incluye información energética (requiere ebm_enabled)
             include_metadata: Si True, retorna List[DocResult]. False retorna tupla legacy.
 
@@ -1079,8 +1175,15 @@ class SimpleVectorDB:
             )
         if not np.all(np.isfinite(query)):
             raise ValueError("query contains NaN or Inf values")
+        # r1-27: k entero (int o numpy integer); un float da TypeError claro en vez
+        # del "'float' object cannot be interpreted as an integer" del interior del indice
+        if not isinstance(k, (int, np.integer)):
+            raise TypeError(f"k must be an integer (got {type(k).__name__}: {k!r})")
+        k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
+        # r1-14: validar el filtro ANTES de tocar el indice (fail closed, tambien con DB vacia)
+        validate_metadata_filter(filter)
 
         # Empty collection: return empty results, don't raise
         active = [d for d in self._vectors if d not in self._deleted]
