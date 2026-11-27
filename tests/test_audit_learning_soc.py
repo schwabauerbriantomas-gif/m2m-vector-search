@@ -269,3 +269,256 @@ class TestR3a_08FeedbackApi:
         assert not ({"d3", "d4", "d5"} & set(db._vectors))
         got = [r.id for r in db.search(x[0], k=20, include_metadata=True)]
         assert len(got) == 17 and not ({"d3", "d4", "d5"} & set(got))
+
+
+# ---------------------------------------------------------------------------
+# r2-16 — constructor documentado, métrica real, SUPERCRITICAL alcanzable, relax
+# ---------------------------------------------------------------------------
+
+
+class TestR2_16SocConstructorMetricAndRelax:
+    def test_documented_constructor_forms_clusters(self):
+        x, _ = _clustered(120, 32, seed=9)
+        alpha = np.ones(120, dtype=np.float32)
+        kappa = np.full(120, 10.0, dtype=np.float32)
+        # exactamente el uso del docstring de SOCEngine
+        soc = SOCEngine(EBMEnergy(x, alpha, kappa), x, alpha, kappa)
+        assert soc.get_statistics()["n_clusters"] > 0
+        rep = soc.check_criticality()
+        assert 0 < rep.n_clusters <= 120
+        assert rep.size_variance > 0.0  # clústeres reales: los tamaños varían
+        assert rep.energy_variance >= 0.0
+        assert rep.state is not CriticalityState.SUPERCRITICAL  # store fresco
+        assert rep.decayed_fraction == 0.0 and rep.kappa_dispersion == 0.0
+
+    def test_metric_uses_mu_alpha_and_kappa(self):
+        x = _random_unit(200, 32, seed=10)
+        alpha = np.ones(200, dtype=np.float32)
+        kappa = np.full(200, 10.0, dtype=np.float32)
+        soc = SOCEngine(EBMEnergy(x, alpha, kappa), x, alpha, kappa)
+        base = soc.check_criticality()
+        assert 0.0 <= base.index < 0.3
+
+        # κ: dispersión real de concentración
+        kappa[:] = np.linspace(0.5, 100.0, 200).astype(np.float32)
+        soc.update_splats(x, alpha, kappa)
+        rep_k = soc.check_criticality()
+        assert rep_k.kappa_dispersion > 0.5
+        assert rep_k.components["kappa"] > 0.0
+        assert rep_k.index > base.index
+
+        # α: la mitad de los splats de un mismo grupo geométrico queda "caliente"
+        soc.update_splats(x, np.ones(200, dtype=np.float32), np.full(200, 10.0, dtype=np.float32))
+        alpha2 = np.ones(200, dtype=np.float32)
+        alpha2[:20] = 10.0  # los 20 primeros splats comparten dirección (misma cuenca)
+        x_tight = x.copy()
+        x_tight[:20] = _unit(x[0] + 0.01 * np.random.default_rng(11).normal(size=(20, 32)))
+        soc.update_splats(x_tight, alpha2, np.full(200, 10.0, dtype=np.float32))
+        rep_a = soc.check_criticality()
+        assert rep_a.energy_variance > 0.0
+        assert rep_a.components["energy"] > 0.0
+        assert rep_a.index > 0.0
+
+        # μ: la misma α/κ pero toda la masa en una dirección -> tamaños desbalanceados
+        x_skew = x.copy()
+        x_skew[:170] = _unit(x[0] + 0.01 * np.random.default_rng(12).normal(size=(170, 32)))
+        soc.update_splats(x_skew, np.ones(200, dtype=np.float32), np.full(200, 10.0, dtype=np.float32))
+        rep_m = soc.check_criticality()
+        assert rep_m.components["size"] > base.components["size"]
+        assert rep_m.index > base.index
+
+    def test_supercritical_reachable_standalone(self):
+        x = _random_unit(100, 32, seed=13)
+        alpha = np.r_[np.full(90, 0.01), np.full(10, 1.0)].astype(np.float32)
+        kappa = np.full(100, 10.0, dtype=np.float32)
+        soc = SOCEngine(EBMEnergy(x, alpha, kappa), x, alpha, kappa)
+        rep = soc.check_criticality()
+        assert rep.decayed_fraction == pytest.approx(0.9)
+        assert rep.index >= 0.7
+        assert rep.state is CriticalityState.SUPERCRITICAL
+        assert rep.needs_relaxation() and rep.needs_monitoring()
+
+    def test_supercritical_under_real_overload_via_public_api(self):
+        """Sobrecarga real: muchos docs de α bajo por feedback 'irrelevante'."""
+        db = AdvancedVectorDB(latent_dim=32)
+        x, _ = _clustered(200, 32, seed=14)
+        ids = [f"d{i}" for i in range(200)]
+        db.add(ids=ids, vectors=x)
+        assert db.check_criticality().state is not CriticalityState.SUPERCRITICAL
+        for _ in range(60):
+            db.feedback(x[0], irrelevant_ids=ids[:150])
+        rep = db.check_criticality()
+        print(f"\n[soc] tras sobrecarga: {rep.state.value} index={rep.index:.3f} {rep.components}")
+        assert rep.decayed_fraction == pytest.approx(0.75)
+        assert rep.state is CriticalityState.SUPERCRITICAL
+        # nada es automático por defecto
+        assert len(db._vectors) == 200
+        assert db.auto_consolidate is False
+
+    def test_relax_never_raises_free_energy(self):
+        db = AdvancedVectorDB(latent_dim=32)
+        x = _random_unit(60, 32, seed=15)
+        db.add(ids=[f"d{i}" for i in range(60)], vectors=x)
+        f0 = db.get_stats()["free_energy"]
+        res = db.relax(iterations=10)
+        f1 = db.get_stats()["free_energy"]
+        print(f"\n[relax] F {f0:.5f} -> {f1:.5f} (delta={res.energy_delta:+.2e})")
+        assert f1 <= f0 + 1e-9
+        assert res.final_energy <= res.initial_energy + 1e-9
+        assert res.iterations == 10
+
+    def test_relax_strictly_lowers_free_energy_when_not_relaxed(self):
+        db = AdvancedVectorDB(latent_dim=32)
+        x = _random_unit(60, 32, seed=16)
+        db.add(ids=[f"d{i}" for i in range(60)], vectors=x)
+        st = db.engine.m2m.splats
+        n = st.n_active
+        st.kappa[:n] = 100.0  # sobre-afilado (lo que satura el feedback relevante)
+        db._update_ebm_splats()
+        f0 = db.get_stats()["free_energy"]
+        res = db.relax(iterations=10)
+        f1 = db.get_stats()["free_energy"]
+        print(f"\n[relax no relajado] F {f0:.5f} -> {f1:.5f} | kappa max {st.kappa[:n].max():.2f}")
+        assert f1 < f0 - 1e-6
+        assert res.improved
+        assert np.all(st.kappa[:n] < 100.0)
+        # μ no se toca (es el embedding del documento) y α tampoco
+        np.testing.assert_allclose(_norms(st.mu[:n]), 1.0, atol=1e-5)
+        assert np.allclose(st.alpha[:n], 1.0)
+        # un segundo relax sigue sin subir F
+        f2 = db.get_stats()["free_energy"] if db.relax(iterations=10) else None
+        assert f2 <= f1 + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# r3a-07 — SOC sobre el store real, persistencia, invariante de seguridad
+# ---------------------------------------------------------------------------
+
+
+class TestR3a_07SocOperatesOnTheRealStore:
+    def test_standalone_engine_writes_through_to_the_caller_arrays(self):
+        x = _random_unit(40, 16, seed=17)
+        alpha = np.ones(40, dtype=np.float32)
+        kappa = np.full(40, 10.0, dtype=np.float32)
+        soc = SOCEngine(EBMEnergy(x, alpha, kappa), x, alpha, kappa)
+        a0 = alpha.copy()
+        res = soc.trigger_avalanche()
+        assert res.affected_clusters > 0 and res.energy_released > 0.0
+        assert np.any(alpha < a0 - 1e-6)  # el array del llamador cambió
+        np.testing.assert_allclose(soc.energy_api.splat_alpha, alpha)
+
+    def test_avalanche_and_relax_mutate_real_store_and_survive_reopen(self, tmp_path):
+        sp = str(tmp_path / "db")
+        db = AdvancedVectorDB(latent_dim=32, storage_path=sp)
+        x = _random_unit(40, 32, seed=18)
+        db.add(ids=[f"d{i}" for i in range(40)], vectors=x)
+        st = db.engine.m2m.splats
+        n = st.n_active
+        a0 = st.alpha[:n].copy()
+
+        res = db.trigger_avalanche()
+        assert res.affected_clusters > 0 and res.energy_released > 0.0
+        a1 = st.alpha[:n].copy()
+        assert np.any(a1 < a0 - 1e-6)
+        assert np.all(a1 >= 0.01 - 1e-7)
+        np.testing.assert_allclose(db._ebm_energy.splat_alpha, a1)  # el EBM ve el store
+
+        st.kappa[:n] = 100.0
+        db._update_ebm_splats()
+        r = db.relax(iterations=10)
+        k1 = st.kappa[:n].copy()
+        assert r.improved and np.all(k1 < 100.0)
+
+        db.save()
+        db2 = AdvancedVectorDB(latent_dim=32, storage_path=sp)
+        st2 = db2.engine.m2m.splats
+        assert st2.n_active == n
+        np.testing.assert_allclose(st2.alpha[:n], a1, rtol=1e-5, atol=1e-7)
+        np.testing.assert_allclose(st2.kappa[:n], k1, rtol=1e-5, atol=1e-7)
+
+    def test_memory_db_snapshot_carries_the_learned_state(self, tmp_path):
+        db = AdvancedVectorDB(latent_dim=16)
+        x = _random_unit(20, 16, seed=19)
+        db.add(ids=[f"d{i}" for i in range(20)], vectors=x)
+        db.trigger_avalanche()
+        st = db.engine.m2m.splats
+        a1 = st.alpha[: st.n_active].copy()
+        assert np.any(a1 < 1.0 - 1e-6)  # la avalanche tocó el store real
+        out = db.save(str(tmp_path / "snap"))
+        db2 = AdvancedVectorDB(latent_dim=16, storage_path=out)
+        st2 = db2.engine.m2m.splats
+        np.testing.assert_allclose(st2.alpha[: st2.n_active], a1, rtol=1e-5, atol=1e-7)
+
+    def test_no_orphans_after_consolidate_relax_and_avalanche(self, tmp_path):
+        sp = str(tmp_path / "db")
+        db = AdvancedVectorDB(latent_dim=32, storage_path=sp)
+        x, _ = _clustered(60, 32, seed=20)
+        ids = [f"d{i}" for i in range(60)]
+        db.add(ids=ids, vectors=x)  # 1 splat por doc
+        for _ in range(60):
+            db.feedback(x[0], irrelevant_ids=ids[10:20])
+
+        def check(d):
+            order = d._splat_id_order
+            store = d.engine.m2m.splats
+            active = _active_ids(d)
+            assert len(order) == store.n_active
+            assert set(order) == set(active), "posiciones sin doc o docs sin splat"
+            for doc_id in active:
+                assert order.count(doc_id) >= 1
+                got = [r.id for r in d.search(d._vectors[doc_id], k=len(active), include_metadata=True)]
+                assert doc_id in got, f"{doc_id} activo pero no encontrado por search()"
+                assert set(got) <= set(active)
+
+        check(db)
+        removed = db.consolidate(threshold=0.05)
+        assert removed == 10
+        check(db)
+        f_before = db.get_stats()["free_energy"]
+        assert db.relax().final_energy <= f_before + 1e-9
+        check(db)
+        db.trigger_avalanche()
+        check(db)
+        db.save()
+        db2 = AdvancedVectorDB(latent_dim=32, storage_path=sp)
+        check(db2)
+        assert not (set(ids[10:20]) & set(db2._vectors)), "docs podados resucitaron del storage"
+
+    def test_maybe_consolidate_explicit_and_idempotent(self):
+        db = AdvancedVectorDB(latent_dim=32)
+        x, _ = _clustered(60, 32, seed=21)
+        ids = [f"d{i}" for i in range(60)]
+        db.add(ids=ids, vectors=x)
+        for _ in range(60):
+            db.feedback(x[0], irrelevant_ids=ids[:45])
+        assert len(db._vectors) == 60  # nada automático
+        assert db.check_criticality().state is CriticalityState.SUPERCRITICAL
+
+        dec = db.maybe_consolidate()
+        assert isinstance(dec, ConsolidationDecision)
+        print(f"\n[maybe_consolidate] {dec}")
+        assert dec.triggered is True and dec.removed == 45
+        assert len(db._vectors) == 15
+        assert dec.state is not CriticalityState.SUPERCRITICAL
+        for doc_id in _active_ids(db):
+            got = [r.id for r in db.search(db._vectors[doc_id], k=15, include_metadata=True)]
+            assert doc_id in got
+
+        dec2 = db.maybe_consolidate()
+        assert dec2.triggered is False and dec2.removed == 0
+        assert len(db._vectors) == 15
+
+    def test_maybe_consolidate_without_soc_raises(self):
+        db = AdvancedVectorDB(latent_dim=16, enable_soc=False, enable_energy_features=False)
+        with pytest.raises(RuntimeError, match="SOC"):
+            db.maybe_consolidate()
+
+    def test_auto_consolidate_is_opt_in(self):
+        db = AdvancedVectorDB(latent_dim=32, auto_consolidate=True)
+        x, _ = _clustered(60, 32, seed=22)
+        ids = [f"d{i}" for i in range(60)]
+        db.add(ids=ids, vectors=x)
+        for _ in range(60):
+            db.feedback(x[0], irrelevant_ids=ids[:45])
+        assert len(db._vectors) == 15
+        assert set(_active_ids(db)) == set(ids[45:])

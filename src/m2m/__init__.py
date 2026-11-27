@@ -2755,8 +2755,9 @@ class AdvancedVectorDB(SimpleVectorDB):
     Hereda de SimpleVectorDB y añade:
     1. Exploración (Langevin Dynamics): SOC + exploración del espacio latente.
     2. Context Management (3-tier memory): Hot VRAM, Warm RAM, Cold SSD.
-    3. SOC Engine: Self-Organized Criticality con avalanches automáticas.
+    3. SOC Engine: Self-Organized Criticality con avalanches.
     4. EBM completo: Energía, exploración, confianza.
+    5. Online learning: ``feedback()`` (heredado) y ``maybe_consolidate()``.
 
     Uso:
         db = AdvancedVectorDB(latent_dim=768)
@@ -2764,6 +2765,15 @@ class AdvancedVectorDB(SimpleVectorDB):
         result = db.search_with_energy(query, k=10)
         state = db.check_criticality()
         db.relax(iterations=10)
+        decision = db.maybe_consolidate()   # consolida SÓLO en SUPERCRITICAL
+
+    SOC sobre el store real [audit r3a-07]: ``check_criticality`` /
+    ``trigger_avalanche`` / ``relax`` leen y escriben ``SplatStore`` (el
+    ``SOCEngine`` recibe vistas ``[:n_active]`` sin copia) bajo ``_rw_lock``;
+    avalanche, relax y feedback persisten el estado aprendido (α/κ/μ por id) y
+    sobreviven a ``save()`` + reopen. Nada es automático por defecto: la
+    consolidación guiada por criticalidad es explícita (``maybe_consolidate``) y
+    la automática es opt-in (``auto_consolidate=True``).
     """
 
     def __init__(
@@ -2773,6 +2783,7 @@ class AdvancedVectorDB(SimpleVectorDB):
         storage_path: Optional[str] = None,
         enable_soc: bool = True,
         enable_energy_features: bool = True,
+        auto_consolidate: bool = False,
     ):
         # SPEC-12: Pass advanced config directly to parent to avoid double engine creation
         config = M2MConfig.advanced(device=device)
@@ -2789,55 +2800,106 @@ class AdvancedVectorDB(SimpleVectorDB):
 
         # SOC Engine
         self.soc_enabled = enable_soc
+        # [audit r3a-07] automático SÓLO opt-in: con True, cada cambio del store
+        # (_update_ebm_splats) evalúa la criticality y consolida si está SUPERCRITICAL.
+        self.auto_consolidate = bool(auto_consolidate)
+        # Guardia de reentrancia: consolidate() -> _update_ebm_splats() -> auto -> consolidate()
+        self._soc_busy = False
         self._soc: Optional[SOCEngine] = None
         if enable_soc and self.ebm_enabled:
             self._soc = SOCEngine(self._ebm_energy)
 
+        if self.ebm_enabled:
+            # El estado aprendido (α/κ/μ) persistido: _restore_from_storage corre dentro
+            # de super().__init__ ANTES de que existan ebm_enabled/_soc, así que se aplica acá.
+            with self._rw_lock:
+                self._restore_splat_state()
+
     def _update_ebm_splats(self):
-        """Actualiza splats en EBM y SOC."""
+        """Actualiza splats en EBM y SOC.
+
+        Al SOC le pasan VISTAS del store (``SplatStore.mu/alpha/kappa[:n]``), no
+        copias: así avalanche y relax escriben en el store real [audit r3a-07].
+        Los clústeres del SOC son los coarse clusters del índice HRM2 cuando
+        cubren exactamente los n splats activos.
+        """
         super()._update_ebm_splats()
-        if self._soc is not None and self.ebm_enabled:
-            mu, alpha, kappa = self.engine.get_splats_arrays()
-            if mu is not None and len(mu) > 0:
-                self._soc.update_splats(mu, alpha, kappa)
+        soc = getattr(self, "_soc", None)
+        if soc is None or not self.ebm_enabled:
+            return
+        store = self.engine.m2m.splats
+        n = store.n_active
+        if n > 0:
+            labels = getattr(store.engine, "coarse_assignments", None)
+            if labels is None or len(labels) != n:
+                labels = None  # índice vencido (compact): el SOC agrupa por geometría
+            soc.update_splats(
+                store.mu[:n], store.alpha[:n], store.kappa[:n], cluster_labels=labels
+            )
+        else:
+            soc.update_splats(
+                np.zeros((0, self.latent_dim), dtype=np.float32),
+                np.zeros(0, dtype=np.float32),
+                np.zeros(0, dtype=np.float32),
+            )
+        if getattr(self, "auto_consolidate", False) and not getattr(self, "_soc_busy", False):
+            self.maybe_consolidate()
 
     def consolidate(self, threshold: float = None) -> int:
-        """Run Self-Organized Criticality memory consolidation."""
-        # Identify which splats will be removed before consolidation
-        mem = self.engine.m2m
-        if threshold is None:
-            threshold = mem.soc_threshold
+        """Run Self-Organized Criticality memory consolidation.
 
-        splats_to_remove = set()
-        if mem.splats.n_active > 0:
-            removed_indices = np.where(mem.splats.alpha[: mem.splats.n_active] < threshold)[0]
-            splats_to_remove = set(int(i) for i in removed_indices)
+        Podar deja el store consistente [audit r3a-07]: ``_splat_id_order`` se
+        compacta con la misma máscara, los docs que pierden su único splat
+        salen de ``_vectors``/``_metadata``/``_documents`` Y del storage (antes
+        sólo salían de memoria y resucitaban al reabrir), y EBM/SOC dejan de
+        apuntar a las filas podadas.
+        """
+        with self._rw_lock:
+            mem = self.engine.m2m
+            if threshold is None:
+                threshold = mem.soc_threshold
 
-        # Call the underlying consolidate
-        n_removed = mem.consolidate(threshold)
+            # Identify which splats will be removed before consolidation
+            splats_to_remove = set()
+            if mem.splats.n_active > 0:
+                removed_indices = np.where(mem.splats.alpha[: mem.splats.n_active] < threshold)[0]
+                splats_to_remove = set(int(i) for i in removed_indices)
 
-        # Clean up orphaned doc_ids from _vectors, _metadata, _documents
-        if n_removed > 0 and self._splat_id_order:
-            # Build set of doc_ids to remove based on splat positions
-            orphans = {
-                self._splat_id_order[idx]
-                for idx in splats_to_remove
-                if idx < len(self._splat_id_order)
-            }
-            # Rebuild _splat_id_order keeping only surviving splats
-            kept = [
-                self._splat_id_order[i]
-                for i in range(len(self._splat_id_order))
-                if i not in splats_to_remove
-            ]
-            self._splat_id_order = kept
-            # Remove orphaned entries
-            for doc_id in orphans:
-                self._vectors.pop(doc_id, None)
-                self._metadata.pop(doc_id, None)
-                self._documents.pop(doc_id, None)
-                self._deleted.discard(doc_id)
-            logger.info("SOC cleanup: removed %d orphaned doc_ids", len(orphans))
+            self._soc_busy = True
+            try:
+                # Call the underlying consolidate
+                n_removed = mem.consolidate(threshold)
+
+                # Clean up orphaned doc_ids from _vectors, _metadata, _documents
+                if n_removed > 0 and self._splat_id_order:
+                    # Build set of doc_ids to remove based on splat positions
+                    orphans = {
+                        self._splat_id_order[idx]
+                        for idx in splats_to_remove
+                        if idx < len(self._splat_id_order)
+                    }
+                    # Rebuild _splat_id_order keeping only surviving splats
+                    kept = [
+                        self._splat_id_order[i]
+                        for i in range(len(self._splat_id_order))
+                        if i not in splats_to_remove
+                    ]
+                    self._splat_id_order = kept
+                    # Remove orphaned entries
+                    for doc_id in orphans:
+                        self._vectors.pop(doc_id, None)
+                        self._metadata.pop(doc_id, None)
+                        self._documents.pop(doc_id, None)
+                        self._deleted.discard(doc_id)
+                        if self.storage is not None:
+                            self.storage.hard_delete(doc_id)
+                    logger.info("SOC cleanup: removed %d orphaned doc_ids", len(orphans))
+
+                # EBM/SOC con los splats que quedan (antes seguían con los arrays previos)
+                self._update_ebm_splats()
+                self._write_splat_state()
+            finally:
+                self._soc_busy = False
 
         return n_removed
 
@@ -2850,35 +2912,115 @@ class AdvancedVectorDB(SimpleVectorDB):
         """
         if self._soc is None:
             raise RuntimeError("SOC no habilitado. Usa enable_soc=True.")
-        return self._soc.check_criticality()
+        with self._rw_lock:
+            return self._soc.check_criticality()
 
     def trigger_avalanche(self, seed_point: Optional[np.ndarray] = None) -> AvalancheResult:
         """
-        Dispara una avalanche de reorganización del sistema.
+        Dispara una avalanche de reorganización del sistema (sobre el store real:
+        baja α de los splats de los clústeres que se desbordan).
 
         Args:
-            seed_point: Punto semilla. Si None, usa el cluster de mayor energía.
+            seed_point: Punto semilla. Si None, usa el clúster de mayor altura.
 
         Returns:
             AvalancheResult con estadísticas.
         """
         if self._soc is None:
             raise RuntimeError("SOC no habilitado. Usa enable_soc=True.")
-        return self._soc.trigger_avalanche(seed_point)
+        with self._rw_lock:
+            self._soc_busy = True
+            try:
+                result = self._soc.trigger_avalanche(seed_point)
+                self._after_soc_write()
+            finally:
+                self._soc_busy = False
+        return result
 
     def relax(self, iterations: int = 10) -> RelaxationResult:
         """
-        Relaja el sistema hacia un estado de menor energía.
+        Relaja el sistema sin subir su energía libre (baja el exceso de
+        concentración κ de los splats sobre-afilados; ver ``SOCEngine.relax``).
 
         Args:
             iterations: Iteraciones de relajación.
 
         Returns:
-            RelaxationResult con energía inicial y final.
+            RelaxationResult con energía libre inicial y final.
         """
         if self._soc is None:
             raise RuntimeError("SOC no habilitado. Usa enable_soc=True.")
-        return self._soc.relax(iterations)
+        with self._rw_lock:
+            self._soc_busy = True
+            try:
+                result = self._soc.relax(iterations)
+                self._after_soc_write()
+            finally:
+                self._soc_busy = False
+        return result
+
+    def _after_soc_write(self) -> None:
+        """Tras avalanche/relax (que escribieron en el store por referencia):
+        invalida caches derivados de μ, refresca EBM/SOC y persiste el estado
+        aprendido para que sobreviva a ``save()`` + reopen. Lock tomado."""
+        self.engine.m2m.splats._m_sq_dirty = True
+        self._update_ebm_splats()
+        self._write_splat_state()
+
+    def maybe_consolidate(self, threshold: float = None) -> "ConsolidationDecision":
+        """Consolidación guiada por criticality: SÓLO si el índice está en SUPERCRITICAL.
+
+        Explícita e idempotente [audit r3a-07]: si el estado no es SUPERCRITICAL
+        no hace nada (``triggered=False``, ``removed=0``); tras consolidar, el
+        peso muerto podado deja de alimentar el índice. Con
+        ``auto_consolidate=True`` se invoca sola tras cada cambio del store.
+
+        ``threshold`` por defecto = ``decay_threshold`` del SOC (α < 0.1) y NO
+        ``soc_threshold`` (0.8): con 0.8 una vía semiautomática podaría también
+        los splats que una avalanche acaba de dejar en 0.7.
+
+        Args:
+            threshold: α por debajo del cual un splat se poda (None -> decay_threshold).
+
+        Returns:
+            ConsolidationDecision con el estado/índice DESPUÉS de la decisión.
+        """
+        from .ebm.soc import ConsolidationDecision, CriticalityState
+
+        if self._soc is None:
+            raise RuntimeError("SOC no habilitado. Usa enable_soc=True.")
+        with self._rw_lock:
+            report = self._soc.check_criticality()
+            thr = float(self._soc.decay_threshold if threshold is None else threshold)
+            if report.state == CriticalityState.SUPERCRITICAL:
+                removed = self.consolidate(thr)
+                after = self._soc.check_criticality()
+                return ConsolidationDecision(True, after.state, after.index, removed, thr)
+            return ConsolidationDecision(False, report.state, report.index, 0, thr)
+
+    def save(self, path: Optional[str] = None) -> str:
+        """``SimpleVectorDB.save`` + el estado aprendido de los splats (α/κ/μ por id,
+        ``energy/landscape.npz`` dentro del storage/snapshot) para que avalanche,
+        relax y feedback sobrevivan al reopen [audit r3a-07]."""
+        with self._rw_lock:
+            self._write_splat_state()  # antes: save(path) copia el directorio entero
+            out = super().save(path)
+            if self.storage is None:
+                # DB sólo en memoria: el snapshot se escribió sin nuestro estado
+                self._write_splat_state(target_dir=out)
+        return out
+
+    def _restore_from_storage(self):
+        """Restore base + estado aprendido de los splats.
+
+        Durante ``super().__init__`` todavía no existe ``ebm_enabled`` (el
+        restore base corre antes del bloque EBM): en ese caso lo aplica
+        ``__init__`` de esta clase cuando el SOC ya está creado.
+        """
+        super()._restore_from_storage()
+        if getattr(self, "ebm_enabled", False):
+            with self._rw_lock:
+                self._restore_splat_state()
 
     def generate(self, query: np.ndarray, n_steps: int = 10) -> np.ndarray:
         """Perform Langevin dynamics generative exploration starting from query."""
