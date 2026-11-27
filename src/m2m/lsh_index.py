@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -26,7 +27,10 @@ class CrossPolytopeLSH:
 
         self.k = max(1, int(np.ceil(config.n_bits / np.log2(2 * self.dim))))
 
-        np.random.seed(config.seed)
+        # RNG propio: antes hacia np.random.seed(seed), que re-seedeaba el RNG GLOBAL
+        # de numpy de todo el proceso [audit r2-04].
+        self._seed = int(config.seed)
+        self._rng = np.random.default_rng(config.seed)
 
         self.rotations = []
         for _ in range(self.n_tables):
@@ -41,7 +45,7 @@ class CrossPolytopeLSH:
 
     def _random_rotation(self, dim: int) -> np.ndarray:
         """Generate a random orthogonal matrix via QR decomposition."""
-        A = np.random.randn(dim, dim).astype(np.float32)
+        A = self._rng.standard_normal((dim, dim)).astype(np.float32)
         Q, R = np.linalg.qr(A)
         Q = Q @ np.diag(np.sign(np.diag(R)))
         return Q
@@ -150,9 +154,13 @@ class CrossPolytopeLSH:
         candidates_list = list(candidates)
 
         if len(candidates_list) < k:
-            extra = np.random.choice(
-                self.n_vectors, size=min(k * 10, self.n_vectors), replace=False
-            )
+            # Relleno determinista: semilla derivada de (seed del indice, bytes de la
+            # query). Antes usaba np.random.choice sobre el RNG GLOBAL: dependia de la
+            # semilla global y del historial de llamadas [audit r2-04].
+            q_digest = hashlib.blake2b(query.tobytes(), digest_size=8).digest()
+            extra = np.random.default_rng(
+                [self._seed, int.from_bytes(q_digest, "little")]
+            ).choice(self.n_vectors, size=min(k * 10, self.n_vectors), replace=False)
             candidates.update(extra)
             candidates_list = list(candidates)
 

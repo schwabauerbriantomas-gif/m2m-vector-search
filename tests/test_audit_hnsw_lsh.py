@@ -13,10 +13,14 @@ r2-03: con los defaults el recall@10 en datos uniformes es ~0.02. Decisión del
 """
 
 import math
+import warnings
 
 import numpy as np
+import pytest
 
+from m2m import SimpleVectorDB
 from m2m.hnsw_index import HNSWIndex
+from m2m.lsh_index import CrossPolytopeLSH, LSHConfig
 
 
 def _unit(a):
@@ -29,6 +33,14 @@ def _hnsw(n=300, d=16, seed=0, M=8, **kw):
     h = HNSWIndex(dim=d, M=M, ef_construction=32, ef_search=32, seed=1, **kw)
     h.build(X)
     return h, X
+
+
+def _lsh(dim=64, n=300, seed=42, **cfg):
+    rng = np.random.default_rng(seed)
+    X = _unit(rng.standard_normal((n, dim)).astype(np.float32))
+    idx = CrossPolytopeLSH(LSHConfig(dim=dim, seed=seed, **cfg))
+    idx.index(X)
+    return idx, X
 
 
 # ------------------------------------------------------------------ r2-07
@@ -107,5 +119,46 @@ def test_built_hierarchy_has_paper_density():
                 seen.add(nb)
                 stack.append(nb)
     assert len(seen) == len(h._nodes)
+
+
+# ------------------------------------------------------------------ r2-04
+
+
+def test_lsh_constructor_leaves_global_numpy_rng_untouched():
+    np.random.seed(7)
+    reference = np.random.rand(5).copy()
+    np.random.seed(7)
+    before = np.random.get_state()
+    CrossPolytopeLSH(LSHConfig(dim=64, seed=42))
+    after = np.random.get_state()
+    assert before[0] == after[0] and before[2] == after[2]
+    np.testing.assert_array_equal(before[1], after[1])
+    np.testing.assert_array_equal(np.random.rand(5), reference)
+
+
+def test_lsh_same_seed_same_results_twice():
+    a, X = _lsh()
+    b, _ = _lsh()
+    for t in range(a.n_tables):
+        for i in range(a.k):
+            np.testing.assert_array_equal(a.rotations[t][i], b.rotations[t][i])
+    for q in X[::37]:
+        ia, da = a.query(q, k=5)
+        ib, db = b.query(q, k=5)
+        assert ia.tolist() == ib.tolist(), "dos índices con el mismo seed devuelven distinto top-k"
+        np.testing.assert_array_equal(da, db)
+
+
+def test_lsh_fallback_deterministic_and_independent_of_global_rng():
+    # d=64 -> k=3 -> 128^3 buckets: casi toda query tiene < k candidatos -> fallback.
+    idx, X = _lsh()
+    assert idx.k == 3
+    for q in X[::53]:
+        np.random.seed(1)
+        a = idx.query(q, k=5)[0].tolist()
+        np.random.seed(2)
+        b = idx.query(q, k=5)[0].tolist()
+        assert a == b, "el fallback de query() depende del RNG global de numpy"
+        assert idx.query(q, k=5)[0].tolist() == a, "la misma query dos veces da distinto resultado"
 
 
