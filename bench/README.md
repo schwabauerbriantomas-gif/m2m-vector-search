@@ -13,6 +13,16 @@
 
 
 - `bench_baseline.py` — QPS/recall del pipeline público vs linear scan (seed fija).
+- `bench/bench_exact_uniform.py` — opciones que devuelven el top-10 exacto en datos uniformes
+  (10k × 384): default vs `n_probe=<n_coarse>` (leído del índice) vs filtro acepta-todo (camino
+  exacto P17) vs escaneo lineal. Resultado: `benchmarks/results/bench_exact_uniform.json`
+  (tabla «What gives exact results» de `docs/PERFORMANCE.md`).
+- `bench/bench_noise.py` — no mide: compara fila a fila dos corridas archivadas de
+  `bench_search.py` (`bench_search_run1_2109459.json` contra `bench_search.json`) →
+  `benchmarks/results/bench_noise.json` (sección «Noise between runs» de `docs/PERFORMANCE.md`).
+- `bench/bench_learning_soc.py` — no mide tiempo: reproduce con setups deterministas las cifras
+  de aprendizaje online y SOC del README (feedback, ‖μ‖, criticidad, relax, maybe_consolidate) →
+  `benchmarks/results/bench_learning.json`.
 - `bench/history/final_ab.json` — A/B final: single vs search_batch (quieto, misma corrida).
 - `expA_ncoarse.py — grid n_coarse x n_probe (monkeypatch, sin tocar código).
 - `exp_h9_binary.py` — H9 "RaBitQ light": binarización 1-bit + rescoring.
