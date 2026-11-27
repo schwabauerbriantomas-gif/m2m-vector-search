@@ -85,14 +85,16 @@ or linear-scan switch on the unfiltered path.** What gives exact results:
 | Option | How | `search(q, k)` QPS | `search_batch` B = 200 QPS | recall@10 |
 |---|---|---|---|---|
 | Small index | `n <= 3000`: every row is scored, there is no pruning | — | — | — |
-| All clusters | `SimpleVectorDB(n_probe=<number of coarse clusters>)`; larger values are capped | 136 | 171 | 1.000 |
-| Any filter | `search(q, k, filter=...)` / `search_batch_filtered(..., filter=...)` take the exact path of P17, also with a filter that accepts everything | 84.9 | 170 | 1.000 |
-| NumPy linear scan | reference | 683 | 4,580 | 1.0 |
-| Default `n_probe` | for comparison | 1,840 | 3,720 | 0.149 |
+| All clusters | `SimpleVectorDB(n_probe=100)`: 100 is the number of coarse clusters the index builds on this dataset (read from the engine, not assumed; the default is `n_probe = 5`); larger values are capped | 131 | 160 | 1.000 |
+| Any filter | `search(q, k, filter=...)` / `search_batch_filtered(..., filter=...)` take the exact path of P17, also with a filter that accepts everything | 80.9 | 163 | 1.000 |
+| NumPy linear scan | reference | 632 | 4,580 | 1.000 |
+| Default `n_probe` | for comparison | 1,700 | 3,520 | 0.149 |
 
-Measured on uniform 10k × 384 with the same protocol. The exact options cost 5.01× (single
-query) and 26.8× (batch) against the linear scan, which is exact *and* faster: on data
-without clusters, scan with NumPy.
+Measured on uniform 10k × 384 with the same protocol by `bench/bench_exact_uniform.py`
+(`benchmarks/results/bench_exact_uniform.json`, 200 queries; the cluster count is in
+`variantes`). The exact options cost 4.83× (all clusters) and 7.81× (any filter) against
+the linear scan on a single query, and 28.7× and 28.1× at B = 200. The scan is exact
+*and* faster: on data without clusters, scan with NumPy.
 
 ## Batching
 
@@ -136,7 +138,10 @@ running. GPU execution is not exercised in CI (no GPU on the runners).
 - The tables of [`BENCHMARKS.md`](BENCHMARKS.md) come from `bench/bench_search.py`,
   `bench/bench_filtered.py`, `bench/bench_index_types.py` and `bench/bench_storage.py`, all
   on the shared `bench/_protocol.py`; the rows live in `benchmarks/results/*.json`
-  (`before_a74d9e4/` holds the run on the commit before the audit). `benchmarks/bench_lsh.py`
+  (`before_a74d9e4/` holds the run on the commit before the audit). The exact-options table
+  above comes from `bench/bench_exact_uniform.py`, the run-to-run noise from
+  `bench/bench_noise.py` (which compares two archived search tables) and the learning / SOC
+  figures of the README from `bench/bench_learning_soc.py`. `benchmarks/bench_lsh.py`
   is the weekly LSH measurement; the `bench/history/*.json` files are historical.
 
 ## Noise between runs
