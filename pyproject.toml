@@ -122,8 +122,12 @@ ensure_newline_before_comments = true
 skip_gitignore = true
 skip = [".git", ".hg", ".mypy_cache", ".tox", ".venv", "_build", "buck-out", "build", "dist", "__pycache__"]
 
+# Única config de pytest: el viejo pytest.ini se eliminó porque pisaba esta sección
+# (pytest le da precedencia al .ini) [audit r3b-07].
 [tool.pytest.ini_options]
 minversion = "7.0"
+# m2m NO está instalado en el venv de desarrollo: los tests lo importan desde src/.
+pythonpath = ["src"]
 addopts = [
     "-ra",
     "-q",
@@ -190,20 +194,16 @@ exclude_lines = [
 ]
 precision = 2
 
-[tool.flake8]
-max-line-length = 100
-extend-ignore = ["E203", "W503"]
-exclude = [
-    ".git",
-    "__pycache__",
-    "build",
-    "dist",
-    ".eggs",
-    "*.egg",
-    ".pytest_cache",
-    ".mypy_cache",
-]
+# flake8 NO lee pyproject.toml: su config vive en .flake8 (raíz del repo) [audit r3b-07].
 
+# bandit lee esta sección SOLO si se le pasa explícitamente:
+#   bandit -c pyproject.toml -r src/m2m -ll
+# (la auto-discovery sólo busca un archivo .bandit en el cwd; sin -c los skips de abajo
+# no se aplican) [audit r3b-07].
+# skips: B101 assert_used, B301 pickle, B324 hashlib débil.
+# Pendiente: sharding.py:18 (md5, enrutamiento por doc_id) y gate_modulus.py:98 (sha1,
+# fingerprint de shape) NO son usos criptográficos; con usedforsecurity=False en esos
+# dos call sites B324 sale de esta lista y el check vuelve a significar algo.
 [tool.bandit]
 exclude_dirs = ["tests", "test_*.py"]
 skips = ["B101", "B301", "B324"]
