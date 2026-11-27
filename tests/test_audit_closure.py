@@ -705,5 +705,6 @@ def test_engine_search_is_not_monkey_patched():
     rng = np.random.default_rng(6)
     db.add(ids=[f"d{i}" for i in range(4)], vectors=_unit(rng.standard_normal((4, 8))))
     assert "search" not in vars(db.engine)
-    res = db.search(_unit(rng.standard_normal(8)), k=2)
-    assert len(res) == 2
+    # search() en modo legacy devuelve la tupla (mu, alpha, kappa, ...): 2 vecinos.
+    out = db.search(_unit(rng.standard_normal(8)), k=2)
+    assert out[0].shape[1] == 2
