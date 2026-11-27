@@ -13,7 +13,7 @@ from m2m.storage.persistence import M2MPersistence
 
 D = 8
 _rng = np.random.default_rng(5)
-X = _rng.standard_normal((16, D)).astype(np.float32)
+X = _rng.standard_normal((64, D)).astype(np.float32)
 
 
 def _sphere(v):
@@ -187,3 +187,32 @@ class TestR120IndependentCopy:
         db.update("new", vector=v, upsert=True)
         v[:] = 999.0
         np.testing.assert_array_equal(db._vectors["new"], X[9])
+
+
+class TestR124EmbeddingsSync:
+    """Criterio 4: tras update(id, vector=v), engine.embeddings[pos] == normalize_sphere(v)."""
+
+    def test_update_vector_updates_engine_embeddings(self):
+        db, ids = _db(40)
+        newv = _rng.standard_normal(D).astype(np.float32)
+        pos = db._splat_id_order.index(ids[3])
+        db.update(ids[3], vector=newv)
+        s = db.engine.m2m.splats
+        eng = s.engine
+        assert eng.embeddings is not None and len(eng.embeddings) == s.n_active
+        np.testing.assert_allclose(eng.embeddings[pos], _sphere(newv), atol=1e-6)
+        assert not np.allclose(eng.embeddings[pos], _sphere(X[3]))
+
+    def test_update_vector_same_cluster_refreshes_cluster_embeddings(self):
+        # sin cambio de cluster la fila de coarse_cluster_embeddings también debe refrescarse
+        db, ids = _db(40)
+        eng = db.engine.m2m.splats.engine
+        pos = db._splat_id_order.index(ids[5])
+        old_cid = int(eng.coarse_assignments[pos])
+        newv = X[5] + 1e-3 * _rng.standard_normal(D).astype(np.float32)
+        db.update(ids[5], vector=newv)
+        assert int(eng.coarse_assignments[pos]) == old_cid  # precondición: no se movió
+        cid = old_cid
+        row = int(np.flatnonzero(eng.coarse_cluster_indices[cid] == pos)[0])
+        np.testing.assert_allclose(eng.coarse_cluster_embeddings[cid][row], _sphere(newv), atol=1e-6)
+        np.testing.assert_allclose(eng.embeddings[pos], _sphere(newv), atol=1e-6)

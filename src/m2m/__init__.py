@@ -872,6 +872,10 @@ class SimpleVectorDB:
                         # sacar del cluster viejo, asignar al centroid mas
                         # cercano del mu nuevo, sin re-entrenar KMeans.
                         eng = store.engine
+                        # engine.embeddings es la copia del store con la que rankean
+                        # HRM2Engine.query (lod 0/1) y query_batch (audit r1-24).
+                        if getattr(eng, "embeddings", None) is not None and pos < len(eng.embeddings):
+                            eng.embeddings[pos] = store.mu[pos]
                         assert eng.coarse_assignments is not None
                         assert eng.coarse_model is not None
                         old_cid = int(eng.coarse_assignments[pos])
@@ -893,6 +897,13 @@ class SimpleVectorDB:
                                 [eng.coarse_cluster_embeddings[new_cid], store.mu[pos][np.newaxis, :]]
                             )
                             eng._cluster_masks[new_cid][pos] = True
+                        else:
+                            # Sin cambio de cluster: refrescar la fila que ya existe
+                            # (misma causa raíz que r1-24: copia derivada del vector viejo).
+                            row = np.flatnonzero(eng.coarse_cluster_indices[old_cid] == pos)
+                            cemb = eng.coarse_cluster_embeddings.get(old_cid)
+                            if row.size == 1 and cemb is not None and row[0] < len(cemb):
+                                cemb[row[0]] = store.mu[pos]
 
                 # Calcular delta de energía si EBM habilitado
                 if self.ebm_enabled and self._ebm_energy is not None and old_vec is not None:
