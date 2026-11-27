@@ -52,6 +52,9 @@ DEFAULT_OVERSAMPLE = 2
 # al modo completo con oversample 2: el ahorro del modo espectral es la RAM de
 # fase 1, no el QPS (audit r2-01).
 SPECTRAL_DEFAULT_OVERSAMPLE = 50
+# Presupuesto del bloque de distancias [query_chunk, n] float32 de fase 1:
+# query_chunk por defecto = DIST_BUDGET_BYTES // (n * 4) (audit r2-06).
+DIST_BUDGET_BYTES = 64 << 20
 
 # --- rodilla del autoespectro (Kneedle) ------------------------------------
 # Curvatura minima (distancia maxima a la cuerda de la varianza explicada
@@ -600,6 +603,7 @@ class SQ8DiskStore:
         queries: np.ndarray,
         k: int = 10,
         oversample: Optional[int] = None,
+        query_chunk: Optional[int] = None,
     ) -> np.ndarray:
         """Fase 1 sobre SQ8 en RAM + rescoring float32 via mmap (solo candidatos).
 
@@ -614,6 +618,11 @@ class SQ8DiskStore:
         hay que rescorear ~todo el grupo para no perder recall (audit r2-01;
         curva recall-vs-oversample en SPECTRAL_DEFAULT_OVERSAMPLE). Un valor
         explicito se respeta tal cual.
+
+        ``query_chunk``: queries por bloque de fase 1. ``None`` (default) lo
+        deriva de DIST_BUDGET_BYTES (~64 MiB de distancias: n * 4 bytes por
+        query), asi que la matriz [len(Q), n] completa nunca se materializa
+        (audit r2-06). El resultado es identico con cualquier tamano de bloque.
         """
         Q = np.asarray(queries, dtype=np.float32)
         if Q.ndim == 1:
@@ -627,6 +636,12 @@ class SQ8DiskStore:
                           else DEFAULT_OVERSAMPLE)
         if oversample < 1:
             raise ValueError(f"oversample must be >= 1 (got {oversample})")
+        if query_chunk is not None and (
+                isinstance(query_chunk, bool)
+                or not isinstance(query_chunk, (int, np.integer)) or query_chunk < 1):
+            raise ValueError(
+                f"query_chunk must be None or int >= 1 (got {query_chunk!r})"
+            )
         assert self._q is not None and self._scale is not None and self._zero is not None
         if self._P is not None:
             assert self._mean is not None
@@ -637,36 +652,49 @@ class SQ8DiskStore:
             Qp = Q
         n = self._n
         k1 = min(k * oversample, n)
-        # fase 1: dequantize por chunks (linea H10), d2 aproximada
+        if query_chunk is None:
+            query_chunk = max(1, min(len(Q), DIST_BUDGET_BYTES // max(1, n * 4)))
+
+        # fase 1: dequantize por chunks (linea H10), d2 aproximada. Se itera
+        # tambien por chunks de QUERIES: el bloque d2 es [query_chunk, n]
+        # (<= DIST_BUDGET_BYTES) en vez de [len(Q), n] (audit r2-06); el buffer
+        # dequantizado se acota con el mismo presupuesto.
+        n_chunk = min(100_000, max(1, DIST_BUDGET_BYTES // max(1, self._q.shape[1] * 4)))
         qq = np.einsum("ij,ij->i", Qp, Qp)
-        d2 = np.empty((len(Q), n), dtype=np.float32)
-        chunk = 100_000
-        for i in range(0, n, chunk):
-            deq = (
-                self._q[i : i + chunk].astype(np.float32) * self._scale[i : i + chunk, None]
-                + self._zero[i : i + chunk, None]
-            )
-            d2[:, i : i + chunk] = (
-                qq[:, None] - 2.0 * (Qp @ deq.T) + np.einsum("ij,ij->i", deq, deq)[None, :]
-            )
-        np.maximum(d2, 0.0, out=d2)
 
         # fase 2: rescoring float32 via mmap gather (solo k1 candidatos/fila)
         # d2 completa: ||x||^2 + ||q||^2 - 2<x,q> (valida SIN normalizar)
         assert self._float_mm is not None, "flush()/load() required before search"
         qq0 = np.einsum("ij,ij->i", Q, Q)  # norma de la query ORIGINAL (full-D)
         out = np.full((len(Q), k), -1, dtype=np.int64)
-        for b in range(len(Q)):
-            part = np.argpartition(d2[b], k1 - 1)[:k1]
-            cand = np.sort(part)  # gather ordenado = lectura de paginas secuencial
-            x = np.asarray(self._float_mm[cand])
-            exact = (
-                np.einsum("ij,ij->i", x, x)
-                - 2.0 * (x @ Q[b])
-                + qq0[b]
-            )
-            best = cand[np.argsort(exact)[:k]]  # menor distancia primero
-            out[b, : len(best)] = best
+        for qs in range(0, len(Q), query_chunk):
+            qe = min(qs + query_chunk, len(Q))
+            Qc = Qp[qs:qe]
+            d2 = np.empty((qe - qs, n), dtype=np.float32)
+            for i in range(0, n, n_chunk):
+                j = min(i + n_chunk, n)
+                deq = (
+                    self._q[i:j].astype(np.float32) * self._scale[i:j, None]
+                    + self._zero[i:j, None]
+                )
+                # misma aritmetica que la linea historica, sin sus 2 temporales
+                # extra de `qq - 2.0 * (Qc @ deq.T) + normas`
+                blk = Qc @ deq.T
+                np.multiply(blk, -2.0, out=blk)
+                blk += qq[qs:qe, None]
+                blk += np.einsum("ij,ij->i", deq, deq)[None, :]
+                np.maximum(blk, 0.0, out=d2[:, i:j])
+            for b in range(qs, qe):
+                part = np.argpartition(d2[b - qs], k1 - 1)[:k1]
+                cand = np.sort(part)  # gather ordenado = lectura de paginas secuencial
+                x = np.asarray(self._float_mm[cand])
+                exact = (
+                    np.einsum("ij,ij->i", x, x)
+                    - 2.0 * (x @ Q[b])
+                    + qq0[b]
+                )
+                best = cand[np.argsort(exact)[:k]]  # menor distancia primero
+                out[b, : len(best)] = best
         return out
 
     def __len__(self) -> int:

@@ -10,10 +10,12 @@ IN-distribution (misma mezcla que el corpus): no hay datasets reales en esta
 maquina. El stream del RNG es el de la sonda del auditor (work/r2/p7_followup.py).
 """
 import json
+import tracemalloc
 
 import numpy as np
 import pytest
 
+import m2m.sq8_disk as sq8mod
 from m2m.sq8_disk import SQ8DiskStore, _knee_rank
 
 N, D, K = 20000, 384, 10
@@ -183,3 +185,37 @@ def test_build_from_float_npy_rejects_non_finite(tmp_path, spec):
         SQ8DiskStore.build_from_float_npy(xp, str(dump), chunk=100, spectral_r=spec)
     assert not (dump / "scale.npy").exists()
     assert not (dump / ".f32_spill.bin").exists()
+
+
+# ----------------------------------------------------------------- r2-06
+def test_search_batch_query_chunks_identical_to_single_chunk(clustered_case, monkeypatch):
+    X, Q, gt, stores = clustered_case
+    st = stores["auto"]
+    single = st.search_batch(Q, k=K, query_chunk=len(Q))
+    monkeypatch.setattr(sq8mod, "DIST_BUDGET_BYTES", 2 << 20)  # ~26 queries por chunk
+    chunked = st.search_batch(Q, k=K)
+    assert chunked.shape == single.shape
+    np.testing.assert_array_equal(chunked, single)
+    assert _recall(chunked, gt) >= 0.98
+
+
+def test_search_batch_memory_bounded(clustered_case):
+    """B=1000, n=20k, D=384: el pico no escala con len(Q) x n."""
+    X, Q, gt, stores = clustered_case
+    Qm = np.random.default_rng(7).standard_normal((1000, D)).astype(np.float32)
+    tracemalloc.start()
+    try:
+        out = stores[None].search_batch(Qm, k=K)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    budget = 64 << 20
+    # antes: d2 [1000, 20000] = 76 MiB + 2 temporales del mismo tamano + dequant ~ 260 MiB
+    assert peak < 3.0 * budget, f"pico tracemalloc {peak / 2**20:.1f} MiB"
+    assert out.shape == (1000, K) and (out >= 0).all()
+
+
+def test_search_batch_query_chunk_validation(clustered_case):
+    X, Q, gt, stores = clustered_case
+    with pytest.raises(ValueError):
+        stores[None].search_batch(Q, k=K, query_chunk=0)
