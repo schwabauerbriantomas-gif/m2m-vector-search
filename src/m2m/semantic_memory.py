@@ -45,6 +45,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import numpy as np
 
 from .bm25_index import BM25Index
+from .config import M2MConfig  # noqa: F401,E402  # re-export historico
 
 # --- Category keywords for auto-categorization ---
 _CATEGORY_KEYWORDS = {

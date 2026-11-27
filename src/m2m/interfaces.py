@@ -11,6 +11,8 @@ from typing import List, Optional
 
 import numpy as np
 
+from .encoding import FullEmbeddingBuilder  # noqa: F401,E402  # re-export historico
+
 
 @dataclass
 class IndexSearchResult:

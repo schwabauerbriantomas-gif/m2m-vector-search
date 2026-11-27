@@ -14,9 +14,11 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from . import AdvancedVectorDB
+# Re-exports historicos: estos nombres siempre se pudieron importar desde aca (el README
+# describe este modulo como auxiliar); se mantienen para no romper a consumidores externos.
+from . import AdvancedVectorDB, M2MConfig, SimpleVectorDB  # noqa: F401,E402
 from .auto_scaling import AutoScaler, HorizontalScaler, NodeMetrics
-from .gpu_auto_tune import get_gpu_tuner
+from .gpu_auto_tune import GPUAutoTuner, get_gpu_tuner  # noqa: F401,E402
 from .query_optimizer import QueryOptimizer
 
 logger = logging.getLogger(__name__)
