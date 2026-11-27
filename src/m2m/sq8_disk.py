@@ -527,6 +527,7 @@ class SQ8DiskStore:
             fp = str(float_npy_path)
             st._float_path = fp
             st._float_mm = np.load(fp, mmap_mode="r")
+            st._record_float_source(float_npy_path)  # [P17] para load(dump)
             # el spill del build se descarta: el float32 vivo es el .npy
             # fuente (H13b); un add posterior abre un spill fresco.
             st._close_spill()
@@ -563,10 +564,31 @@ class SQ8DiskStore:
         st._persist_spectral(dump_dir)
         st._float_path = str(float_npy_path)
         st._float_mm = np.load(st._float_path, mmap_mode="r")
+        st._record_float_source(float_npy_path)  # [P17] para load(dump)
         return st
 
+    def _record_float_source(self, float_path) -> None:
+        """[P17] Registra en ``<dump_dir>/float_source.json`` el .npy del que este
+        dump mmapea los float32 originales (build_from_float_npy no los copia)."""
+        if not self.dump_dir:
+            return
+        with open(os.path.join(self.dump_dir, "float_source.json"), "w") as f:
+            json.dump(
+                {"float_path": os.path.abspath(str(float_path)), "n": int(self._n),
+                 "dim": int(self.dim)},
+                f,
+            )
+
     @classmethod
-    def load(cls, dump_dir: str) -> "SQ8DiskStore":
+    def load(cls, dump_dir: str, float_path: Optional[str] = None) -> "SQ8DiskStore":
+        """Carga un dump escrito por flush() o build_from_float_npy().
+
+        Los float32 originales (rescoring) se toman, en orden: de ``float_path``
+        si se pasa; de ``<dump_dir>/float32.npy`` (dumps de add()+flush()); o de la
+        fuente registrada por build_from_float_npy() (que los mmapea sin copiarlos).
+        Si la fuente registrada ya no existe: ``FileNotFoundError`` con el remedio
+        ``load(dump_dir, float_path=...)`` [P17].
+        """
         st = cls(dim=1, dump_dir=dump_dir)
         q = np.load(os.path.join(dump_dir, "sq8.npy"))
         assert q is not None
@@ -593,9 +615,53 @@ class SQ8DiskStore:
         else:
             st.dim = int(q.shape[1])
             st._rdim = st.dim
-        st._float_path = os.path.join(dump_dir, "float32.npy")
-        st._float_mm = np.load(st._float_path, mmap_mode="r")
+        st._float_path, st._float_mm = cls._resolve_float_source(dump_dir, float_path, st._n)
         return st
+
+    @staticmethod
+    def _resolve_float_source(dump_dir: str, float_path: Optional[str], n: int):
+        """[P17] (ruta, mmap) de los float32 originales de un dump. Ver load()."""
+        f32 = os.path.join(dump_dir, "float32.npy")
+        registro = os.path.join(dump_dir, "float_source.json")
+        if float_path is not None:
+            if not os.path.isfile(str(float_path)):
+                raise FileNotFoundError(
+                    f"SQ8DiskStore.load(): float_path={str(float_path)!r} no existe. Pasá la ruta "
+                    f"del .npy float32 [n, dim] con los originales de este dump: "
+                    f"SQ8DiskStore.load({dump_dir!r}, float_path=...)."
+                )
+            ruta = mm = str(float_path)
+        elif os.path.isfile(f32):
+            ruta = mm = f32
+        else:
+            fuente = None
+            if os.path.isfile(registro):
+                with open(registro) as f:
+                    fuente = json.load(f).get("float_path")
+            if not fuente or not os.path.isfile(str(fuente)):
+                faltan = f"{f32!r}"
+                if fuente:
+                    faltan += f" ni la fuente registrada {str(fuente)!r}"
+                raise FileNotFoundError(
+                    f"SQ8DiskStore.load(): no se encuentran los float32 originales del dump "
+                    f"(no existe {faltan})."
+                    + (
+                        " El dump se creó con build_from_float_npy(): los originales se mmapean "
+                        "desde la fuente y NO se copian al dump."
+                        if fuente
+                        else ""
+                    )
+                    + f" Remedio: SQ8DiskStore.load({dump_dir!r}, float_path=<ruta al .npy "
+                    f"float32 [n, dim]>) o reconstruí el dump."
+                )
+            ruta = mm = str(fuente)
+        mm_arr = np.load(mm, mmap_mode="r")
+        if len(mm_arr) != n:
+            raise ValueError(
+                f"SQ8DiskStore.load(): la fuente float32 {ruta!r} tiene {len(mm_arr)} filas pero "
+                f"el dump tiene {n} códigos SQ8; pasá con float_path el .npy de ESTE dump."
+            )
+        return ruta, mm_arr
 
     # --- busqueda --------------------------------------------------------
     def search_batch(
