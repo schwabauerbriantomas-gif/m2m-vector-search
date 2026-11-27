@@ -1,60 +1,104 @@
-version: '3.8'
+# Swarm local (coordinator + 3 edges) construido desde este árbol: `docker compose -f
+# deploy/docker-compose.yml up` compila deploy/Dockerfile y etiqueta
+# m2m-vector-search:latest. No hay registry que publique esa imagen [audit r3b-11].
+#
+# Requerido antes de arrancar (compose falla si falta o está vacía):
+#   export M2M_API_KEY=...             # clave de los edges (header X-API-Key o Bearer)
+#   export M2M_COORDINATOR_API_KEY=...  # clave del coordinator (/register /heartbeat /route /search)
+# o copiá deploy/.env.example a deploy/.env. Generá claves con:
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+#
+# Los 4 puertos se publican SOLO en 127.0.0.1 (antes 0.0.0.0 sin autenticación).
+#
+# EDGE_ID / COORDINATOR_URL: eliminados. Ningún código de src/ los lee (grep -> 0): no
+# registraban el edge en el coordinator ni cambiaban nada. El registro sigue siendo
+# explícito: POST /register en el coordinator (src/m2m/api/coordinator_api.py).
+#
+# Limitación conocida: el coordinator llama a los edges SIN reenviar clave
+# (fetch_edge_results en coordinator_api.py), así que con M2M_API_KEY en los edges,
+# POST /search al coordinator recibe 401 de cada edge y devuelve resultados vacíos
+# hasta que el coordinator reenvíe la clave. Mientras tanto, consultá los edges directo.
+
+x-m2m-build: &m2m-build
+  context: ..
+  dockerfile: deploy/Dockerfile
 
 services:
   coordinator:
-    build: 
-      context: ..
-      dockerfile: deploy/Dockerfile
+    build: *m2m-build
+    image: m2m-vector-search:latest
     container_name: m2m-coordinator
     ports:
-      - "8080:8000"
+      - "127.0.0.1:8080:8000"
+    environment:
+      M2M_COORDINATOR_API_KEY: '${M2M_COORDINATOR_API_KEY:?M2M_COORDINATOR_API_KEY es requerida (clave del coordinator). Exportala o ponela en deploy/.env}'
     command: ["uvicorn", "m2m.api.coordinator_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    # El coordinator no tiene ninguna ruta GET: probe TCP.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - m2m-network
 
   edge-1:
-    build: 
-      context: ..
-      dockerfile: deploy/Dockerfile
+    build: *m2m-build
+    image: m2m-vector-search:latest
     container_name: m2m-edge-1
     ports:
-      - "8081:8000"
+      - "127.0.0.1:8081:8000"
     environment:
-      - EDGE_ID=edge-1
-      - COORDINATOR_URL=http://coordinator:8000
+      M2M_API_KEY: '${M2M_API_KEY:?M2M_API_KEY es requerida (clave de los edges). Exportala o ponela en deploy/.env}'
     command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    # GET /health existe y no exige clave (src/m2m/api/edge_api.py).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - coordinator
     networks:
       - m2m-network
 
   edge-2:
-    build: 
-      context: ..
-      dockerfile: deploy/Dockerfile
+    build: *m2m-build
+    image: m2m-vector-search:latest
     container_name: m2m-edge-2
     ports:
-      - "8082:8000"
+      - "127.0.0.1:8082:8000"
     environment:
-      - EDGE_ID=edge-2
-      - COORDINATOR_URL=http://coordinator:8000
+      M2M_API_KEY: '${M2M_API_KEY:?M2M_API_KEY es requerida (clave de los edges). Exportala o ponela en deploy/.env}'
     command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - coordinator
     networks:
       - m2m-network
 
   edge-3:
-    build: 
-      context: ..
-      dockerfile: deploy/Dockerfile
+    build: *m2m-build
+    image: m2m-vector-search:latest
     container_name: m2m-edge-3
     ports:
-      - "8083:8000"
+      - "127.0.0.1:8083:8000"
     environment:
-      - EDGE_ID=edge-3
-      - COORDINATOR_URL=http://coordinator:8000
+      M2M_API_KEY: '${M2M_API_KEY:?M2M_API_KEY es requerida (clave de los edges). Exportala o ponela en deploy/.env}'
     command: ["uvicorn", "m2m.api.edge_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - coordinator
     networks:
