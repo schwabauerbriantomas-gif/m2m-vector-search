@@ -1,9 +1,24 @@
+# M2M edge API (``python -m m2m``, puerto 8080) construida desde el Dockerfile raíz.
+#
+# Seguridad (audit P15): el puerto se publica SOLO en 127.0.0.1. Antes era
+# "8080:8080": la API quedaba escuchando en todas las interfaces sin clave. Para
+# exponerla fuera de esta máquina publicá "0.0.0.0:8080:8080" y definí
+# M2M_API_KEY.
+#
+# Las dos variables de abajo se declaran sin valor (pass-through): toman el valor
+# del shell o de .env y, si no están definidas, quedan SIN setear en el
+# contenedor (API abierta en loopback, sin rate limit).
+#   export M2M_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+#   export M2M_RATE_LIMIT_PER_MIN=100   # opt-in: ausente o 0 = sin rate limit
 version: "3.8"
 
 services:
   m2m:
     build: .
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    environment:
+      - M2M_API_KEY
+      - M2M_RATE_LIMIT_PER_MIN
     volumes:
       - ./data:/app/data
