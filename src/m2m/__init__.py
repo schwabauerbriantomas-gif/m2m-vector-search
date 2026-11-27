@@ -1161,6 +1161,9 @@ class SimpleVectorDB:
             cemb = eng.coarse_cluster_embeddings.get(old_cid)
             if row.size == 1 and cemb is not None and row[0] < len(cemb):
                 cemb[row[0]] = store.mu[pos]
+        # [P17] la fila se reescribió (en la misma cluster o en otra): la distancia
+        # al centroide nuevo puede haber crecido -> r_new = max(r_new, d).
+        eng.bump_cluster_radius(new_cid, store.mu[pos])
 
     def _add_lsh(
         self,
@@ -2429,6 +2432,11 @@ class SimpleVectorDB:
         expand (ACORN-lite por query, [audit r4-07]): si tras aplicar `allowed` la query
         tiene menos de 1.5*k candidatos, agrega clusters en SU propio orden de cercanía
         hasta cubrir el objetivo o agotar los clusters.
+        [P17] allowed + expand (= filtro de usuario en modo IVF): EXACTA por cota.
+        Los clusters se recorren en orden de cercanía y sólo se saltea uno si
+        (dist(q,c) - r_c)^2 >= d2_k (ver _ivf_filtered_exact). Sin filtro (allowed
+        = None) o con expand=False (máscara de vivos del batch sin filtro) el
+        camino es el de siempre.
 
         Devuelve (out_idx [B, k] de posiciones globales con -1 si falta, out_d2 [B, k]
         con la distancia^2 de cada posición devuelta, inf en el padding).
@@ -2446,9 +2454,11 @@ class SimpleVectorDB:
         q_sq = np.einsum("ij,ij->i", queries, queries)
 
         use_hrm2 = n > 3000 and eng.coarse_model is not None
+        exact = bool(use_hrm2 and allowed is not None and expand)  # [P17] filtro
         order = None
         cluster_rows = None
         cov = None
+        lb_ord = None
         if use_hrm2:
             centroids = np.asarray(eng.coarse_model.centroids_, dtype=np.float32)
             diff_c = queries[:, None, :] - centroids[None, :, :]
@@ -2458,18 +2468,32 @@ class SimpleVectorDB:
             probe = order[:, :n_probe]
             cluster_rows = eng.coarse_cluster_indices
             if expand:
-                # docs admitidos por cluster: permite decidir la expansion por query
-                # con un cumsum en vez de re-contar cluster a cluster.
-                cov = np.zeros(cdist.shape[1], dtype=np.int64)
-                for c, rows_c in cluster_rows.items():
-                    cov[c] = int(allowed[rows_c].sum())
+                if exact:
+                    # [P17] cota por cluster: una pasada la primera vez; después la
+                    # mantienen add()/update() y la invalidan compact/rebuild/drift.
+                    radii = getattr(eng, "coarse_cluster_radii", None)
+                    if radii is None:
+                        radii = eng.compute_cluster_radii(index_data)
+                    rad = np.zeros(cdist.shape[1], dtype=np.float32)
+                    for c, r_c in radii.items():
+                        if 0 <= int(c) < rad.shape[0]:
+                            rad[int(c)] = r_c
+                    # lb[b, c] = (dist(q_b, c) - r_c)^2 <= dist^2(q_b, x) para todo x de c
+                    lb = np.maximum(np.sqrt(cdist) - rad[None, :], 0.0) ** 2
+                    lb_ord = np.take_along_axis(lb, order, axis=1)
+                else:
+                    # docs admitidos por cluster: permite decidir la expansion por query
+                    # con un cumsum en vez de re-contar cluster a cluster.
+                    cov = np.zeros(cdist.shape[1], dtype=np.int64)
+                    for c, rows_c in cluster_rows.items():
+                        cov[c] = int(allowed[rows_c].sum())
         need = max(1, int(k * 1.5))
 
         out_idx = np.full((B, k), -1, dtype=np.int64)
         out_d2 = np.full((B, k), np.inf, dtype=np.float32)
         for i in range(B):
             cand = None  # None = todas las filas (sin poda)
-            if use_hrm2:
+            if use_hrm2 and not exact:
                 lists = []
                 for c in probe[i]:
                     rows_c = cluster_rows.get(int(c))
@@ -2489,21 +2513,106 @@ class SimpleVectorDB:
                                 if rows_c is not None and len(rows_c) > 0:
                                     lists.append(rows_c)
                 cand = lists[0] if len(lists) == 1 else np.concatenate(lists)
-            if allowed is not None:
-                cand = np.flatnonzero(allowed) if cand is None else cand[allowed[cand]]
-                if len(cand) == 0:
+            if exact:
+                # [P17] top-k exacto garantizado: ya filtrado, puntuado y ordenado
+                cand, d2 = self._ivf_filtered_exact(
+                    queries[i], k, index_data, m_sq, allowed, cluster_rows,
+                    order[i], lb_ord[i], n_probe, float(q_sq[i]),
+                )
+                k_eff = len(cand)
+                if k_eff == 0:
                     continue
-            if cand is None:
-                d2 = m_sq - 2.0 * (index_data @ queries[i])
-                k_eff = min(k, n)
+                out_d2[i, :k_eff] = np.maximum(d2 + q_sq[i], 0.0)
+                out_idx[i, :k_eff] = cand
+                continue
             else:
-                d2 = m_sq[cand] - 2.0 * (index_data[cand] @ queries[i])
-                k_eff = min(k, len(cand))
+                if allowed is not None:
+                    cand = np.flatnonzero(allowed) if cand is None else cand[allowed[cand]]
+                    if len(cand) == 0:
+                        continue
+                if cand is None:
+                    d2 = m_sq - 2.0 * (index_data @ queries[i])
+                    k_eff = min(k, n)
+                else:
+                    d2 = m_sq[cand] - 2.0 * (index_data[cand] @ queries[i])
+                    k_eff = min(k, len(cand))
             part = np.argpartition(d2, k_eff - 1)[:k_eff]
             part = part[np.argsort(d2[part])]
             out_d2[i, :k_eff] = np.maximum(d2[part] + q_sq[i], 0.0)
             out_idx[i, :k_eff] = part if cand is None else cand[part]
         return out_idx, out_d2
+
+    def _ivf_filtered_exact(
+        self,
+        q_i: np.ndarray,
+        k: int,
+        index_data: np.ndarray,
+        m_sq: np.ndarray,
+        allowed: np.ndarray,
+        cluster_rows: Dict[int, np.ndarray],
+        order_i: np.ndarray,
+        lb_i: Optional[np.ndarray],
+        n_probe: int,
+        q_sq_i: float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """[P17] Top-k EXACTO con filtro para UNA query en modo IVF/HRM2.
+
+        Fase 1: puntúa las filas admitidas de los ``n_probe`` clusters más cercanos
+        (exactamente los mismos que sondea el camino sin filtro). Fase 2: recorre
+        el resto en orden de cercanía y saltea cada cluster ``c`` con
+        ``lb[c] >= d2_k * (1 + 1e-3) + 1e-6``, donde ``lb[c] = (dist(q,c) - r_c)^2``
+        es cota inferior de la distancia a CUALQUIERA de sus filas (desigualdad
+        triangular: dist(q,x) >= dist(q,c) - dist(c,x) >= dist(q,c) - r_c) y
+        ``d2_k`` es la distancia² del k-ésimo mejor candidato admitido ya
+        encontrado (heap de tamaño k lleno). El margen relativo cubre el error de
+        float32. Un cluster podado con un d2_k grande sigue siendo podable cuando
+        d2_k baja, así que es exacto aunque la fase 2 puntúe todos los no podables
+        de una sola vez. Con el heap incompleto (menos de k admitidos) se sondea
+        todo: peor caso = escaneo completo con máscara.
+
+        Devuelve el top-k final: (posiciones admitidas, d2 sin ||q||²) ordenado
+        por d2 ascendente; vacíos si ningún doc admitido.
+        """
+        lists = []
+        for c in order_i[:n_probe]:
+            rows_c = cluster_rows.get(int(c))
+            if rows_c is not None and len(rows_c) > 0:
+                lists.append(rows_c)
+        cand = np.empty(0, dtype=np.int64)
+        d2 = np.empty(0, dtype=np.float32)
+        if lists:
+            cand = lists[0] if len(lists) == 1 else np.concatenate(lists)
+            cand = cand[allowed[cand]]
+            if len(cand) > 0:
+                d2 = m_sq[cand] - 2.0 * (index_data[cand] @ q_i)
+        rest = order_i[n_probe:]
+        if len(rest) > 0 and lb_i is not None:
+            if len(d2) >= k:
+                d2_k = max(float(np.partition(d2, k - 1)[k - 1]) + q_sq_i, 0.0)
+                todo = rest[lb_i[n_probe:] < d2_k * (1.0 + 1e-3) + 1e-6]
+            else:
+                todo = rest  # heap incompleto: hay que sondear todo
+            if len(todo) > 0:
+                lists = []
+                for c in todo:
+                    rows_c = cluster_rows.get(int(c))
+                    if rows_c is not None and len(rows_c) > 0:
+                        lists.append(rows_c)
+                if lists:
+                    c2 = lists[0] if len(lists) == 1 else np.concatenate(lists)
+                    c2 = c2[allowed[c2]]
+                    if len(c2) > 0:
+                        cand = np.concatenate([cand, c2])
+                        d2 = np.concatenate([d2, m_sq[c2] - 2.0 * (index_data[c2] @ q_i)])
+        if len(cand) == 0:
+            return cand, d2
+        if len(d2) > k:
+            part = np.argpartition(d2, k - 1)[:k]
+            cand, d2 = cand[part], d2[part]
+        if len(d2) > 1:
+            o = np.argsort(d2, kind="stable")
+            cand, d2 = cand[o], d2[o]
+        return cand, d2
 
     def _lsh_batch_topk(
         self,
@@ -2857,6 +2966,7 @@ class SimpleVectorDB:
         emb = getattr(eng, "embeddings", None)
         if not positions or emb is None or len(emb) != n or not getattr(eng, "_is_indexed", False):
             return
+        eng.invalidate_cluster_radii()  # [P17] μ cambió in-place: la cota puede quedar chica
         masks = getattr(eng, "_cluster_masks", None) or {}
         blocks = getattr(eng, "coarse_cluster_embeddings", None) or {}
         for p in positions:
@@ -3267,6 +3377,7 @@ class AdvancedVectorDB(SimpleVectorDB):
         invalida caches derivados de μ, refresca EBM/SOC y persiste el estado
         aprendido para que sobreviva a ``save()`` + reopen. Lock tomado."""
         self.engine.m2m.splats._m_sq_dirty = True
+        self.engine.m2m.splats.engine.invalidate_cluster_radii()  # [P17] μ cambió
         self._update_ebm_splats()
         self._write_splat_state()
 

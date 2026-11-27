@@ -234,6 +234,10 @@ class SplatStore:
                         masks[cid] = np.asarray(eng.coarse_assignments == cid)
             for cid in np.unique(new_assign):
                 extra = np.where(new_assign == cid)[0] + old_n
+                # [P17] la cota tiene que seguir siendo cota superior: las filas
+                # nuevas pueden estar más lejos del centroide que las viejas.
+                if getattr(eng, "coarse_cluster_radii", None) is not None:
+                    eng.bump_cluster_radius(cid, new_points[new_assign == cid])
                 prev_idx = eng.coarse_cluster_indices.get(cid)
                 eng.coarse_cluster_indices[cid] = (
                     np.concatenate([prev_idx, extra])
@@ -632,6 +636,7 @@ class SplatStore:
             # apply_feedback may drift mu in-place (Hebbian update) — invalidate
             # the cached squared norms.
             self._m_sq_dirty = True
+            self.engine.invalidate_cluster_radii()  # [P17] μ deriva in-place
 
         query = np.asarray(query, dtype=np.float32).flatten()
 
@@ -732,6 +737,7 @@ class SplatStore:
         # pre-compaction. Marcarlo como no indexado fuerza el retrain completo
         # en el build_index() siguiente (o el auto-build de find_neighbors).
         self.engine._is_indexed = False
+        self.engine.invalidate_cluster_radii()  # [P17] filas desplazadas
         return removed
 
     def get_statistics(self) -> Dict[str, object]:
