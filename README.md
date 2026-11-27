@@ -382,6 +382,11 @@ with 75 % low-amplitude splats reads 0.905, where the previous metric could not 
 0.5649), and `relax()` lowers the free energy F from 14.431 to 13.351 instead of raising
 it [audit r2-16, r3a-07; `tests/test_audit_learning_soc.py`].
 
+Every number in this section is reproduced by `bench/bench_learning_soc.py` into
+`benchmarks/results/bench_learning.json`. The two values measured before the fix
+(`‖μ‖` 0.073 and the index 0.5649) come from the fix pass: the code that produced them
+is gone, so they cannot be reproduced from this tree.
+
 ```python
 import numpy as np
 

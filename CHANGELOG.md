@@ -212,7 +212,9 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
   0.905 where the previous metric topped at 0.5649); `relax()` no longer
   raises the free energy (F 14.431 → 13.351) nor moves `μ`; `trigger_avalanche()` and
   `relax()` write to the real `SplatStore` and survive `save()` + reopen [audit r2-16,
-  r3a-07; `tests/test_audit_learning_soc.py`].
+  r3a-07; `tests/test_audit_learning_soc.py`; the values are reproduced by
+  `bench/bench_learning_soc.py` in `benchmarks/results/bench_learning.json`; 0.5649 and
+  0.073 were measured on the pre-fix code].
 
 **SQ8 disk index**
 
