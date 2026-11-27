@@ -316,15 +316,20 @@ class M2MEngine:
         return self.m2m.forward(x)
 
     def load_optimized(self, path: str):
-        """Loads optimized dataset with pre-computed Gaussian Splats."""
-        try:
-            from .dataset_transformer import M2MDatasetTransformer
-            from .loaders.optimized_loader import load_m2m_dataset
+        """Loads optimized dataset with pre-computed Gaussian Splats.
 
-            splats = load_m2m_dataset(path)
-            self._build_hrm2_from_splats(splats)
-        except Exception as e:
-            logger.warning("Could not load optimized dataset: %s", e)
+        Levanta FileNotFoundError si `path` no existe y propaga los errores de
+        parseo: antes los tragaba con un warning y devolvía self, así que
+        SimpleVectorDB.load() de una ruta inexistente "funcionaba" (audit r1-17).
+        """
+        from pathlib import Path
+
+        if not path or not Path(str(path)).exists():
+            raise FileNotFoundError(f"load_optimized(): dataset not found: {path!r}")
+        from .loaders.optimized_loader import load_m2m_dataset
+
+        splats = load_m2m_dataset(str(path))
+        self._build_hrm2_from_splats(splats)
         return self
 
     def _build_hrm2_from_splats(self, splats):
@@ -652,46 +657,163 @@ class SimpleVectorDB:
             self._ebm_exploration = EBMExploration(self._ebm_energy)
 
     def _restore_from_storage(self):
-        """Restore documents from persistence into memory dicts."""
+        """Restaura los documentos desde storage y RECONSTRUYE el índice.
+
+        Antes este método sólo repoblaba _vectors/_metadata/_documents: tras
+        save() + reopen quedaban n_active_splats=0 y _splat_id_order=[], así que
+        search()/search_batch() devolvían vacío sin error (audit r1-01). Ahora:
+
+        1. lee TODAS las filas de metadata.db (incl. soft-deleted) en orden
+           estable (shard_idx, vector_idx) = orden de inserción de add();
+        2. indexa los splats por la MISMA ruta que un add() del mismo tamaño
+           (engine.add_splats -> build_index con KMeans completo);
+        3. _splat_id_order queda alineado 1:1 con las posiciones de splat;
+        4. _deleted se restaura: un doc borrado antes del save() no reaparece;
+        5. si n_restored > max_splats: indexa los primeros max_splats en ese
+           orden y lo avisa con un warning (los demás siguen en storage);
+        6. con enable_lsh_fallback decide LSH igual que add() y reconstruye el
+           índice LSH.
+
+        Idempotente (load() lo reusa): resetea el estado en memoria y el engine.
+        Con M2M_HMAC_SECRET seteado verifica antes la firma del storage.
+        """
         if not self.storage:
             return
+        from .storage.persistence import IndexTamperedError
+
+        # Reset del estado en memoria + engine (idempotente)
+        self._vectors.clear()
+        self._metadata.clear()
+        self._documents.clear()
+        self._deleted.clear()
+        self._splat_id_order = []
+        self._lsh_id_map = []
+        self.lsh = None
+        self._use_lsh = False
+        self._lsh_decided = False
+        self._lsh_active_mode = False
+        store = self.engine.m2m.splats
+        store.n_active = 0
+        store._next_id = 0
+        store._last_trained_n = 0
+        store.engine.clear()
+        store._m_sq_dirty = True
+        store._cuda_dirty = True
         try:
-            doc_ids = self.storage.get_all_ids(include_deleted=False)
-            if not doc_ids:
+            # r3a-17: sin secreto es no-op; con secreto levanta IndexTamperedError
+            self.storage.verify_manifest()
+            rows = self.storage.get_all_documents(include_deleted=True)
+            if not rows:
                 return
-            # Load shard vectors
-            shards = self.storage.list_shards()
-            shard_vectors = {}
-            for shard_name in shards:
-                vecs = self.storage.load_vectors(shard_name)
-                if vecs is not None:
-                    shard_vectors[shard_name] = vecs
-            # Restore each document
-            for doc_id in doc_ids:
-                meta = self.storage.get_metadata(doc_id)
-                if meta is None:
+            # shard_idx es 1-based y corresponde directo al nombre de archivo
+            # (1 -> shard_001, 2 -> shard_002, ...).
+            shards = {}
+            restored = []  # (doc_id, vector, metadata, document, deleted)
+            missing = 0
+            for row in rows:
+                shard_idx = row.get("shard_idx")
+                vector_idx = row.get("vector_idx")
+                if shard_idx is None or vector_idx is None:
+                    missing += 1
                     continue
-                shard_idx = meta.get("shard_idx", 0)
-                vector_idx = meta.get("vector_idx", 0)
-                # shard_idx es 1-based y corresponde directo al nombre de archivo
-                # (1 -> shard_001, 2 -> shard_002, ...). La fórmula anterior
-                # (shard_idx+1) mapeaba TODO al shard siguiente y con múltiples
-                # shards restauraba solo el último lote.
                 shard_name = f"shard_{max(1, int(shard_idx)):03d}"
-                if shard_name in shard_vectors and vector_idx < len(shard_vectors[shard_name]):
-                    self._vectors[doc_id] = shard_vectors[shard_name][vector_idx]
-                    self._metadata[doc_id] = meta.get("metadata", {})
-                    self._documents[doc_id] = meta.get("document", "")
-            if self._vectors:
-                import logging
-
-                logging.getLogger("m2m").info(
-                    f"Restored {len(self._vectors)} documents from storage"
+                if shard_name not in shards:
+                    shards[shard_name] = self.storage.load_vectors(shard_name)
+                vecs = shards[shard_name]
+                if vecs is None or not (0 <= int(vector_idx) < len(vecs)):
+                    missing += 1
+                    continue
+                restored.append(
+                    (
+                        row["id"],
+                        vecs[int(vector_idx)],
+                        row.get("metadata") or {},
+                        row.get("document"),
+                        bool(row.get("deleted")),
+                    )
                 )
-        except Exception as e:
-            import logging
+            n = len(restored)
+            if missing:
+                logger.warning(
+                    "Restore: %d fila(s) de metadata sin vector localizable "
+                    "(shard_idx/vector_idx inválidos); se ignoran",
+                    missing,
+                )
+            if n == 0:
+                return
+            vectors = np.ascontiguousarray(
+                np.stack([r[1] for r in restored]), dtype=np.float32
+            )
 
-            logging.getLogger("m2m").warning(f"Failed to restore from storage: {e}")
+            # LSH: misma decisión única que add() (primer lote con n>=3)
+            if self.enable_lsh_fallback and n >= 3:
+                self._lsh_decided = True
+                silhouette = self._compute_silhouette(vectors)
+                self._lsh_active_mode = silhouette < self.lsh_threshold
+            if self._lsh_active_mode and self.enable_lsh_fallback:
+                try:
+                    from .lsh_index import CrossPolytopeLSH, LSHConfig
+
+                    config = LSHConfig(
+                        dim=self.engine.config.latent_dim,
+                        n_tables=15,
+                        n_bits=18,
+                        n_probes=50,
+                        n_candidates=500,
+                    )
+                    self.lsh = CrossPolytopeLSH(config)
+                    self.lsh.index(vectors)
+                    self._use_lsh = True
+                    with self._rw_lock:
+                        for doc_id, vec, meta, doc, deleted in restored:
+                            self._vectors[doc_id] = np.array(vec, dtype=np.float32, copy=True)
+                            self._metadata[doc_id] = meta
+                            self._documents[doc_id] = doc
+                            if deleted:
+                                self._deleted.add(doc_id)
+                        self._lsh_id_map = [r[0] for r in restored]
+                        self._splat_id_order = [r[0] for r in restored]
+                    logger.info(
+                        "Restored %d documents from storage (LSH index rebuilt)", n
+                    )
+                    return
+                except ImportError as e:
+                    logger.warning("Could not load LSH module: %s.", e)
+                    self._lsh_active_mode = False
+                    self._use_lsh = False
+                    self.lsh = None
+
+            # Splats + IVF: misma ruta que add() (normaliza, add_splat, build_index)
+            n_added = self.engine.add_splats(vectors)
+            if n_added < n:
+                skipped = [r[0] for r in restored[n_added:]]
+                logger.warning(
+                    "Restore: max_splats=%d alcanzado: %d de %d documentos restaurados NO se "
+                    "indexan (siguen en storage; reabrir con max_splats mayor para "
+                    "recuperarlos). Primeros ids sin indexar: %s",
+                    self.max_splats,
+                    n - n_added,
+                    n,
+                    skipped[:20],
+                )
+            with self._rw_lock:
+                for doc_id, vec, meta, doc, deleted in restored[:n_added]:
+                    self._vectors[doc_id] = np.array(vec, dtype=np.float32, copy=True)
+                    self._metadata[doc_id] = meta
+                    self._documents[doc_id] = doc
+                    if deleted:
+                        self._deleted.add(doc_id)
+                self._splat_id_order = [r[0] for r in restored[:n_added]]
+            logger.info(
+                "Restored %d documents from storage (%d splats indexed, %d soft-deleted)",
+                n,
+                n_added,
+                len(self._deleted),
+            )
+        except IndexTamperedError:
+            raise  # firma inválida: no se carga nada (audit r3a-17)
+        except Exception as e:
+            logger.warning("Failed to restore from storage: %s: %s", type(e).__name__, e)
 
     def _compute_silhouette(self, vectors: np.ndarray, sample_size: int = 1000) -> float:
         try:
@@ -2043,23 +2165,129 @@ class SimpleVectorDB:
             raise RuntimeError("EBM features no habilitadas.")
         return self._ebm_exploration.find_knowledge_gaps(n_gaps=n)
 
-    def save(self, path: str):
-        """Guarda el índice en disco (WAL + metadata + vectores)."""
-        if self.storage:
-            # save() ya no re-escribe el shard completo: cada add() persistió
-            # su propio shard (append-only), la metadata SQLite mapea cada doc
-            # a su (shard_idx, vector_idx). checkpoint() hace fsync del WAL.
-            self.storage.checkpoint()
-        else:
-            # Fallback: si no hay storage, intentar con engine
-            try:
-                self.engine.load_optimized(path)
-            except Exception:
-                pass
+    def save(self, path: Optional[str] = None) -> str:
+        """Persiste la base en disco.
 
-    def load(self, path: str):
-        """Carga un índice vectorial pre-computado."""
-        self.engine.load_optimized(path)
+        - ``save()`` (sin argumento): hace checkpoint (flush + fsync) del WAL de
+          ``storage_path``. Si la DB se creó sin ``storage_path`` levanta
+          ``RuntimeError``: antes era un no-op silencioso que además llamaba a
+          LOAD del engine (audit r1-17).
+        - ``save(path)``: exporta un snapshot autocontenido en el directorio
+          ``path`` (mismo formato que ``storage_path``: shards + metadata.db +
+          soft-deletes), re-abrible con ``SimpleVectorDB(storage_path=path)`` o
+          ``load(path)``. Si ``path`` es el ``storage_path`` actual equivale a
+          ``save()``. Un ``path`` existente y no vacío levanta ``FileExistsError``.
+
+        Con ``M2M_HMAC_SECRET`` seteado, firma el storage (y el snapshot) con un
+        manifiesto HMAC-SHA256 que el reopen/``load()`` verifica (audit r3a-17);
+        sin secreto no se firma ni se verifica.
+
+        Args:
+            path: Directorio destino del snapshot (opcional).
+
+        Returns:
+            Ruta absoluta persistida (``storage_path`` o el snapshot).
+        """
+        import shutil
+        from pathlib import Path
+
+        def _new_snapshot(target: str) -> M2MPersistence:
+            dest = Path(target)
+            if dest.exists() and any(dest.iterdir()):
+                raise FileExistsError(
+                    f"save(path): {dest} already exists and is not empty (not overwriting)"
+                )
+            return M2MPersistence(str(dest), enable_wal=False)
+
+        target = str(path).strip() if path is not None else ""
+        if self.storage is not None:
+            if not target or Path(target).resolve() == self.storage.storage_path:
+                # save() ya no re-escribe el shard completo: cada add() persistió
+                # su propio shard (append-only), la metadata SQLite mapea cada doc
+                # a su (shard_idx, vector_idx). checkpoint() hace fsync del WAL.
+                self.storage.checkpoint()
+                self.storage.write_manifest()
+                return str(self.storage.storage_path)
+            self.storage.checkpoint()  # el snapshot copia el WAL ya flusheado
+            snap = _new_snapshot(target)
+            try:
+                shutil.copytree(
+                    str(self.storage.storage_path), str(snap.storage_path), dirs_exist_ok=True
+                )
+                snap.write_manifest()
+            finally:
+                snap.close()
+            return str(snap.storage_path)
+
+        if not target:
+            raise RuntimeError(
+                "save() without storage_path cannot persist in place: pass a path to export "
+                "a snapshot (save(path)) or create the DB with storage_path=..."
+            )
+        # DB sólo en memoria: escribir un snapshot real (antes: no-op silencioso)
+        snap = _new_snapshot(target)
+        try:
+            ids = [i for i in self._splat_id_order if i in self._vectors]
+            seen = set(ids)
+            ids += [i for i in self._vectors if i not in seen]
+            if ids:
+                vectors = np.stack(
+                    [np.asarray(self._vectors[i], dtype=np.float32).reshape(-1) for i in ids]
+                )
+                snap.save_vectors(vectors, ids)
+                shard_idx = getattr(snap, "_last_shard_idx", 1)
+                for i, doc_id in enumerate(ids):
+                    snap.save_metadata(
+                        doc_id,
+                        shard_idx=shard_idx,
+                        vector_idx=i,
+                        metadata=self._metadata.get(doc_id) or {},
+                        document=self._documents.get(doc_id),
+                    )
+                for doc_id in ids:
+                    if doc_id in self._deleted:
+                        snap.soft_delete(doc_id)
+            snap.write_manifest()
+        finally:
+            snap.close()
+        return str(snap.storage_path)
+
+    def load(self, path: str) -> "SimpleVectorDB":
+        """Carga la base desde el directorio de storage ``path``.
+
+        ``path`` es un directorio escrito por ``storage_path`` o ``save(path)``;
+        reemplaza el estado en memoria por el de ``path`` (índice reconstruido
+        por ``_restore_from_storage``) y pasa a persistir ahí. Errores explícitos
+        (antes ``load()`` devolvía self con un warning ante cualquier falla,
+        audit r1-17): ``FileNotFoundError`` si ``path`` no existe,
+        ``NotADirectoryError`` si es un archivo, ``RuntimeError`` si la firma
+        HMAC del storage no verifica y ``ValueError`` (path traversal).
+        """
+        from pathlib import Path
+
+        target = str(path).strip() if path is not None else ""
+        if not target:
+            raise ValueError("load() requires a storage directory path")
+        p = Path(target)
+        if not p.exists():
+            raise FileNotFoundError(f"load(): path does not exist: {p}")
+        if not p.is_dir():
+            raise NotADirectoryError(
+                f"load(): {p} is a file; expected a storage directory written by "
+                "storage_path/save(path) (pre-computed .bin datasets go through "
+                "engine.load_optimized)"
+            )
+        old = self.storage
+        enable_wal = old.enable_wal if old is not None else True
+        if old is not None and old.storage_path == p.resolve():
+            old.close()  # mismo directorio: cerrar el WAL antes de reabrirlo
+            old = None
+        self.storage = M2MPersistence(str(p), enable_wal=enable_wal)
+        if old is not None:
+            old.close()
+        self._restore_from_storage()
+        if self.ebm_enabled:
+            self._update_ebm_splats()
         return self
 
     def get_stats(self) -> Dict:
