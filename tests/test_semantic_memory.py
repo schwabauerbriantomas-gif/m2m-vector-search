@@ -1,12 +1,9 @@
 """Tests for SemanticMemoryDB - Semantic memory interface for AI agents."""
 
-import tempfile
-import time
-
 import numpy as np
 import pytest
 
-from m2m import M2MConfig, SemanticMemoryDB
+from m2m import SemanticMemoryDB
 
 
 class FakeEncoder:

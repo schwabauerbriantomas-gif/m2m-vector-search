@@ -4,11 +4,9 @@ Tests: basic retrieval, edge cases, RAG pipeline, semantic memory, numerical sta
 """
 
 import json
-import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pytest

@@ -8,7 +8,7 @@ in large-scale Gaussian splat datasets.
 import math
 import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np

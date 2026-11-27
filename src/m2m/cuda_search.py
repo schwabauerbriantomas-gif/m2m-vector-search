@@ -12,8 +12,7 @@ Target: <2ms per query on 10K embeddings × 640D (RTX 3090).
 from __future__ import annotations
 
 import logging
-import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 
@@ -268,7 +267,6 @@ class MultiStartSearcher:
             indices:   shape [k] int64  — aggregated top-k
             distances: shape [k] float32 — average distance from votes
         """
-        import torch
 
         query = np.asarray(query, dtype=np.float32).flatten()
 

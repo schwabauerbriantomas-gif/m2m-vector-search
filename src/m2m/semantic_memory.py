@@ -38,17 +38,13 @@ Usage:
 from __future__ import annotations
 
 import math
-import os
-import re
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 
 from .bm25_index import BM25Index
-from .config import M2MConfig
 
 # --- Category keywords for auto-categorization ---
 _CATEGORY_KEYWORDS = {

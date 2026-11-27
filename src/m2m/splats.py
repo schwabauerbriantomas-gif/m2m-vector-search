@@ -6,7 +6,7 @@ import numpy as np
 
 from .gaussian_scoring import gaussian_score, two_phase_search
 from .hrm2_engine import HRM2Engine
-from .online_updates import FeedbackEvent, OnlineUpdater
+from .online_updates import OnlineUpdater
 from .splat_types import GaussianSplat
 
 if TYPE_CHECKING:

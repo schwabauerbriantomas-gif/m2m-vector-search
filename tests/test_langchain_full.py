@@ -168,7 +168,6 @@ class TestAsRetriever:
     def test_retriever_in_chain(self, vectorstore):
         """Test vectorstore works as a retriever in a simple chain."""
         try:
-            from langchain_core.prompts import ChatPromptTemplate
             from langchain_core.runnables import RunnablePassthrough
         except ImportError:
             pytest.skip("langchain_core.runnables not available")

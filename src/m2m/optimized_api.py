@@ -14,9 +14,9 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from . import AdvancedVectorDB, M2MConfig, SimpleVectorDB
+from . import AdvancedVectorDB
 from .auto_scaling import AutoScaler, HorizontalScaler, NodeMetrics
-from .gpu_auto_tune import GPUAutoTuner, get_gpu_tuner
+from .gpu_auto_tune import get_gpu_tuner
 from .query_optimizer import QueryOptimizer
 
 logger = logging.getLogger(__name__)

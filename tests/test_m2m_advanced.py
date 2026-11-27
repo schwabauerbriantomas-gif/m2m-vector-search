@@ -18,9 +18,9 @@ import pytest
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from m2m import AdvancedVectorDB, M2MConfig, SimpleVectorDB
+from m2m import AdvancedVectorDB, SimpleVectorDB
 from m2m.auto_scaling import AutoScaler, HorizontalScaler, MetricsCollector, NodeMetrics
-from m2m.gpu_auto_tune import GPUAutoTuner, GPUMemoryPool, get_gpu_tuner
+from m2m.gpu_auto_tune import GPUAutoTuner, GPUMemoryPool
 from m2m.query_optimizer import QueryCache, QueryOptimizer, QueryPrefetcher
 
 # =============================================================================

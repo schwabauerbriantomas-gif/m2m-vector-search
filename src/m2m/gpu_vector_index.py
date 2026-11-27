@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -724,7 +723,6 @@ def create_gpu_index(
     if prefer_cuda and _has_cuda():
         return CUDAVectorIndex(index_vectors, max_batch_size)
     if _has_vulkan():
-        import vulkan as vk
 
         return GPUVectorIndex(index_vectors, max_batch_size)
     return None

@@ -22,7 +22,6 @@ import pytest
 from m2m.gate_modulus import (
     _CACHE_ALGO,
     SLOPE_FINO_UMBRAL,
-    GateKSelection,
     _classify_fine,
     _data_fingerprint,
     gate_select_k,

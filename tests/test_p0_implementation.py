@@ -3,7 +3,6 @@ P0 Tests: Strategy Pattern, HNSW Index, Energy Functions, Dense Embedding Fix
 """
 
 import numpy as np
-import pytest
 
 
 class TestVectorIndexInterface:

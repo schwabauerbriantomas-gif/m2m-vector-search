@@ -2,7 +2,6 @@
 
 import math
 import tempfile
-import time
 
 import numpy as np
 import pytest
@@ -372,7 +371,6 @@ class TestChaosEdgeCases:
 
     def test_concurrent_writes(self):
         """Multiple threads writing to WAL shouldn't corrupt it."""
-        import atexit
         import threading
 
         from m2m.storage import WriteAheadLog
@@ -403,7 +401,6 @@ class TestChaosEdgeCases:
             assert len(ops) >= 200
             wal.close()
         finally:
-            import os
             import shutil
 
             try:
@@ -530,8 +527,6 @@ class TestCompactAndEntropy:
 class TestAdvancedVectorDBSingleEngine:
     def test_no_double_engine_creation(self):
         """AdvancedVectorDB should create only one M2MEngine."""
-        from unittest.mock import patch
-
         from m2m import AdvancedVectorDB
 
         call_count = 0
@@ -588,7 +583,6 @@ class TestInputValidation:
         """SemanticMemoryDB.store() should reject empty text."""
         pytest.importorskip("m2m.semantic_memory")
         # We can't fully test without an encoder, but test the validation directly
-        from m2m.semantic_memory import auto_categorize
 
         # Validation is tested indirectly — test the ValueError path
         pass

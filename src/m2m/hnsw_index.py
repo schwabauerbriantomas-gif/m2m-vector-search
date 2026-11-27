@@ -12,7 +12,7 @@ search using Hierarchical Navigable Small World graphs" (2016).
 import heapq
 import math
 import random
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 

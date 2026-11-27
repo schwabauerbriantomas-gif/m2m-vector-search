@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 import httpx
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, field_validator
 
 from ..cluster.aggregator import ResultAggregator
 from ..cluster.protocol import (

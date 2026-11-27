@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -246,7 +246,6 @@ def parallel_index(
         RuntimeError: Si el engine no tiene splats.
     """
     from .clustering import KMeans
-    from .encoding import FullEmbeddingBuilder
 
     if not engine.splats:
         raise RuntimeError("Engine no tiene splats. Llama add_splats() primero.")
