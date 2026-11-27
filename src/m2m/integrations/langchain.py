@@ -98,11 +98,19 @@ class M2MVectorStore(VectorStore):
         # We need to unsqueeze to make it a batch of 1
         query_batch = query_tensor[np.newaxis, :]
 
+        # audit r3b-02: los docs borrados siguen ocupando posición en el engine
+        # (M2MEngine no tiene API de borrado, n_active no baja), así que el top-k
+        # se pide con holgura y se filtra por _store; si no, k=1 devolvía []
+        # tras borrar el vecino más cercano.
+        n_active = int(self._m2m.m2m.splats.n_active)
+        dead = max(0, n_active - len(self._store))
+        k_fetch = max(1, min(n_active, k + dead)) if n_active > 0 else k
+
         # Run search using M2MEngine public API
         # M2MEngine.search returns (mu, alpha, kappa, splat_indices); splat_indices
         # are insertion-order positions, already ranked best-first.
         neighbors_mu, neighbors_alpha, neighbors_kappa, splat_indices = self._m2m.search(
-            query_batch, k=k
+            query_batch, k=k_fetch
         )
 
         if splat_indices.ndim == 2:
@@ -115,7 +123,9 @@ class M2MVectorStore(VectorStore):
         # expected a 3-tuple that no longer matches the engine's 4-tuple).
         results = []
         q = query_batch[0]
-        for j, idx in enumerate(splat_indices[:k]):
+        for j, idx in enumerate(splat_indices[:k_fetch]):
+            if len(results) >= k:
+                break
             idx = int(idx)
             if idx in self._store:
                 doc_info = self._store[idx]
@@ -131,8 +141,12 @@ class M2MVectorStore(VectorStore):
 
     def delete(self, ids: List[str]) -> None:
         """
-        Remove documents by ID from the store and mark splats as deleted
-        so they are skipped during similarity search.
+        Remove documents by ID from the store.
+
+        The splats stay allocated in the engine (M2MEngine exposes no delete
+        API and n_active does not shrink); ``similarity_search`` over-fetches
+        and filters them out, so deleted documents never occupy the top-k
+        (audit r3b-02). Memory is reclaimed only by dropping the store.
         """
         if not ids:
             return
