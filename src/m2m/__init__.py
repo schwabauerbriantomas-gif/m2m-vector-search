@@ -916,9 +916,14 @@ class SimpleVectorDB:
                 # Track which doc_ids correspond to splat positions
                 self._splat_id_order.extend(ids[i] for i in new_rows)
             accepted = set(new_rows)
+            # Posiciones por dict armado UNA vez por add() (list.index es O(n) por id:
+            # O(n*m) al re-insertar muchos ids existentes).
+            pos_of = None
             for i, h in enumerate(has_splat):
                 if h:
-                    self._write_splat_at(self._splat_id_order.index(ids[i]), vectors[i])
+                    if pos_of is None:
+                        pos_of = {d: p for p, d in enumerate(self._splat_id_order)}
+                    self._write_splat_at(pos_of[ids[i]], vectors[i])
                     accepted.add(i)
             accepted_idx = sorted(accepted)
             self._lsh_id_map = []  # LSH no longer active after normal add
