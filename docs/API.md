@@ -1,18 +1,186 @@
-# API Reference
+# API reference
 
-Welcome to the M2M Vector Search API reference. 
+M2M has two surfaces: the Python API (`import m2m`) and the HTTP API
+(`m2m.api.edge_api`, `m2m.api.coordinator_api`). The signatures below were read
+with `inspect.signature` from the 2.4.0 source; the docstrings in `src/m2m/` are
+the authority. There are no separate type stubs: the package ships `py.typed` and
+the annotations live in the source.
 
-## Core Interfaces
+## Python API
 
-- **`SimpleVectorDB(device='cpu')`**: Lightweight interface for basic vector search and retrieval. Good for edge devices.
-  - `db.add(vectors)`: Add a batch of vectors.
-  - `db.search(queries, k)`: Retrieve top-k nearest neighbors.
-  - `db.save(path)` / `db.load(path)`: Persist to disk.
+### `SimpleVectorDB`
 
-- **`AdvancedVectorDB(device='vulkan')`**: Advanced interface with memory tiering and generative features.
-  - `db.add(vectors)`: Add vectors to hot memory.
-  - `db.search(queries, k)`: Search across tiers.
-  - `db.generate(query, n_steps)`: Run Langevin dynamics exploration.
-  - `db.consolidate(threshold)`: Clean up passive memory.
+```python
+import numpy as np
+from m2m import SimpleVectorDB
 
-For full type stubs and internal methods, please refer to the docstrings in the `src/m2m/` directory.
+db = SimpleVectorDB(latent_dim=128, storage_path="./data")   # storage_path optional
+vectors = np.random.default_rng(0).standard_normal((3, 128)).astype(np.float32)
+n = db.add(ids=["a", "b", "c"], vectors=vectors)
+print(n, [r.id for r in db.search(vectors[0], k=2, include_metadata=True)])
+```
+
+Constructor parameters are documented in [`CONFIGURATION.md`](CONFIGURATION.md).
+
+#### Writing
+
+| Method | Behaviour |
+|---|---|
+| `add(ids=None, vectors=None, metadata=None, documents=None) -> int` | Adds `[N, D]` vectors. Ids are auto-generated when omitted. Raises `ValueError` before mutating anything for `NaN`/`Inf`, norm `< 1e-6`, duplicate or unhashable ids in the batch. Re-adding an active id rewrites its splat; re-adding a soft-deleted id revives it. Returns the number of vectors added. Vectors beyond `max_splats` are skipped with a warning. |
+| `update(id, vector=None, metadata=None, document=None, upsert=False) -> UpdateResult` | Updates a document; `upsert=True` creates it (or revives it) — a vector is then required. |
+| `delete(id=None, ids=None, filter=None, hard=False) -> DeleteResult` | Soft-deletes by default. `hard=True` also removes the splat from the index (compact + rebuild, `O(n)` per call) and frees capacity. `filter` uses the metadata-filter syntax below. `DeleteResult.deleted` counts only active-to-deleted transitions. |
+| `get_stats() -> dict` | Counters of the database. For the hardware backend in use ask `db.engine.backend` or `db.engine.get_backend_info()`. |
+
+#### Searching
+
+| Method | Returns |
+|---|---|
+| `search(query, k=10, filter=None, include_energy=False, include_metadata=False)` | With `include_metadata=True`, `include_energy=True` or `filter`: `list[DocResult]`, at most `k` active documents that pass the filter. Otherwise the legacy tuple `(mu, alpha, kappa, splat_indices)` — always four values, also when empty or in LSH mode. |
+| `search_batch(queries, k=10, include_metadata=False)` | `include_metadata=False`: `np.ndarray` `[B, k]` of positions (`-1` when missing); `True`: `list[list[DocResult]]`. `(B, 0)` for an empty database. Each query is scored against the rows of **its own** probed clusters, never the union of the batch. |
+| `search_batch_filtered(queries, k=10, filter_fn=None, filter=None)` | `np.ndarray` `[B, k]` of positions. The filter runs **before** the top-k; `filter_fn` is `callable(position) -> bool`, `filter` a dict or `callable(metadata) -> bool` (same syntax as `search`). Both together: `ValueError`. |
+| `search_with_energy(query, k=10) -> SearchResult` | `SearchResult.results` (list of `DocResult` with `energy`/`confidence`), `total_confidence`, `query_energy`. Needs the energy features (`enable_ebm=True`, `mode="ebm"` or `AdvancedVectorDB`). |
+| `get_energy(vector) -> float`, `suggest_exploration(n=3)`, `find_knowledge_gaps(n=5)` | Energy features (same requirement as above). <!-- verificar: gate on enable_ebm --> |
+
+#### Persistence
+
+| Method | Behaviour |
+|---|---|
+| `save(path=None) -> str` | `save()`: WAL checkpoint of `storage_path`; `RuntimeError` without a `storage_path`. `save(path)`: self-contained snapshot; `FileExistsError` if `path` exists and is not empty; `path == storage_path` means `save()`. |
+| `load(path) -> SimpleVectorDB` | Replaces the in-memory state with the storage at `path` (splats, index, soft-deletes rebuilt) and keeps persisting there. `FileNotFoundError`, `NotADirectoryError` (a file, e.g. a `.bin` dump), `RuntimeError`/`IndexTamperedError` on a bad HMAC signature, `ValueError` on path traversal. |
+| — | Reopening: `SimpleVectorDB(latent_dim=D, storage_path="./data")` restores the database, including its index. |
+
+Signing is opt-in through `M2M_HMAC_SECRET` (see [`SECURITY.md`](../SECURITY.md)).
+
+### `AdvancedVectorDB`
+
+Extends `SimpleVectorDB` with `enable_soc=True` and `enable_energy_features=True`
+and adds:
+
+| Method | Returns |
+|---|---|
+| `consolidate(threshold=None) -> int` | Runs SOC consolidation and returns the number of splats pruned. It is invoked by the caller; nothing runs in the background. <!-- P10b: feedback/SOC --> |
+| `check_criticality() -> CriticalityReport` | Diagnostic with `state`, `index`, `energy_variance`, `size_variance`. |
+| `relax(iterations=10) -> RelaxationResult` | Relaxation step of the SOC engine. |
+| `trigger_avalanche(seed_point=None) -> AvalancheResult` | Triggers an SOC avalanche. |
+| `generate(query, n_steps=10) -> np.ndarray` | Langevin exploration: returns **one** sample of dimension `D`. `n_steps` is accepted but currently unused. <!-- verificar: n_steps --> |
+
+### `DocResult`
+
+| Field | Meaning |
+|---|---|
+| `id` | Document id. |
+| `score` | **Cosine similarity** in `[-1, 1]` between the normalized query and the stored vector. Same semantics on every path. Higher is closer. |
+| `alpha` | Weight `alpha_i` of the splat. `None` in LSH mode. |
+| `distance` | L2 distance between the normalized query and the stored vector; `distance**2 == 2 - 2*score` on the sphere. |
+| `energy` | With energy features only: `E_i(q) = -ln(alpha_i) + kappa_i*||q - mu_i||**2`, capped at `OOD_ENERGY = 10`. Lower is more confident. |
+| `confidence` | With energy features only: `sigmoid(-energy)`. `0.5` at the exact centre of a splat with `alpha = 1`; the cap maps to `4.5e-5`. |
+| `metadata`, `document` | As passed to `add()` (`{}` / `None` when absent). |
+| `vector` | Stored vector in `search()`; `None` in `search_batch(include_metadata=True)`. |
+
+**Reading the energy.** `energy == 10.0` and `confidence == 0.0000` on every result
+mean the query is out of distribution: no splat covers it. With `np.random.randn`
+data in 128 dimensions that is the expected output (the nearest neighbour has a
+cosine of about `0.25`), not a bug.
+
+### Metadata filters
+
+```python
+import numpy as np
+from m2m import SimpleVectorDB
+
+rng = np.random.default_rng(0)
+db = SimpleVectorDB(latent_dim=16)
+db.add(ids=["a", "b", "c", "d"], vectors=rng.standard_normal((4, 16)).astype(np.float32),
+       metadata=[{"category": "science", "year": 2021}, {"category": "art", "year": 2019},
+                 {"category": "science", "year": 2019}, {"tag": "x"}])
+q = rng.standard_normal(16).astype(np.float32)
+Q = rng.standard_normal((2, 16)).astype(np.float32)
+
+db.search(q, k=10, filter={"category": "science"})                 # equality
+db.search(q, k=10, filter={"year": {"$gte": 2020, "$lt": 2025}})   # operators
+db.search(q, k=10, filter={"tag": {"$in": ["a", "b"]}})
+db.search(q, k=10, filter=lambda meta: meta.get("public") is True)  # callable
+db.delete(filter={"category": {"$eq": "spam"}})
+db.search_batch_filtered(Q, k=10, filter={"category": "science"})
+```
+
+Operators: `$eq`, `$ne`, `$in`, `$nin`, `$gt`, `$gte`, `$lt`, `$lte`, a bare value
+(as `$eq`) or a callable `metadata -> bool`. Filters are **fail closed**: an
+unknown operator, an invalid value or an empty condition `{}` raise `ValueError`,
+and `delete(filter=...)` refuses to run on such a filter. `filter=None` means no
+filter. Filter masks are cached per metadata version; mutating a metadata dict
+in place after `add()` is not seen by the cache — call `update()` instead.
+
+### Lower-level building blocks
+
+- `m2m.engine.M2MEngine` selects the hardware backend (`get_backend_info()`); the
+  backend in use is `db.engine.backend`. `m2m.M2MEngine` wraps the splat memory and is
+  what `create_m2m(M2MConfig(...))` returns; it adds `search`, `add_splats`, `generate`,
+  `load_optimized`, `get_statistics` and `get_backend_info()`. Its `search(queries, k)`
+  takes a `[B, D]` batch and returns four `[B, k, ...]` arrays
+  `(mu, alpha, kappa, splat_indices)`.
+- `m2m.hrm2_engine.HRM2Engine` / `HRM2Config`: hierarchical routing with
+  `query(q, k, lod=2)` and `query_batch(Q, k, lod=2)`, which agree row by row.
+- `m2m.gate_modulus.gate_select_k(X, target_docs_per_cluster=25, verdict_cache=None,
+  seed=42, stability_seeds=0)` chooses the number of coarse clusters and returns a
+  `GateKSelection` whose verdict reports the discarded and omitted scales.
+- `m2m.sq8_disk.SQ8DiskStore(dim, dump_dir=None, spectral_r=None)`: SQ8 codes in RAM,
+  `float32` on disk for exact rescoring (`add`, `build_from_float_npy`, `flush`,
+  `load`, `search_batch`, `ram_bytes`). The spectral phase is opt-in.
+- `m2m.geometry`: `exp_map`, `log_map`, `geodesic_distance`, `project_to_tangent`,
+  `normalize_sphere` (also re-exported by the package).
+- `m2m.integrations.langchain.M2MVectorStore`: a LangChain `VectorStore` with
+  `add_texts`, `similarity_search`, `update`, `delete`, `filter_by_metadata`;
+  a retriever is `as_retriever()`. Requires `pip install "m2m-vector-search[langchain]"`.
+- `m2m.semantic_memory.SemanticMemoryDB`: hybrid BM25 + vector search with RRF.
+- There is **no** LlamaIndex integration. `examples/llamaindex_rag.py` builds a toy
+  retriever on `M2MEngine` without importing `llama-index`.
+
+## HTTP API
+
+```bash
+pip install "m2m-vector-search[api]"
+python -m m2m                                   # 127.0.0.1:8080
+uvicorn m2m.api.coordinator_api:app --port 8000 # cluster coordinator
+```
+
+### Edge API (`m2m.api.edge_api`)
+
+| Method and path | Purpose |
+|---|---|
+| `GET /health`, `GET /v1/health` | Liveness, no key. |
+| `GET /v1/stats` | Global statistics. |
+| `GET /v1/collections`, `POST /v1/collections`, `GET /v1/collections/{name}`, `DELETE /v1/collections/{name}` | Collection CRUD. |
+| `POST /v1/collections/{name}/vectors` | Insert vectors (ids, vectors, metadata, documents). |
+| `GET`, `PUT`, `DELETE /v1/collections/{name}/vectors/{vector_id}` | Read, upsert or delete one vector. |
+| `GET /v1/collections/{name}/stats` | Per-collection statistics. |
+| `POST /v1/collections/{name}/search`, `/query` | k-NN search (`query`, `k`, optional `filter`). |
+| `POST /v1/collections/{name}/energy`, `/explore`, `GET .../suggest` | Energy features. |
+| `POST /v1/admin/checkpoint`, `POST /v1/admin/backup` | Checkpoint every collection with a `storage_path`; write a backup. Fail closed without a key. |
+| `POST /ingest`, `POST /search` | Legacy endpoints. |
+
+The OpenAPI schema is served at `/docs` and `/openapi.json` by the running server.
+
+### Status codes
+
+| Code | When |
+|---|---|
+| `400` | A validation `ValueError` from `add`/`update`/`delete` (bad vector, bad filter, duplicate ids). |
+| `401` | Missing or wrong API key on an endpoint that requires it. |
+| `404` | Unknown collection or vector. |
+| `413` | Body larger than `M2M_MAX_BODY_BYTES`; rejected before being read (`text/plain`). |
+| `422` | Request body does not match the pydantic model, or more than `100_000` vectors in one insert. |
+| `429` | Rate limit exceeded — currently never returned (see [`SECURITY.md`](../SECURITY.md)). <!-- P10b: verificar P15 --> |
+| `500` | Real failure of checkpoint/backup (returned with the error, not swallowed). |
+| `503` | `/v1/admin/*` with no API key configured. |
+
+<!-- P10b: verificar P15 -->
+Planned: key validation on the vector `GET`/`PUT`/`DELETE` endpoints, an opt-in
+rate limit (`M2M_RATE_LIMIT_PER_MIN`) and `GET /health` on the coordinator.
+
+### Coordinator API (`m2m.api.coordinator_api`)
+
+`POST /register`, `POST /heartbeat`, `POST /route`, `POST /search`. Edges register
+themselves, the router picks edges per query and the aggregator merges the
+results. Authenticated with `M2M_COORDINATOR_API_KEY` when set. See
+[`cluster.md`](cluster.md).
