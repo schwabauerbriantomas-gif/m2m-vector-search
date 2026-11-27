@@ -56,6 +56,7 @@ try:
     from .graph_splat import GraphEdge as GraphEdge
     from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import NodeType as NodeType
+    from .hrm2_engine import HRM2Config
     from .hrm2_engine import HRM2Engine
     from .mapreduce_indexer import parallel_index
     from .quality_reflector import QualityLevel, QualityReflector, QualityReport
@@ -65,37 +66,89 @@ try:
     from .splats import SplatStore
     from .storage import M2MPersistence
     from .storage import WriteAheadLog as WriteAheadLog
-except ImportError:
-    from .config import M2MConfig
+except ImportError as exc:
+    # audit r3a-10: este branch dejaba `M2MEngine = None` y el resto de los nombres
+    # sin definir, así que una instalación rota explotaba con un NameError confuso
+    # en el primer uso. Un módulo del núcleo que no importa = instalación
+    # incompleta: fallar acá, con la causa real.
+    raise ImportError(
+        f"m2m: no se pudo importar un módulo del núcleo ({exc!r}); "
+        "la instalación está incompleta o rota"
+    ) from exc
 
-    M2MEngine = None
+# audit r3a-10: acá había redefiniciones "fallback" de normalize_sphere,
+# geodesic_distance, exp_map, log_map y project_to_tangent que SOMBREABAN las de
+# .geometry importadas arriba: `from m2m import exp_map` devolvía `base + tangent`.
+# Las únicas implementaciones son las de m2m.geometry (operaciones riemannianas
+# sobre la esfera unitaria). normalize_sphere es numéricamente idéntico al
+# fallback (mismo eje -1, mismo eps), así que SimpleVectorDB no cambia.
+#
+# `M2MEngine` en __all__ es el envoltorio de M2MMemory definido abajo (lo que
+# `from m2m import M2MEngine` siempre devolvió); el selector de hardware es
+# m2m.engine.M2MEngine.
 
-
-# ---------------------------------------------------------------------------
-# Geometry utilities (fallback)
-# ---------------------------------------------------------------------------
-
-
-def normalize_sphere(x, dim=-1):
-    norm = np.linalg.norm(x, axis=dim, keepdims=True)
-    return x / (norm + 1e-8)
-
-
-def geodesic_distance(x, y):
-    return np.arccos(np.clip(np.dot(x, y.T), -1, 1))
-
-
-def exp_map(base, tangent):
-    return base + tangent
-
-
-def log_map(base, point):
-    return point - base
-
-
-def project_to_tangent(base, vector):
-    return vector - np.dot(vector, base.T) * base
-
+__all__ = [
+    "__version__",
+    "AdvancedVectorDB",
+    "AvalancheResult",
+    "BackendComm",
+    "BackendHealth",
+    "BackendMessage",
+    "BackendMetrics",
+    "BackendMsgType",
+    "BackendType",
+    "CriticalityReport",
+    "DeleteResult",
+    "DocResult",
+    "EBMEnergy",
+    "EBMExploration",
+    "EnergyFunction",
+    "EnergyRegion",
+    "EnergyResult",
+    "EntityCandidate",
+    "ExplorationSuggestion",
+    "GaussianGraphStore",
+    "GraphEdge",
+    "GraphSplat",
+    "HRM2Config",
+    "HRM2Engine",
+    "M2MClient",
+    "M2MCollection",
+    "M2MConfig",
+    "M2MEngine",
+    "M2MEntityExtractor",
+    "M2MGraphEntityExtractor",
+    "M2MMemory",
+    "M2MPersistence",
+    "MemoryResult",
+    "NodeType",
+    "QualityLevel",
+    "QualityReflector",
+    "QualityReport",
+    "QueryComplexity",
+    "QueryProfile",
+    "QueryRouter",
+    "RelaxationResult",
+    "SOCEngine",
+    "SearchResult",
+    "SearchStrategy",
+    "SearchSupervisor",
+    "SemanticMemoryDB",
+    "SimpleVectorDB",
+    "SplatStore",
+    "UpdateResult",
+    "WriteAheadLog",
+    "create_m2m",
+    "exp_map",
+    "geodesic_distance",
+    "log_map",
+    "main",
+    "match_metadata_filter",
+    "normalize_sphere",
+    "parallel_index",
+    "project_to_tangent",
+    "validate_metadata_filter",
+]
 
 # ---------------------------------------------------------------------------
 # M2MMemory (internal)

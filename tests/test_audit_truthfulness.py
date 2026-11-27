@@ -191,3 +191,103 @@ def test_cuda_available_reports_cuda_without_warning(monkeypatch, caplog):
 def test_cpu_default_is_not_a_fallback():
     db = _db("cpu")
     assert db.engine.get_backend_info() == {"requested": "cpu", "effective": "cpu", "reasons": {}}
+
+
+# ---------------------------------------------------------------------------
+# r3a-10 — sin sombreado de m2m.geometry ni duplicidad silenciosa de M2MEngine
+# ---------------------------------------------------------------------------
+
+GEOMETRY_NAMES = (
+    "exp_map",
+    "log_map",
+    "geodesic_distance",
+    "normalize_sphere",
+    "project_to_tangent",
+)
+
+
+@pytest.mark.parametrize("name", GEOMETRY_NAMES)
+def test_package_exports_real_geometry(name):
+    """`from m2m import exp_map` debe dar la operación riemanniana de m2m.geometry."""
+    assert getattr(m2m, name) is getattr(m2m.geometry, name)
+
+
+def test_exp_map_stays_on_sphere():
+    base = np.array([1.0, 0.0, 0.0])
+    tangent = np.array([0.0, 0.5, 0.0])  # ortogonal a base
+    out = m2m.exp_map(base, tangent)
+    np.testing.assert_allclose(out, [np.cos(0.5), np.sin(0.5), 0.0], atol=1e-12)
+    np.testing.assert_allclose(np.linalg.norm(out), 1.0, atol=1e-12)
+
+
+def test_log_exp_roundtrip_on_sphere():
+    rng = np.random.default_rng(0)
+    base = m2m.normalize_sphere(rng.normal(size=5))
+    point = m2m.normalize_sphere(rng.normal(size=5))
+    np.testing.assert_allclose(m2m.exp_map(base, m2m.log_map(base, point)), point, atol=1e-9)
+
+
+def test_normalize_sphere_matches_legacy_formula_bitwise():
+    """El fallback de normalize_sphere era numéricamente idéntico al de geometry
+    (mismo eje -1, mismo eps): el comportamiento de SimpleVectorDB no cambia."""
+    rng = np.random.default_rng(0)
+    for shape in [(6,), (1, 6), (17, 6)]:
+        x = rng.normal(size=shape).astype("float32")
+        legacy = x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-8)
+        assert np.array_equal(m2m.normalize_sphere(x), legacy)
+
+
+def test_all_is_consistent_and_includes_hrm2config():
+    assert len(m2m.__all__) == len(set(m2m.__all__))
+    for name in m2m.__all__:
+        assert hasattr(m2m, name), name
+    for name in GEOMETRY_NAMES + ("M2MEngine", "M2MConfig", "HRM2Config", "SimpleVectorDB", "__version__"):
+        assert name in m2m.__all__, name
+    assert m2m.HRM2Config is m2m.hrm2_engine.HRM2Config
+
+
+def test_two_m2m_engine_classes_keep_their_module_and_are_documented():
+    """Compat: m2m.M2MEngine sigue siendo el envoltorio de M2MMemory; el selector de
+    hardware sigue siendo m2m.engine.M2MEngine (HRM2Engine.router)."""
+    wrapper, hardware = m2m.M2MEngine, m2m.engine.M2MEngine
+    assert wrapper is not hardware
+    assert (wrapper.__module__, hardware.__module__) == ("m2m", "m2m.engine")
+    assert "m2m.engine.M2MEngine" in wrapper.__doc__
+    assert "m2m.M2MEngine" in hardware.__doc__
+    db = _db("cpu")
+    assert type(db.engine) is wrapper
+    assert type(db.engine.m2m.splats.engine.router) is hardware
+    assert db.engine.get_backend_info() == db.engine.m2m.splats.engine.router.get_backend_info()
+
+
+def _top_id(db, result):
+    """Id del primer resultado: DocResult (include_metadata=True) o la tupla legacy
+    (vectors, scores, energy, indices posicionales) -> posición de splat -> id."""
+    if hasattr(result[0], "id"):
+        return result[0].id
+    pos = int(np.asarray(result[-1]).reshape(-1)[0])
+    return db._splat_id_order[pos]
+
+
+def test_simple_vector_db_numeric_behaviour_smoke():
+    rng = np.random.default_rng(0)
+    vecs = rng.normal(size=(20, 8)).astype("float32")
+    db = _db("cpu")
+    db.add(ids=[f"d{i}" for i in range(20)], vectors=vecs)
+    assert _top_id(db, db.search(vecs[7], k=1, include_metadata=True)) == "d7"
+    db.update("d7", vector=vecs[3], upsert=True)
+    assert _top_id(db, db.search(vecs[7], k=1, include_metadata=True)) != "d7"
+    db.delete("d3", hard=True)
+    assert _top_id(db, db.search(vecs[3], k=1, include_metadata=True)) != "d3"
+
+
+def test_broken_core_import_raises_clear_import_error():
+    """Si un módulo del núcleo no importa, `import m2m` falla con ImportError claro
+    (antes: M2MEngine=None y el resto de nombres indefinidos -> NameError después)."""
+    code = "import sys; sys.modules['m2m.splats'] = None\nimport m2m\n"
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")}
+    proc = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(REPO_ROOT), env=env
+    )
+    assert proc.returncode != 0, proc.stdout
+    assert "la instalación está incompleta" in proc.stderr, proc.stderr[-800:]
