@@ -52,11 +52,16 @@ class TestGeometry:
         assert abs(d - math.pi / 2) < 1e-6
 
     def test_exp_log_map(self):
+        # audit r3a-10 (P7b): `from m2m import exp_map, log_map` da la operación
+        # riemanniana REAL de m2m.geometry, definida sobre la esfera unitaria. El
+        # test asertaba el fallback euclidiano (base + tangent) con un punto fuera
+        # de la esfera; por decisión del orquestador ese fallback se eliminó.
         from m2m import exp_map, log_map
 
         base = np.array([1.0, 0.0])
-        point = np.array([2.0, 3.0])
+        point = np.array([0.0, 1.0])
         tangent = log_map(base, point)
+        np.testing.assert_allclose(tangent, [0.0, math.pi / 2], atol=1e-6)
         reconstructed = exp_map(base, tangent)
         np.testing.assert_allclose(reconstructed, point, atol=1e-6)
 

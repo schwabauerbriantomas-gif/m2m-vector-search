@@ -4,7 +4,7 @@
 M2M (Machine-to-Memory) - EBM Vector Database
 High-performance Gaussian Splat storage and retrieval with Energy-Based Model features.
 
-Version: 2.3.0
+Version: 2.4.0
 Author: Brian Schwabauer
 License: AGPL-3.0
 
@@ -14,7 +14,7 @@ Modos de operación:
   - CLUSTER:  M2MCluster (cluster distribuido con router energético opcional)
 """
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
@@ -56,6 +56,7 @@ try:
     from .graph_splat import GraphEdge as GraphEdge
     from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import NodeType as NodeType
+    from .hrm2_engine import HRM2Config
     from .hrm2_engine import HRM2Engine
     from .mapreduce_indexer import parallel_index
     from .quality_reflector import QualityLevel, QualityReflector, QualityReport
@@ -65,37 +66,89 @@ try:
     from .splats import SplatStore
     from .storage import M2MPersistence
     from .storage import WriteAheadLog as WriteAheadLog
-except ImportError:
-    from .config import M2MConfig
+except ImportError as exc:
+    # audit r3a-10: este branch dejaba `M2MEngine = None` y el resto de los nombres
+    # sin definir, así que una instalación rota explotaba con un NameError confuso
+    # en el primer uso. Un módulo del núcleo que no importa = instalación
+    # incompleta: fallar acá, con la causa real.
+    raise ImportError(
+        f"m2m: no se pudo importar un módulo del núcleo ({exc!r}); "
+        "la instalación está incompleta o rota"
+    ) from exc
 
-    M2MEngine = None
+# audit r3a-10: acá había redefiniciones "fallback" de normalize_sphere,
+# geodesic_distance, exp_map, log_map y project_to_tangent que SOMBREABAN las de
+# .geometry importadas arriba: `from m2m import exp_map` devolvía `base + tangent`.
+# Las únicas implementaciones son las de m2m.geometry (operaciones riemannianas
+# sobre la esfera unitaria). normalize_sphere es numéricamente idéntico al
+# fallback (mismo eje -1, mismo eps), así que SimpleVectorDB no cambia.
+#
+# `M2MEngine` en __all__ es el envoltorio de M2MMemory definido abajo (lo que
+# `from m2m import M2MEngine` siempre devolvió); el selector de hardware es
+# m2m.engine.M2MEngine.
 
-
-# ---------------------------------------------------------------------------
-# Geometry utilities (fallback)
-# ---------------------------------------------------------------------------
-
-
-def normalize_sphere(x, dim=-1):
-    norm = np.linalg.norm(x, axis=dim, keepdims=True)
-    return x / (norm + 1e-8)
-
-
-def geodesic_distance(x, y):
-    return np.arccos(np.clip(np.dot(x, y.T), -1, 1))
-
-
-def exp_map(base, tangent):
-    return base + tangent
-
-
-def log_map(base, point):
-    return point - base
-
-
-def project_to_tangent(base, vector):
-    return vector - np.dot(vector, base.T) * base
-
+__all__ = [
+    "__version__",
+    "AdvancedVectorDB",
+    "AvalancheResult",
+    "BackendComm",
+    "BackendHealth",
+    "BackendMessage",
+    "BackendMetrics",
+    "BackendMsgType",
+    "BackendType",
+    "CriticalityReport",
+    "DeleteResult",
+    "DocResult",
+    "EBMEnergy",
+    "EBMExploration",
+    "EnergyFunction",
+    "EnergyRegion",
+    "EnergyResult",
+    "EntityCandidate",
+    "ExplorationSuggestion",
+    "GaussianGraphStore",
+    "GraphEdge",
+    "GraphSplat",
+    "HRM2Config",
+    "HRM2Engine",
+    "M2MClient",
+    "M2MCollection",
+    "M2MConfig",
+    "M2MEngine",
+    "M2MEntityExtractor",
+    "M2MGraphEntityExtractor",
+    "M2MMemory",
+    "M2MPersistence",
+    "MemoryResult",
+    "NodeType",
+    "QualityLevel",
+    "QualityReflector",
+    "QualityReport",
+    "QueryComplexity",
+    "QueryProfile",
+    "QueryRouter",
+    "RelaxationResult",
+    "SOCEngine",
+    "SearchResult",
+    "SearchStrategy",
+    "SearchSupervisor",
+    "SemanticMemoryDB",
+    "SimpleVectorDB",
+    "SplatStore",
+    "UpdateResult",
+    "WriteAheadLog",
+    "create_m2m",
+    "exp_map",
+    "geodesic_distance",
+    "log_map",
+    "main",
+    "match_metadata_filter",
+    "normalize_sphere",
+    "parallel_index",
+    "project_to_tangent",
+    "validate_metadata_filter",
+]
 
 # ---------------------------------------------------------------------------
 # M2MMemory (internal)
@@ -231,25 +284,47 @@ class M2MMemory:
 
 
 class M2MEngine:
-    """M2M High-Performance Engine."""
+    """M2M High-Performance Engine: envoltorio interno de :class:`M2MMemory`.
+
+    Este NO es el selector de backend de hardware. Ese es ``m2m.engine.M2MEngine``
+    (``src/m2m/engine.py``), que ``HRM2Engine`` crea como ``router`` y es el único
+    que decide qué corre (CUDA > Vulkan > CPU, según disponibilidad real).
+    ``SimpleVectorDB.engine`` es una instancia de ESTA clase y
+    ``from m2m import M2MEngine`` la sigue devolviendo (compatibilidad): todos
+    los métodos delegan en ``self.m2m`` (la ``M2MMemory``).
+
+    Estado del backend (audit r3a-09): :attr:`backend` y :meth:`get_backend_info`
+    delegan en el selector real. :attr:`vulkan_engine` se conserva por
+    compatibilidad y siempre es ``None`` (Vulkan se maneja en ``gpu_vector_index``).
+    """
 
     def __init__(self, config: M2MConfig):
         self.config = config
         self.m2m = M2MMemory(config)
+        self.vulkan_engine = None  # Vulkan GPU is handled via gpu_vector_index
 
-        if config.enable_vulkan:
-            try:
-                from .engine import M2MEngine as VulkanEngine
+        # audit r3a-09: un solo log de backend, el del estado EFECTIVO que resolvió
+        # el selector real (m2m.engine.M2MEngine, que ya loguea con WARNING cada
+        # caída con su motivo). Antes este bloque logueaba 'Vulkan GPU acceleration
+        # enabled' con enable_vulkan aunque Vulkan hubiera fallado y corriera en CPU.
+        info = self.get_backend_info()
+        logger.info(
+            "M2M backend efectivo: %s (pedido: %s)", info["effective"], info["requested"]
+        )
 
-                self.vulkan_engine = None  # Vulkan GPU is handled via gpu_vector_index
-                logger.info("Vulkan GPU acceleration enabled via compute shaders")
-            except ImportError:
-                logger.warning("Engine module import failed, falling back to CPU.")
-                self.vulkan_engine = None
-        else:
-            self.vulkan_engine = None
-            logger.info("Vulkan acceleration disabled")
+    @property
+    def backend(self) -> str:
+        """Backend EFECTIVO en el que corre: 'cuda' | 'vulkan' | 'cpu'."""
+        return self.get_backend_info()["effective"]
 
+    def get_backend_info(self) -> Dict[str, Any]:
+        """Delega en el selector real: ``{'requested', 'effective', 'reasons'}``."""
+        router = getattr(
+            getattr(getattr(self.m2m, "splats", None), "engine", None), "router", None
+        )
+        if not hasattr(router, "get_backend_info"):
+            return {"requested": "cpu", "effective": "cpu", "reasons": {}}
+        return router.get_backend_info()
     def add_splats(self, vectors: np.ndarray, labels: List[str] = None) -> int:
         """Add new splats to the system (batch-vectorized for large datasets)."""
         vectors_norm = normalize_sphere(vectors)
