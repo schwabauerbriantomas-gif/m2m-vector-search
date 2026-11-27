@@ -710,7 +710,7 @@ class SimpleVectorDB:
                 self._splat_id_order.extend(ids[:n])
                 # Guardar metadata en memoria
                 for i, doc_id in enumerate(ids):
-                    self._vectors[doc_id] = vectors[i]
+                    self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
                     self._metadata[doc_id] = metadata[i] if metadata else {}
                     self._documents[doc_id] = documents[i] if documents else None
                 # Persistencia (parity with splat path)
@@ -742,7 +742,7 @@ class SimpleVectorDB:
 
             # Guardar en memoria
             for i, doc_id in enumerate(ids):
-                self._vectors[doc_id] = vectors[i]
+                self._vectors[doc_id] = np.array(vectors[i], dtype=np.float32, copy=True)
                 self._metadata[doc_id] = metadata[i] if metadata else {}
                 self._documents[doc_id] = documents[i] if documents else None
 
@@ -829,7 +829,8 @@ class SimpleVectorDB:
         with self._rw_lock:
             if vector is not None:
                 old_vec = self._vectors.get(id)
-                vec = np.asarray(vector, dtype=np.float32)
+                # Copia propia: mutar el array del llamador no debe desincronizar _vectors (audit r1-20)
+                vec = np.array(vector, dtype=np.float32, copy=True)
                 if vec.ndim != 1 or vec.shape[0] != self.latent_dim:
                     raise ValueError(
                         f"vector shape mismatch: expected ({self.latent_dim},), got {vec.shape}"

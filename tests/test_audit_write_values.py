@@ -142,3 +142,48 @@ class TestR119ZeroVectors:
             db.update("hub", metadata={"x": 1}, upsert=True)
         res = [r.id for r in db.search(q, k=3, include_metadata=True)]
         assert "hub" not in res and set(res) <= set(ids)
+
+
+class TestR120IndependentCopy:
+    """Criterio 3: db._vectors[id] es copia independiente del array del llamador."""
+
+    def test_add_stores_independent_copy_of_caller_array(self):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        Xa = _rng.standard_normal((3, D)).astype(np.float32)
+        orig = Xa.copy()
+        db.add(ids=["a", "b", "c"], vectors=Xa)
+        assert not np.shares_memory(db._vectors["a"], Xa)
+        Xa[0] = 999.0
+        for i, k in enumerate("abc"):
+            np.testing.assert_array_equal(db._vectors[k], orig[i])
+
+    def test_add_1d_vector_stores_independent_copy(self):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        v = np.ones(D, dtype=np.float32)
+        db.add(ids=["one"], vectors=v)
+        v[:] = 999.0
+        np.testing.assert_array_equal(db._vectors["one"], np.ones(D, dtype=np.float32))
+
+    def test_add_legacy_positional_stores_independent_copy(self):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        Xa = _rng.standard_normal((2, D)).astype(np.float32)
+        orig = Xa.copy()
+        assert db.add(Xa) == 2
+        Xa[1] = 999.0
+        for vec in db._vectors.values():
+            assert any(np.array_equal(vec, o) for o in orig)
+
+    def test_update_stores_independent_copy(self):
+        db, ids = _db()
+        v = X[9].copy()
+        db.update(ids[1], vector=v)
+        assert not np.shares_memory(db._vectors[ids[1]], v)
+        v[:] = 999.0
+        np.testing.assert_array_equal(db._vectors[ids[1]], X[9])
+
+    def test_upsert_stores_independent_copy(self):
+        db, _ = _db(3)
+        v = X[9].copy()
+        db.update("new", vector=v, upsert=True)
+        v[:] = 999.0
+        np.testing.assert_array_equal(db._vectors["new"], X[9])
