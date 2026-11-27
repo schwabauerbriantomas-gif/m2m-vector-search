@@ -243,6 +243,82 @@ class M2MPersistence:
                 {"id": doc_id, "metadata": metadata, "document": document},
             )
 
+    def update_vector(self, doc_id: str, vector: np.ndarray) -> bool:
+        """Reescribe el vector de un documento ya persistido (audit r1-09).
+
+        update_metadata() sólo toca metadata/document: sin esto, tras reload el doc
+        volvía con la metadata NUEVA y el vector VIEJO.
+
+        Estrategia:
+          1. reescritura in-place de la fila (shard_idx, vector_idx) del shard
+             original — el layout de shards no cambia;
+          2. si esa fila no se puede ubicar (shard inexistente, índice fuera de
+             rango), append a un shard nuevo y repuntar shard_idx/vector_idx.
+
+        Returns:
+            True si el vector quedó escrito; False si el doc no tiene fila en
+            metadata.db (en ese caso no se escribe nada).
+        """
+        vec = np.asarray(vector, dtype=np.float32).reshape(-1)
+        vectors_dir = self.storage_path / "data" / "vectors"
+
+        # read-modify-write del shard: serializar entre updates_vector
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT shard_idx, vector_idx FROM documents WHERE id=?", (doc_id,)
+                ).fetchone()
+            finally:
+                conn.close()
+            if row is None:
+                return False
+            shard_idx, vector_idx = row
+
+            shard_name = (
+                f"shard_{max(1, int(shard_idx)):03d}" if shard_idx is not None else None
+            )
+            shard = self.load_vectors(shard_name) if shard_name else None
+            in_place = (
+                shard is not None
+                and shard.ndim == 2
+                and vector_idx is not None
+                and 0 <= int(vector_idx) < len(shard)
+            )
+            if in_place:
+                shard[int(vector_idx)] = vec
+            else:
+                # Append a un shard nuevo (nunca pisar uno existente) y repuntar la fila
+                max_idx = 0
+                for stem in self.list_shards():
+                    try:
+                        max_idx = max(max_idx, int(stem.rsplit("_", 1)[1]))
+                    except (IndexError, ValueError):
+                        continue
+                shard_name = f"shard_{max_idx + 1:03d}"
+                shard = vec[np.newaxis, :]
+                shard_idx, vector_idx = max_idx + 1, 0
+
+            np.save(str(vectors_dir / f"{shard_name}.npy"), np.ascontiguousarray(shard, dtype=np.float32))
+
+            if not in_place:
+                conn = self._get_conn()
+                try:
+                    conn.execute(
+                        "UPDATE documents SET shard_idx=?, vector_idx=?, updated_at=? WHERE id=?",
+                        (shard_idx, vector_idx, time.time(), doc_id),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+        if self.wal:
+            self.wal.log_operation(
+                "update_vector",
+                {"id": doc_id, "shard": shard_name, "vector_idx": int(vector_idx)},
+            )
+        return True
+
     def get_metadata(self, doc_id: str) -> Optional[Dict]:
         """Obtiene metadata de un documento."""
         conn = self._get_conn()

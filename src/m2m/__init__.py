@@ -935,6 +935,9 @@ class SimpleVectorDB:
 
         # Storage I/O outside lock
         if self.storage:
+            if vector is not None:
+                # El vector nuevo también tiene que llegar a disco (audit r1-09)
+                self.storage.update_vector(id, vec)
             if metadata is not None:
                 self.storage.update_metadata(id, metadata=metadata)
             if document is not None:

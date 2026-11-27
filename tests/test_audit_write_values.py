@@ -253,3 +253,91 @@ class TestR126CapacityHonesty:
         assert set(db._vectors) == {f"a{i}" for i in range(5)}
         assert db.get_stats()["active_documents"] == 5
         assert "b1" in " ".join(r.getMessage() for r in caplog.records)
+
+
+def _read_stored(p, doc_id):
+    meta = p.get_metadata(doc_id)
+    assert meta is not None, f"{doc_id} sin fila en metadata.db"
+    shard = p.load_vectors(f"shard_{int(meta['shard_idx']):03d}")
+    return shard[int(meta["vector_idx"])], meta
+
+
+class TestR109UpdatedVectorPersisted:
+    """Criterio 5: tras update(id, vector=v) el vector nuevo queda escrito en storage
+    (verificado con una instancia fresca de M2MPersistence)."""
+
+    @pytest.mark.parametrize("enable_wal", [False, True])
+    def test_update_vector_writes_new_vector_to_storage(self, tmp_path, enable_wal):
+        st = str(tmp_path / "st")
+        db = m2m.SimpleVectorDB(latent_dim=D, storage_path=st, enable_wal=enable_wal)
+        db.add(ids=["a", "b", "c"], vectors=X[:3])
+        newv = X[40].copy()
+        assert db.update("a", vector=newv, metadata={"g": 99}, document="updated").success
+        fresh = M2MPersistence(st, enable_wal=False)
+        try:
+            got, meta = _read_stored(fresh, "a")
+            np.testing.assert_allclose(got, newv, atol=1e-6)
+            assert (meta["metadata"], meta["document"]) == ({"g": 99}, "updated")
+            np.testing.assert_array_equal(_read_stored(fresh, "b")[0], X[1])
+            np.testing.assert_array_equal(_read_stored(fresh, "c")[0], X[2])
+            assert len(fresh.list_shards()) == 1  # reescritura in-place: el layout no cambia
+        finally:
+            fresh.close()
+
+    def test_update_metadata_only_keeps_stored_vector(self, tmp_path):
+        st = str(tmp_path / "st")
+        db = m2m.SimpleVectorDB(latent_dim=D, storage_path=st, enable_wal=False)
+        db.add(ids=["a", "b"], vectors=X[:2])
+        db.update("b", metadata={"k": 1})
+        fresh = M2MPersistence(st, enable_wal=False)
+        try:
+            got, meta = _read_stored(fresh, "b")
+            np.testing.assert_array_equal(got, X[1])
+            assert meta["metadata"] == {"k": 1}
+        finally:
+            fresh.close()
+
+    def test_update_vector_method_fresh_instance_reads_new_value(self, tmp_path):
+        st = str(tmp_path / "st")
+        p = M2MPersistence(st, enable_wal=False)
+        p.save_vectors(X[:3], ["a", "b", "c"])
+        for i, d in enumerate("abc"):
+            p.save_metadata(d, shard_idx=1, vector_idx=i)
+        newv = X[41].copy()
+        assert p.update_vector("b", newv) is True
+        p.close()
+        fresh = M2MPersistence(st, enable_wal=False)
+        try:
+            np.testing.assert_array_equal(_read_stored(fresh, "b")[0], newv)
+            np.testing.assert_array_equal(_read_stored(fresh, "a")[0], X[0])
+            np.testing.assert_array_equal(_read_stored(fresh, "c")[0], X[2])
+            assert fresh.list_shards() == ["shard_001"]
+        finally:
+            fresh.close()
+
+    def test_update_vector_falls_back_to_new_shard_when_row_missing(self, tmp_path):
+        st = str(tmp_path / "st")
+        p = M2MPersistence(st, enable_wal=False)
+        p.save_vectors(X[:2], ["a", "b"])
+        p.save_metadata("a", shard_idx=1, vector_idx=0)
+        p.save_metadata("orphan", shard_idx=7, vector_idx=3)  # shard inexistente
+        p.save_metadata("oob", shard_idx=1, vector_idx=99)  # fila fuera de rango
+        assert p.update_vector("orphan", X[10]) is True
+        assert p.update_vector("oob", X[11]) is True
+        p.close()
+        fresh = M2MPersistence(st, enable_wal=False)
+        try:
+            np.testing.assert_array_equal(_read_stored(fresh, "orphan")[0], X[10])
+            np.testing.assert_array_equal(_read_stored(fresh, "oob")[0], X[11])
+            np.testing.assert_array_equal(_read_stored(fresh, "a")[0], X[0])  # intacto
+            np.testing.assert_array_equal(fresh.load_vectors("shard_001")[1], X[1])
+        finally:
+            fresh.close()
+
+    def test_update_vector_unknown_id_returns_false(self, tmp_path):
+        p = M2MPersistence(str(tmp_path / "st"), enable_wal=False)
+        try:
+            assert p.update_vector("ghost", X[0]) is False
+            assert p.list_shards() == []
+        finally:
+            p.close()
