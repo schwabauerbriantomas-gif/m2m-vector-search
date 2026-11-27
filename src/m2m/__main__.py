@@ -40,7 +40,8 @@ def main() -> None:
     except ImportError:
         raise SystemExit(
             "uvicorn is required to serve the M2M API. "
-            "Install with: pip install 'm2m-vector-search[all]'"
+            # El extra `api` alcanza para servir; `all` trae torch (>1 GB) [audit P15].
+            "Install with: pip install 'm2m-vector-search[api]'"
         )
 
     from m2m.api.edge_api import app

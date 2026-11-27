@@ -243,13 +243,12 @@ precision = 2
 #   bandit -c pyproject.toml -r src/m2m -ll
 # (la auto-discovery sólo busca un archivo .bandit en el cwd; sin -c los skips de abajo
 # no se aplican) [audit r3b-07].
-# skips: B101 assert_used, B301 pickle, B324 hashlib débil.
-# Pendiente: sharding.py:18 (md5, enrutamiento por doc_id) y gate_modulus.py:98 (sha1,
-# fingerprint de shape) NO son usos criptográficos; con usedforsecurity=False en esos
-# dos call sites B324 sale de esta lista y el check vuelve a significar algo.
+# skips: B101 assert_used, B301 pickle. B324 (hashlib débil) YA NO se salta
+# [audit P15]: cluster/sharding.py (md5, enrutamiento por doc_id) y
+# gate_modulus.py (sha1, clave de cache) están anotados usedforsecurity=False.
 [tool.bandit]
 exclude_dirs = ["tests", "test_*.py"]
-skips = ["B101", "B301", "B324"]
+skips = ["B101", "B301"]
 
 [tool.pylint.messages_control]
 disable = [

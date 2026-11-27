@@ -203,6 +203,9 @@ class TestCUDASearcher:
 @pytest.mark.gpu
 def test_cuda_searcher_raises_runtime_when_no_cuda(monkeypatch):
     """CUDASearcher.__init__ raises RuntimeError when CUDA is unavailable."""
+    # Sin torch, CUDASearcher hace `import torch` antes de chequear _has_cuda y
+    # levanta ModuleNotFoundError: este test necesita torch instalado [audit P15].
+    pytest.importorskip("torch", reason="CUDASearcher importa torch antes de chequear CUDA")
     import m2m.cuda_search as cs
 
     # Monkeypatch _has_cuda to always return False

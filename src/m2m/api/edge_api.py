@@ -262,6 +262,26 @@ def _max_body_bytes() -> int:
     return limit
 
 
+def _rate_limit_per_min() -> int:
+    """Tope de pedidos por minuto e IP: ``M2M_RATE_LIMIT_PER_MIN``.
+
+    Opt-in REAL (audit P15): ausente, vacío, 0 o negativo = límite APAGADO (el
+    default). Un valor que no es entero apaga el límite y lo avisa (no adivina
+    un tope). Se lee en cada pedido, igual que ``M2M_API_KEY``.
+    """
+    raw = os.environ.get("M2M_RATE_LIMIT_PER_MIN")
+    if raw is None or not raw.strip():
+        return 0
+    try:
+        limit = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            "M2M_RATE_LIMIT_PER_MIN=%r is not an integer; rate limiting is OFF", raw
+        )
+        return 0
+    return max(0, limit)
+
+
 app = FastAPI(
     title="M2M EBM Vector Database API",
     description="REST API para M2M Vector Search con features EBM",
@@ -282,15 +302,21 @@ app.add_middleware(
 )
 
 # -- SECURITY: Rate limiting (H-03, P-07 fix) --------------------------
+# Opt-in REAL (audit P15): el tope es ``M2M_RATE_LIMIT_PER_MIN`` = pedidos por
+# minuto e IP. Ausente, vacío, 0 o negativo (default) = límite APAGADO. Antes el
+# chequeo comparaba contra una constante de 100 sin registrar nunca los pedidos,
+# así que jamás devolvía 429.
 _rate_limit_store: Dict[str, List[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
-_RATE_LIMIT_MAX_REQUESTS = 100  # per window per IP
+# Valor de REFERENCIA (el recomendado para M2M_RATE_LIMIT_PER_MIN); ya no se consulta.
+_RATE_LIMIT_MAX_REQUESTS = 100
 _RATE_LIMIT_MAX_VECTORS_PER_INSERT = 100_000
 # Memoria acotada (audit r3a-17 resto): a lo sumo _RATE_LIMIT_MAX_CLIENTS IPs en
 # memoria. Las IPs sin pedidos dentro de la ventana se purgan en un barrido
 # amortizado (a lo sumo uno cada _RATE_LIMIT_SWEEP_INTERVAL s, además del prune
 # por-IP); si aun con el barrido se supera el tope, se evicta la IP con la
-# actividad más vieja. Los defaults (100 pedidos / 60 s) no cambian.
+# actividad más vieja. La ventana (60 s) no cambia; el tope de pedidos por IP lo
+# fija ``M2M_RATE_LIMIT_PER_MIN`` (ver ``_rate_limit_per_min``).
 _RATE_LIMIT_MAX_CLIENTS = 10_000
 _RATE_LIMIT_SWEEP_INTERVAL = 5.0
 _rate_limit_last_sweep = 0.0
@@ -317,11 +343,25 @@ def _sweep_rate_limit_store(now: float) -> None:
 
 
 def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
-    """Basic rate limiting per IP. Raises HTTPException if exceeded."""
+    """Rate limit por IP, opt-in vía ``M2M_RATE_LIMIT_PER_MIN`` (audit P15).
+
+    Registra el pedido de ``client_ip`` en la ventana corrediza y levanta
+    ``HTTPException(429)`` cuando la IP ya hizo ``limit`` pedidos dentro de la
+    ventana. Antes comparaba contra ``_RATE_LIMIT_MAX_REQUESTS`` sin registrar
+    nunca los pedidos: el tope jamás se disparaba.
+
+    Con el límite APAGADO (default) no cuenta ni rechaza; sólo mantiene la tabla
+    (purga por ventana + tope de IPs), así la memoria queda acotada aunque
+    ``M2M_RATE_LIMIT_PER_MIN`` se active o desactive en caliente. Los pedidos
+    rechazados no se registran (no alargan el bloqueo). Lo cuentan los endpoints
+    que lo llaman: escrituras, búsqueda y los legacy; ``/health``, ``/v1/stats``
+    y los GET no.
+    """
     global _rate_limit_last_sweep
 
     if now is None:
         now = time.time()
+    limit = _rate_limit_per_min()
     with _rate_limit_lock:
         if now - _rate_limit_last_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
             _sweep_rate_limit_store(now)
@@ -333,8 +373,11 @@ def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
         _rate_limit_store[client_ip] = [
             t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
         ]
-        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
+        if limit <= 0:
+            return  # límite apagado
+        if len(_rate_limit_store[client_ip]) >= limit:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        _rate_limit_store[client_ip].append(now)
 
 
 # -- SECURITY: API Key validation (C-01, P-06 fix) ---------------------
@@ -345,6 +388,10 @@ def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
 #     <key>`` o ``X-API-Key: <key>``, comparados en tiempo constante.
 #   * ``/v1/admin/*`` (checkpoint, backup) EXIGEN key: sin key configurada
 #     responden 503 (fail closed) en vez de quedar abiertos.
+#   * GET/PUT/DELETE de un vector también validan (audit P15): antes, con clave
+#     configurada, se leía, sobreescribía y borraba sin ella. Siguen SIN validar
+#     (sólo lectura de nombres/contadores): ``GET /v1/collections``,
+#     ``GET /v1/collections/{name}`` y ``GET .../stats``.
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
@@ -579,8 +626,9 @@ def insert_vectors(
 
 
 @app.get("/v1/collections/{name}/vectors/{vector_id}")
-def get_vector(name: str, vector_id: str):
-    """Obtiene un vector por ID."""
+def get_vector(name: str, vector_id: str, request: Request):
+    """Obtiene un vector por ID (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)  # antes del lookup: sin clave no se filtra 401 vs 404
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -599,8 +647,12 @@ def get_vector(name: str, vector_id: str):
 
 
 @app.put("/v1/collections/{name}/vectors/{vector_id}")
-def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
-    """Actualiza un vector existente."""
+def update_vector(
+    name: str, vector_id: str, req: UpdateVectorRequest, request: Request
+):
+    """Actualiza un vector existente (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         db = _manager.get(name)
     except KeyError as e:
@@ -630,8 +682,10 @@ def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
 
 
 @app.delete("/v1/collections/{name}/vectors/{vector_id}")
-def delete_vector(name: str, vector_id: str, hard: bool = False):
-    """Elimina un vector."""
+def delete_vector(name: str, vector_id: str, request: Request, hard: bool = False):
+    """Elimina un vector (valida la API key si está configurada [audit P15])."""
+    _validate_api_key(request)
+    _check_rate_limit(request.client.host if request.client else "unknown")
     try:
         db = _manager.get(name)
     except KeyError as e:

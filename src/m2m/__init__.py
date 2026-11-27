@@ -111,6 +111,7 @@ __all__ = [
     "EnergyResult",
     "EntityCandidate",
     "ExplorationSuggestion",
+    "FeedbackResult",
     "GaussianGraphStore",
     "GraphEdge",
     "GraphSplat",
@@ -842,20 +843,14 @@ class SimpleVectorDB:
         # Thread safety: protect all mutations to shared dicts
         import threading as _threading
         self._rw_lock = _threading.RLock()
-        # audit r1-03: search()/search_batch() (región de otro pack) entran al
-        # índice por engine.search() sin tomar el lock; sin esto un lector veía
-        # el índice a medias mientras un writer corría build_index (KMeans sin
-        # fitear, máscaras desalineadas). Se toma el mismo RLock en la frontera
-        # del engine: reentrante para update() -> add() en el mismo hilo. Cuando
-        # search() tome el lock explícitamente, este wrapper sobra.
-        _engine_search = self.engine.search
-        _lock = self._rw_lock
-
-        def _locked_engine_search(*args, **kwargs):
-            with _lock:
-                return _engine_search(*args, **kwargs)
-
-        self.engine.search = _locked_engine_search
+        # audit r1-03/P15: hasta P3, search() entraba al índice por
+        # engine.search() sin tomar el lock y un lector veía el índice a medias
+        # mientras un writer corría build_index; se blindaba con un wrapper que
+        # tomaba este RLock dentro de engine.search. Desde P3 search() toma
+        # _rw_lock en TODO su cuerpo y es el ÚNICO caller de engine.search, así
+        # que el wrapper quedó redundante y se eliminó. ``engine.search`` es
+        # interno: los lectores entran por search()/search_batch(), que toman el
+        # lock.
 
         # Persistencia
         self.storage = None
@@ -887,7 +882,9 @@ class SimpleVectorDB:
         5. si n_restored > max_splats: indexa los primeros max_splats en ese
            orden y lo avisa con un warning (los demás siguen en storage);
         6. con enable_lsh_fallback decide LSH igual que add() y reconstruye el
-           índice LSH.
+           índice LSH;
+        7. re-aplica el estado aprendido de los splats (α/κ/μ por id,
+           ``energy/landscape.npz``) también en esta clase [audit P15].
 
         Idempotente (load() lo reusa): resetea el estado en memoria y el engine.
         Con M2M_HMAC_SECRET seteado verifica antes la firma del storage.
@@ -1028,6 +1025,13 @@ class SimpleVectorDB:
                 n_added,
                 len(self._deleted),
             )
+            # Estado aprendido (α/κ/μ por id de feedback/avalanche/relax): antes sólo
+            # lo re-aplicaba el override de AdvancedVectorDB; un SimpleVectorDB con
+            # storage_path perdía lo aprendido en cada reopen [audit P15].
+            try:
+                self._restore_splat_state()
+            except Exception as e:  # best-effort, igual que _write_splat_state
+                logger.warning("splat state not restored on reopen: %s: %s", type(e).__name__, e)
         except IndexTamperedError:
             raise  # firma inválida: no se carga nada (audit r3a-17)
         except Exception as e:
@@ -1321,7 +1325,7 @@ class SimpleVectorDB:
         # storage corren todos bajo el lock. Antes add_splats corría fuera y dos
         # writers dejaban el índice a medias (IndexError/AssertionError en
         # build_index, n_active != len(_splat_id_order)). Los lectores entran al
-        # índice por engine.search, que toma este mismo lock (ver __init__).
+        # índice por search(), que toma este mismo lock en todo su cuerpo [P15].
         with self._rw_lock:
             # Comprobar LSH fallback (decisión única: primer add con n>=3)
             if self.enable_lsh_fallback and n >= 3 and not self._lsh_decided:
@@ -1508,6 +1512,10 @@ class SimpleVectorDB:
             if document is not None:
                 self.storage.update_metadata(id, document=document)
 
+        if vector is not None:
+            # El splat volvió a α/κ por defecto: el estado persistido ya no le aplica [P15]
+            self._refresh_splat_state_if_learned()
+
         return UpdateResult(success=True, energy_delta=energy_delta)
 
     def _remove_splats(self, doc_ids: set) -> set:
@@ -1671,6 +1679,10 @@ class SimpleVectorDB:
                         self.storage.hard_delete(doc_id)
                     else:
                         self.storage.soft_delete(doc_id)
+
+        if hard and deleted_count:
+            # El splat salió del store: su entrada del npz no debe resucitar [P15]
+            self._refresh_splat_state_if_learned()
 
         return DeleteResult(deleted=deleted_count, energy_freed=energy_freed)
 
@@ -1894,7 +1906,7 @@ class SimpleVectorDB:
         # engine.search lo toma como frontera, pero entre su retorno y el ensamblado del
         # DocResult / tupla legacy un delete(hard=True) puede compactar y reordenar
         # _splat_id_order y las posiciones ya no mapearian a los mismos ids. Es un RLock
-        # (reentrante): engine.search lo vuelve a tomar sin deadlock.
+        # (reentrante). [P15] engine.search ya no tiene wrapper de lock: éste es el único.
         with self._rw_lock:
 
             # Retorno legacy (sin metadata, sin energia, sin filtro)
@@ -2161,9 +2173,13 @@ class SimpleVectorDB:
                 continue  # stale index, skip
             if doc_id in self._deleted or doc_id not in self._vectors:
                 continue
-            meta = self._metadata.get(doc_id, {}) if include_metadata else {}
-            if filter and not self._match_filter(meta, filter):
+            # El filtro se evalúa contra la metadata REAL siempre; `meta` es sólo
+            # lo que se devuelve (audit P15: con include_metadata=False el filtro se
+            # evaluaba contra {} y descartaba todos los resultados).
+            full_meta = self._metadata.get(doc_id, {})
+            if filter and not self._match_filter(full_meta, filter):
                 continue
+            meta = full_meta if include_metadata else {}
             mu_i = candidate_vectors[i]
             score = _cosine_to_query(qn, mu_i)  # [audit r1-13] antes: la distancia del LSH
             energy_val = None
@@ -2726,6 +2742,10 @@ class SimpleVectorDB:
             "deleted_documents": len(self._deleted),
             "lsh_active": self._use_lsh,
             "ebm_enabled": self.ebm_enabled,
+            # backend EFECTIVO de búsqueda (cpu/cuda/vulkan) según el selector
+            # (m2m.engine), vs. el dispositivo que se pidió [audit P15].
+            "backend": self.engine.backend,
+            "requested_device": self.engine.get_backend_info().get("requested"),
         }
         if self.storage:
             storage_stats = self.storage.get_stats()
@@ -2906,6 +2926,28 @@ class SimpleVectorDB:
         except Exception as e:  # defensa: la persistencia del estado es best-effort
             logger.warning("splat state not persisted: %s: %s", type(e).__name__, e)
 
+    def _has_persisted_splat_state(self) -> bool:
+        """True si el storage ya guarda estado aprendido (``energy/landscape.npz``)."""
+        if self.storage is None:
+            return False
+        from pathlib import Path
+
+        return (Path(self.storage.storage_path) / "energy" / "landscape.npz").is_file()
+
+    def _refresh_splat_state_if_learned(self) -> None:
+        """Re-escribe ``energy/landscape.npz`` si el storage ya guarda estado
+        aprendido (α/κ/μ por id) [audit P15].
+
+        Lo llaman los writers que dejan entradas viejas en ese archivo:
+        ``update(vector=)`` (el splat vuelve a α/κ por defecto) y el hard-delete.
+        Sin esto, al reabrir, un doc re-agregado o vuelto a su vector anterior
+        resucitaba su α/κ/μ aprendidos. Sin estado persistido no hace nada.
+        """
+        if not self._has_persisted_splat_state():
+            return
+        with self._rw_lock:
+            self._write_splat_state()
+
     def _restore_splat_state(self) -> bool:
         """Re-aplica el estado aprendido (α, κ, μ) por id tras reconstruir el
         store desde storage. Devuelve True si aplicó al menos un splat."""
@@ -2962,7 +3004,11 @@ class SimpleVectorDB:
         if applied:
             store._m_sq_dirty = True
             self._sync_index_mu(drifted)
-            self._update_ebm_splats()
+            # En el constructor el EBM todavía no existe (ebm_enabled se asigna
+            # después de _restore_from_storage): ahí no hay nada que actualizar
+            # [audit P15]; AdvancedVectorDB lo hace tras crear el SOC.
+            if getattr(self, "ebm_enabled", False):
+                self._update_ebm_splats()
         return applied > 0
 
 

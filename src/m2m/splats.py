@@ -495,7 +495,18 @@ class SplatStore:
                 return self._gaussian_rerank_gpu_results(gpu_ids, gpu_dists, queries_np, k, dim)
 
             except Exception as e:
-                logger.warning("CUDA batch search failed (%s), falling back.", e)
+                # Aviso UNA vez por store (audit P15): el motivo raíz (sin torch,
+                # sin GPU) ya sale al construir el engine; repetirlo en cada query
+                # inundaba el log. Se sigue intentando el camino CUDA en cada
+                # llamada y se cae al de numpy: el fallo no se silencia.
+                failure = f"{type(e).__name__}: {e}"
+                if getattr(self, "_cuda_failure", None) != failure:
+                    self._cuda_failure = failure
+                    logger.warning(
+                        "CUDA batch search failed (%s); falling back to CPU "
+                        "(warned once per store).",
+                        failure,
+                    )
 
         # -- GPU path: GPUVectorIndex (Vulkan) ------------------------
         vulkan_enabled = getattr(self.config, "enable_vulkan", False)

@@ -56,6 +56,12 @@ def texts():
 
 @pytest.fixture(scope="session")
 def embedder():
+    # Dependencia opcional (extra `embeddings`): sin ella estos tests se SKIPPEAN
+    # en vez de dar ERROR cuando la suite corre sin el filtro -m de CI [audit P15].
+    pytest.importorskip(
+        "sentence_transformers",
+        reason="sentence-transformers no está instalado (extra 'embeddings')",
+    )
     from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer("all-MiniLM-L6-v2")
