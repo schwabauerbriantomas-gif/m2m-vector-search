@@ -35,6 +35,29 @@ logger = logging.getLogger(__name__)
 MANIFEST_NAME = "manifest"  # -> <storage_path>/index/manifest.idx
 
 
+def _confined_path(root: Path, name: str, *parents: str) -> Path:
+    """Resuelve ``root/parents.../name`` exigiendo que quede DENTRO de ``root``.
+
+    Confinamiento de rutas (audit r3a-17 resto): rechaza con ValueError ``..``,
+    rutas absolutas y symlinks que escapen del directorio de storage. El ``..``
+    literal ya se bloqueaba en storage_path/backup_path, pero un symlink en
+    ``index/`` o en un shard eludía esa protección.
+    """
+    candidate = Path(str(name))
+    if candidate.is_absolute() or ".." in candidate.parts or not candidate.name:
+        raise ValueError(
+            f"Path traversal detected in {name!r}: must be a file name inside the storage directory"
+        )
+    resolved = (root.joinpath(*parents) / candidate).resolve()
+    root_resolved = root.resolve()
+    if root_resolved not in resolved.parents:
+        raise ValueError(
+            f"Path escapes the storage directory: {name!r} resolves to {resolved}, "
+            f"outside {root_resolved}"
+        )
+    return resolved
+
+
 class IndexTamperedError(RuntimeError, ValueError):
     """Un storage firmado no verifica (HMAC o contenido alterado).
 
@@ -168,7 +191,7 @@ class M2MPersistence:
             existing = self.list_shards()
             n = len(existing) + 1
             shard_name = f"shard_{n:03d}"
-        shard_path = self.storage_path / "data" / "vectors" / f"{shard_name}.npy"
+        shard_path = _confined_path(self.storage_path, f"{shard_name}.npy", "data", "vectors")
         np.save(str(shard_path), vectors.astype(np.float32))
 
         # shard_idx (1-based) es lo que restore usa para mapear doc -> shard
@@ -192,7 +215,7 @@ class M2MPersistence:
 
     def load_vectors(self, shard_name: str = "shard_001") -> Optional[np.ndarray]:
         """Carga vectores de un shard."""
-        shard_path = self.storage_path / "data" / "vectors" / f"{shard_name}.npy"
+        shard_path = _confined_path(self.storage_path, f"{shard_name}.npy", "data", "vectors")
         if shard_path.exists():
             return np.load(str(shard_path))
         return None
@@ -575,7 +598,7 @@ class M2MPersistence:
 
     def save_index(self, index_data: Any, name: str = "hrm2"):
         """Guarda el índice serializado con firma HMAC (H-05 fix)."""
-        index_path = self.storage_path / "index" / f"{name}.idx"
+        index_path = _confined_path(self.storage_path, f"{name}.idx", "index")
         import hashlib
         import hmac
         import os
@@ -601,7 +624,7 @@ class M2MPersistence:
             raise RuntimeError(
                 "M2M_HMAC_SECRET environment variable required for secure deserialization"
             )
-        index_path = self.storage_path / "index" / f"{name}.idx"
+        index_path = _confined_path(self.storage_path, f"{name}.idx", "index")
         if index_path.exists():
             with open(str(index_path), "rb") as f:
                 raw = f.read()
