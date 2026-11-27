@@ -77,3 +77,68 @@ class TestR102UpdateNaNEInf:
         assert s.n_active == 3 and s._last_trained_n == 3
         assert np.isfinite(s.mu[: s.n_active]).all()
         assert [r.id for r in db.search(X[0], k=1, include_metadata=True)] == ["i0"]
+
+
+class TestR119ZeroVectors:
+    """Criterio 2: norma < 1e-6 → ValueError en add/update; upsert sin vector → ValueError."""
+
+    def test_add_zero_vector_raises_value_error(self):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        with pytest.raises(ValueError, match="zero"):
+            db.add(ids=["z"], vectors=np.zeros((1, D), dtype=np.float32))
+        assert db._vectors == {} and db.engine.m2m.splats.n_active == 0
+
+    def test_add_batch_with_one_zero_row_rejected_atomically(self):
+        db, ids = _db(3)
+        batch = np.vstack([X[3:5], np.zeros((1, D), np.float32)])
+        with pytest.raises(ValueError):
+            db.add(ids=["n0", "n1", "z"], vectors=batch)
+        assert list(db._vectors) == ids and db._splat_id_order == ids
+        assert db.engine.m2m.splats.n_active == 3
+
+    def test_update_zero_vector_raises_value_error_and_keeps_state(self):
+        db, ids = _db()
+        before_vecs, before_mu = _snapshot(db), _mu(db).copy()
+        with pytest.raises(ValueError, match="zero"):
+            db.update(ids[2], vector=np.zeros(D, dtype=np.float32), metadata={"g": 1})
+        for k, v in before_vecs.items():
+            np.testing.assert_array_equal(db._vectors[k], v)
+        np.testing.assert_array_equal(_mu(db), before_mu)
+        assert "g" not in db._metadata[ids[2]]
+
+    def test_near_zero_rejected_but_small_nonzero_norm_accepted(self):
+        db = m2m.SimpleVectorDB(latent_dim=D)
+        with pytest.raises(ValueError):  # norma ≈ 2.8e-7
+            db.add(ids=["tiny"], vectors=np.full((1, D), 1e-7, dtype=np.float32))
+        small = np.full(D, 1e-4, dtype=np.float32)  # norma ≈ 2.8e-4
+        assert db.add(ids=["small"], vectors=small[np.newaxis, :]) == 1
+        assert db.update("small", vector=small).success
+
+    def test_upsert_new_id_without_vector_raises_value_error(self):
+        db, _ = _db(3)
+        with pytest.raises(ValueError, match="vector"):
+            db.update("brand_new", metadata={"x": 1}, upsert=True)
+        assert "brand_new" not in db._vectors
+        assert db.engine.m2m.splats.n_active == 3
+
+    def test_upsert_deleted_id_without_vector_raises_and_stays_deleted(self):
+        db, ids = _db(3)
+        db.delete(id=ids[0])
+        with pytest.raises(ValueError, match="vector"):
+            db.update(ids[0], metadata={"x": 1}, upsert=True)
+        assert ids[0] in db._deleted
+        assert db.engine.m2m.splats.n_active == 3
+
+    def test_upsert_with_vector_still_creates_document(self):
+        db, _ = _db(3)
+        assert db.update("brand_new", vector=X[7], metadata={"x": 1}, upsert=True).success
+        np.testing.assert_allclose(db._vectors["brand_new"], X[7])
+        assert [r.id for r in db.search(X[7], k=1, include_metadata=True)] == ["brand_new"]
+
+    def test_upsert_without_vector_no_longer_inserts_hub_doc(self):
+        db, ids = _db(6)
+        q = _rng.standard_normal(D).astype(np.float32)
+        with pytest.raises(ValueError):
+            db.update("hub", metadata={"x": 1}, upsert=True)
+        res = [r.id for r in db.search(q, k=3, include_metadata=True)]
+        assert "hub" not in res and set(res) <= set(ids)

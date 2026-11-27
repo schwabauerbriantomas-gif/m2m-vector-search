@@ -644,6 +644,15 @@ class SimpleVectorDB:
             )
         if not np.all(np.isfinite(vectors)):
             raise ValueError("vectors contain NaN or Inf values")
+        # Vectores (casi) cero: normalize_sphere(0)=0 queda a distancia 1 de TODA
+        # query unitaria y se cuela en el top-k de cualquier búsqueda (audit r1-19).
+        norms = np.linalg.norm(vectors, axis=1)
+        zero_rows = np.flatnonzero(norms < 1e-6)
+        if zero_rows.size:
+            raise ValueError(
+                f"vectors contain {zero_rows.size} (near-)zero vector(s) with norm < 1e-6 "
+                f"at row(s) {zero_rows[:10].tolist()}"
+            )
 
         # Auto-generar IDs si no se proporcionan
         if ids is None:
@@ -781,7 +790,12 @@ class SimpleVectorDB:
         """
         if id not in self._vectors and id not in self._deleted:
             if upsert:
-                vec = vector if vector is not None else np.zeros(self.latent_dim, dtype=np.float32)
+                if vector is None:
+                    raise ValueError(
+                        "update(upsert=True) on a new document requires a non-zero 'vector' "
+                        "(without it a zero vector — a hub in every search — was inserted)"
+                    )
+                vec = vector
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
@@ -793,14 +807,20 @@ class SimpleVectorDB:
 
         if id in self._deleted:
             if upsert:
-                self._deleted.discard(id)
-                vec = vector if vector is not None else np.zeros(self.latent_dim, dtype=np.float32)
+                if vector is None:
+                    raise ValueError(
+                        "update(upsert=True) on a deleted document requires a non-zero 'vector' "
+                        "(without it a zero vector — a hub in every search — was inserted)"
+                    )
+                vec = vector
+                # add() valida el vector: si lo rechaza, el doc sigue borrado (estado intacto)
                 self.add(
                     ids=[id],
                     vectors=vec[np.newaxis, :],
                     metadata=[metadata or {}],
                     documents=[document],
                 )
+                self._deleted.discard(id)
                 return UpdateResult(success=True, message="restored and upserted")
             return UpdateResult(success=False, message=f"Document {id!r} is deleted")
 
@@ -818,6 +838,12 @@ class SimpleVectorDB:
                 # (audit r1-02: envenenaban mu y rompían el próximo retrain completo).
                 if not np.all(np.isfinite(vec)):
                     raise ValueError("vector contains NaN or Inf values")
+                norm = float(np.linalg.norm(vec))
+                if norm < 1e-6:
+                    raise ValueError(
+                        f"vector has (near-)zero norm ({norm:.3g}) < 1e-6: a zero vector is a hub "
+                        "at distance 1 from every unit query"
+                    )
                 self._vectors[id] = vec
 
                 # Propagar al indice: el splat de este doc vive en la posicion
