@@ -23,6 +23,7 @@ Endpoints:
 """
 
 import hmac
+import inspect
 import json
 import logging
 import os
@@ -38,8 +39,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError, field_validator
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .. import AdvancedVectorDB, SimpleVectorDB
+from .. import AdvancedVectorDB, SimpleVectorDB, __version__
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +242,8 @@ class CollectionManager:
 # Un body mayor a M2M_MAX_BODY_BYTES (default 32 MiB) se rechaza con HTTP 413
 # ANTES de parsearse: con Content-Length, sin leer ni un byte; sin
 # Content-Length (chunked) la lectura se corta al superar el tope. Lo implementa
-# el max_body_size nativo de FastAPI/Starlette; se lee al construir la app.
+# el max_body_size nativo de FastAPI/Starlette (>= 0.164) o, en Python 3.10 donde
+# esa versión no es instalable, la middleware _BodySizeLimit; se lee al construir la app.
 _DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
 
 
@@ -280,12 +283,73 @@ def _rate_limit_per_min() -> int:
     return max(0, limit)
 
 
+class _BodySizeLimit:
+    """Límite de tamaño del body para FastAPI sin ``max_body_size``.
+
+    ``max_body_size`` existe desde FastAPI 0.164, que pide Python >= 3.11: en Python 3.10
+    la última FastAPI instalable es 0.162.5 y ahí el mismo límite lo aplica esta
+    middleware ASGI. Con ``Content-Length`` responde 413 sin leer ni un byte; sin él
+    (chunked) corta la lectura en cuanto el body supera el tope.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    def _too_large(self) -> HTTPException:
+        return HTTPException(
+            status_code=413,
+            detail=f"Request body exceeds the limit of {self.max_bytes} bytes (M2M_MAX_BODY_BYTES)",
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        for name, value in scope.get("headers") or []:
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    continue
+                if declared > self.max_bytes:
+                    await JSONResponse({"detail": self._too_large().detail}, status_code=413)(
+                        scope, receive, send
+                    )
+                    return
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body") or b"")
+                if received > self.max_bytes:
+                    # Se lee dentro del handler de la ruta: Starlette lo convierte en la
+                    # respuesta 413 por el manejo normal de HTTPException.
+                    raise self._too_large()
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
+_MAX_BODY_BYTES = _max_body_bytes()
+_FASTAPI_HAS_MAX_BODY_SIZE = "max_body_size" in inspect.signature(FastAPI.__init__).parameters
+
+_FASTAPI_KW: Dict[str, Any] = {}
+if _FASTAPI_HAS_MAX_BODY_SIZE:
+    _FASTAPI_KW["max_body_size"] = _MAX_BODY_BYTES
+
 app = FastAPI(
     title="M2M EBM Vector Database API",
     description="REST API para M2M Vector Search con features EBM",
-    version="2.0.0",
-    max_body_size=_max_body_bytes(),
+    version=__version__,
+    **_FASTAPI_KW,
 )
+if not _FASTAPI_HAS_MAX_BODY_SIZE:
+    app.add_middleware(_BodySizeLimit, max_bytes=_MAX_BODY_BYTES)
+    # El límite efectivo queda visible igual que en FastAPI >= 0.164.
+    app.max_body_size = _MAX_BODY_BYTES  # type: ignore[attr-defined]
 
 
 # -- SECURITY: CORS configuration (M-01 fix) ----------------------------
@@ -497,8 +561,8 @@ _manager = CollectionManager()
 
 @app.get("/v1/health")
 def health(request: Request):
-    """Health check del servidor."""
-    return {"status": "ok", "version": "2.0.0", "timestamp": time.time()}
+    """Health check del servidor: la versión es la del paquete instalado."""
+    return {"status": "ok", "version": __version__, "timestamp": time.time()}
 
 
 @app.get("/v1/stats")

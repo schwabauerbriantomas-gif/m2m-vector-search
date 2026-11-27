@@ -21,6 +21,7 @@ endpoints normales (desarrollo local / Quick Start); sólo ``/v1/admin/*`` exige
 
 import hashlib
 import hmac
+import inspect
 import json
 import os
 import pickle
@@ -31,12 +32,13 @@ import time
 
 import numpy as np
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import m2m
 from m2m import M2MConfig, SplatStore
 from m2m.api import edge_api
-from m2m.api.edge_api import _manager
+from m2m.api.edge_api import _BodySizeLimit, _manager
 from m2m.api.edge_api import app as edge_app
 from m2m.storage.persistence import M2MPersistence
 
@@ -249,6 +251,41 @@ class TestBodyLimit:
             headers={"Content-Type": "application/json"},
         )
         assert r.status_code == 413, r.text
+
+    @staticmethod
+    def _limited_app(limit):
+        """App mínima con el límite de body aplicado por _BodySizeLimit (camino de
+        Python 3.10, donde FastAPI <= 0.162.5 no trae ``max_body_size``)."""
+        limited = FastAPI()
+        handled = []
+
+        @limited.post("/echo")
+        async def echo(request: Request):
+            handled.append(len(await request.body()))
+            return {"ok": True}
+
+        limited.add_middleware(_BodySizeLimit, max_bytes=limit)
+        return TestClient(limited), handled
+
+    def test_fallback_middleware_rejects_declared_body_without_reading(self):
+        client, handled = self._limited_app(1000)
+        r = client.post("/echo", content=b"x" * 1001)
+        assert r.status_code == 413, r.text
+        assert handled == [], "el body se leyó aunque Content-Length ya superaba el tope"
+        r = client.post("/echo", content=b"x" * 1000)
+        assert r.status_code == 200, r.text
+        assert handled == [1000]
+
+    def test_fallback_middleware_cuts_chunked_body(self):
+        client, _handled = self._limited_app(1000)
+        r = client.post("/echo", content=(b"x" * 600 for _ in range(3)))
+        assert r.status_code == 413, r.text
+
+    def test_app_publishes_the_effective_limit_on_every_fastapi(self):
+        assert edge_app.max_body_size == MAX_BODY
+        assert edge_api._FASTAPI_HAS_MAX_BODY_SIZE == (
+            "max_body_size" in inspect.signature(FastAPI.__init__).parameters
+        )
 
     def test_too_many_vectors_rejected_before_validating_arrays(self):
         """100.001 vectores → 422 en < 2 s (antes: 6-9 s de validación pydantic)."""

@@ -15,10 +15,14 @@ import logging
 import os
 import subprocess
 import sys
-import tomllib
 import types
 import warnings
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11: mismo módulo, distribución aparte (extra dev)
+    import tomli as tomllib
 
 import numpy as np
 import pytest
@@ -317,3 +321,15 @@ def test_version_is_unified_with_pyproject():
     pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert pyproject["project"]["version"] == m2m.__version__
     assert "Version: 2.4.0" in m2m.__doc__
+
+
+def test_http_api_reports_the_package_version():
+    """`/v1/health` y el documento OpenAPI decían "2.0.0" fijo, en cualquier versión
+    instalada (encontrado al preparar el release de 2.4.0)."""
+    from fastapi.testclient import TestClient
+
+    from m2m.api import edge_api
+
+    c = TestClient(edge_api.app)
+    assert c.get("/v1/health").json()["version"] == m2m.__version__
+    assert c.get("/openapi.json").json()["info"]["version"] == m2m.__version__
