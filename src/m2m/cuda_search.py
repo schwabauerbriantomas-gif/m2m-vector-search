@@ -165,7 +165,6 @@ class CUDASearcher:
         queries = np.ascontiguousarray(queries, dtype=np.float32)
         if queries.ndim == 1:
             queries = queries[np.newaxis, :]
-        B = queries.shape[0]
         k = min(k, self._n)
 
         try:

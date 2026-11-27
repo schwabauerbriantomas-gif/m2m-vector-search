@@ -539,7 +539,6 @@ def gate_select_k(
     fingerprint = _data_fingerprint(X)
 
     verdict: Optional[Dict] = None
-    cache_ok = False
     if verdict_cache:
         import json as _json
         import os as _os
@@ -558,7 +557,6 @@ def gate_select_k(
                     and cached.get("algo") == _CACHE_ALGO
                 ):
                     verdict = cv
-                    cache_ok = True
             except Exception:
                 verdict = None  # cache corrupta -> recomputar
 

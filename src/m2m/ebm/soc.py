@@ -372,7 +372,6 @@ class SOCEngine:
         if mu is None or len(mu) == 0:
             self._clusters = []
             return self._clusters
-        n = len(mu)
         labels = self.cluster_labels
         if labels is None:
             labels = _geometric_labels(mu)

@@ -114,7 +114,7 @@ class TestTemporalDecay:
 
         id1 = db.store("Python programming language")
         time.sleep(0.01)
-        id2 = db.store("Python snake animal")
+        db.store("Python snake animal")
 
         # Age id1
         db._timestamps[id1] = time.time() - (100 * 86400)

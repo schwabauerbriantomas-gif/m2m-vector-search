@@ -219,7 +219,7 @@ def test_filtro_exacto_y_tras_cada_mutacion(datos, tmp_path, monkeypatch):
 
 
 def test_consolidate_mantiene_exactitud(datos):
-    rng, centros, Q = datos["rng"], datos["centros"], datos["Q"]
+    rng, Q = datos["rng"], datos["Q"]
     est = Estado(datos["X"], datos["meta"])
     db = m2m.AdvancedVectorDB(latent_dim=D)
     db.add(ids=[f"doc{i}" for i in range(N)], vectors=datos["X"], metadata=datos["meta"])

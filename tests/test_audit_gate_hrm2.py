@@ -244,7 +244,7 @@ def test_gate_cache_rejects_legacy_cache_without_fingerprint(tmp_path, monkeypat
     calls = []
     real = gm._verdict
     monkeypatch.setattr(gm, "_verdict", lambda X, seed=42: (calls.append(1), real(X, seed=seed))[1])
-    sel = gate_select_k(X, verdict_cache=str(cache))
+    gate_select_k(X, verdict_cache=str(cache))
     assert len(calls) == 1, "cache legacy sin fingerprint fue aceptado"
     assert "fingerprint" in json.loads(cache.read_text())
 

@@ -667,7 +667,6 @@ class CUDAVectorIndex:
             dists_sq = torch.clamp(dists_sq, min=0.0)
             chunk_dists = torch.sqrt(dists_sq).cpu().numpy()
 
-            chunk_n = chunk_end - chunk_start
             combined_ids = np.concatenate(
                 [
                     best_ids,

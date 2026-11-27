@@ -187,7 +187,6 @@ class TestCUDASearcher:
             searcher.search(query, k=10)
 
         after_mem = torch.cuda.memory_allocated()
-        peak_mem = torch.cuda.max_memory_allocated()
 
         # Memory should not grow more than 1MB beyond baseline
         growth = after_mem - baseline_mem

@@ -632,10 +632,10 @@ class TestIntegration:
             return simple_db.search(query, k)
 
         # Primera búsqueda
-        result1 = optimizer.execute_with_cache(sample_query, 10, search_fn)
+        optimizer.execute_with_cache(sample_query, 10, search_fn)
 
         # Segunda búsqueda (cached)
-        result2 = optimizer.execute_with_cache(sample_query, 10, search_fn)
+        optimizer.execute_with_cache(sample_query, 10, search_fn)
 
         stats = optimizer.get_stats()
         assert stats["cache_hit_rate"] > 0

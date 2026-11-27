@@ -529,9 +529,6 @@ class TestAdvancedVectorDBSingleEngine:
         """AdvancedVectorDB should create only one M2MEngine."""
         from m2m import AdvancedVectorDB
 
-        call_count = 0
-        orig_init = type(M2MConfig.advanced(device="cpu").__class__.__init__) if False else None
-
         # Use a simpler approach: just verify it works
         db = AdvancedVectorDB(latent_dim=64, enable_soc=False)
         assert db.engine is not None

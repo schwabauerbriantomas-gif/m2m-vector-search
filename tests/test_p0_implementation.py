@@ -418,19 +418,10 @@ class TestQualityBenchmark:
         engine = M2MEngine(config)
         engine.add_splats(vecs)
 
-        # Linear scan ground truth
         query = vecs[42]
-        query_norm = query / (np.linalg.norm(query) + 1e-8)
-
-        # Compute ground truth with brute force
-        all_vecs_norm = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-8)
-        sims = all_vecs_norm @ query_norm
-        gt_top10 = set(np.argsort(-sims)[:10].tolist())
 
         # HRM2 search
         mu, alpha, kappa, _ = engine.search(query, k=10)
-        # HRM2 returns closest splats; we compare indices
-        hrm2_indices = list(range(min(10, len(mu))))
 
         # At least some overlap expected
         # Note: HRM2 may return splat positions not original indices,
