@@ -1306,7 +1306,7 @@ class SimpleVectorDB:
 
             # Build DocResult list from LSH indices using _lsh_id_map
             # (T2: logica extraida a _doc_results_from_lsh, compartida con
-            # _search_batch_lsh para garantizar parity single vs batch)
+            # el camino LSH de search_batch() para garantizar parity single vs batch)
             return self._doc_results_from_lsh(
                 indices,
                 distances,
@@ -1449,7 +1449,7 @@ class SimpleVectorDB:
 
         Logica comun extraida del path LSH de search() single (T2): el mapeo
         _lsh_id_map + skip de borrados + filtro + energia. La usa search()
-        single y _search_batch_lsh para garantizar parity exacta.
+        single y el camino LSH de search_batch() para garantizar parity exacta.
         """
         candidate_vectors = self.lsh.vectors[indices]
         results: List[Any] = []
@@ -1482,41 +1482,6 @@ class SimpleVectorDB:
                 )
             )
         return results[:k]
-
-    def _search_batch_lsh(
-        self,
-        queries: np.ndarray,
-        k: int = 10,
-        include_metadata: bool = False,
-    ) -> Any:
-        """Batch en modo LSH: mismo llamado lsh.query() que search() single.
-
-        LSH.query() es single-query y su fallback interno de candidatos usa
-        RNG global, asi que la unica forma de garantizar resultados IDENTICOS
-        al single (requisito de parity) es llamarlo por query y ensamblar con
-        el helper comun _doc_results_from_lsh.
-        """
-        B = len(queries)
-        out_idx = np.full((B, k), -1, dtype=np.int64)
-        results: List[List[Any]] = []
-        for i in range(B):
-            indices, distances = self._lsh_query_deterministic(queries[i], k=k)
-            row = self._doc_results_from_lsh(
-                indices, distances, k=k, include_metadata=include_metadata
-            )
-            results.append(row)
-            # Indices posicionales del LSH == posicion en _splat_id_order
-            # (ambos se extienden en el mismo orden en add()); -1 si falta.
-            filled = 0
-            for idx in indices[:k]:
-                if filled >= k:
-                    break
-                if idx < len(self._lsh_id_map):
-                    out_idx[i, filled] = int(idx)
-                    filled += 1
-        if not include_metadata:
-            return out_idx
-        return results
 
     def search_batch(
         self,
