@@ -180,3 +180,44 @@ def test_r2_15_energy_per_splat_matches_canonical():
     assert total <= float(per.min()) + 1e-9
 
 
+
+
+def _exploration_fixture(seed=1, kappa=1.0):
+    rng = np.random.default_rng(seed)
+    X = _unit(rng.standard_normal((300, 8))).astype(np.float32)
+    ebm = EBMEnergy(X[:20].copy(), np.ones(20, dtype=np.float32), np.full(20, kappa, dtype=np.float32))
+    expl = EBMExploration(ebm, all_vectors=X, all_ids=[str(i) for i in range(len(X))])
+    return expl, rng
+
+
+@pytest.mark.parametrize("temperature", [1.0, 0.1, 0.01, 1e-4, 1e-6, 0.0])
+def test_r2_17_sample_uncertain_accepts_low_and_zero_temperature(temperature):
+    # Antes: T <= 0.01 → ValueError 'Fewer non-zero entries in p than size'; T=0 → ídem.
+    expl, _ = _exploration_fixture()
+    pts = expl.sample_uncertain(k=5, temperature=temperature)
+    assert len(pts) == 5
+    assert all(np.isfinite(p).all() for p in pts)
+
+
+def test_r2_17_negative_or_nan_temperature_raises():
+    # Antes: T=-1 se convertía en silencio en 1e-10 (max(T, 1e-10)).
+    expl, _ = _exploration_fixture()
+    with pytest.raises(ValueError, match="temperature"):
+        expl.sample_uncertain(k=5, temperature=-1.0)
+    with pytest.raises(ValueError, match="temperature"):
+        expl.sample_uncertain(k=5, temperature=float("nan"))
+
+
+@pytest.mark.parametrize("temperature", [0.0, 1e-12, 1e-320])
+def test_r2_17_zero_temperature_is_deterministic_limit(monkeypatch, temperature):
+    # T → 0: el límite de la distribución ∝ exp(+E/T) son los k candidatos de MAYOR
+    # energía (sample_uncertain busca regiones inciertas), sin lanzar.
+    expl, rng = _exploration_fixture()
+    cands = _unit(rng.standard_normal((60, 8))).astype(np.float32)
+    monkeypatch.setattr(expl, "_sample_global", lambda n, dim: [c.copy() for c in cands])
+    E = expl.energy_api.energy_batch(cands).astype(np.float64)
+    assert len(set(np.round(E, 6))) == len(E)  # sin empates: el top-k es único
+    top = set(int(i) for i in np.argsort(-E)[:5])
+    got = expl.sample_uncertain(k=5, temperature=temperature)
+    idx = {int(np.argmin(((cands - g) ** 2).sum(axis=1))) for g in got}
+    assert len(got) == 5 and idx == top

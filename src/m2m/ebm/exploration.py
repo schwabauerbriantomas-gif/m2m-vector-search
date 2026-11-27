@@ -195,12 +195,23 @@ class EBMExploration:
 
         Args:
             k: Número de puntos a muestrear
-            temperature: Parámetro de temperatura del muestreo
+            temperature: T ≥ 0 del muestreo de Boltzmann (pesos ∝ exp(E / T)).
+                T < 0 o no finita (NaN/inf) -> ValueError (antes una T negativa se
+                reemplazaba en silencio por 1e-10). Cualquier T > 0, por chica que sea,
+                es válida. T = 0 -> devuelve los k candidatos de MAYOR energía (el
+                límite determinista de la distribución: este sampler busca regiones
+                inciertas) sin muestrear y sin lanzar [audit r2-17].
             from_region: Si se proporciona, muestrea de esa región específica
 
         Returns:
             Lista de k vectores en regiones inciertas.
         """
+        temperature = float(temperature)
+        if not np.isfinite(temperature) or temperature < 0:
+            raise ValueError(
+                f"temperature must be a finite number >= 0 (got {temperature!r})"
+            )
+
         if self.all_vectors is None or len(self.all_vectors) == 0:
             return []
 
@@ -218,19 +229,38 @@ class EBMExploration:
         cand_array = np.stack(candidates)
         energies = self.energy_api.energy_batch(cand_array)
 
-        # Muestreo de Boltzmann: ∝ exp(E / T) (mayor energía = mayor prob)
-        # Numerically stable: subtract max to prevent overflow (log-sum-exp trick)
-        scaled = energies / max(temperature, 1e-10)
-        scaled -= scaled.max()  # numerical stability
-        weights = np.exp(scaled)
-        weights_sum = weights.sum()
-        if weights_sum < 1e-30:
-            return candidates[:k]
-
-        probs = weights / weights_sum
-        k_actual = min(k, len(candidates))
-        indices = np.random.choice(len(candidates), size=k_actual, p=probs, replace=False)
-        return [candidates[i] for i in indices]
+        # Muestreo de Boltzmann: ∝ exp(E / T) (mayor energía = mayor prob).
+        # Gumbel-top-k sobre los logits E/T ≡ muestreo SIN reemplazo de esa
+        # distribución, pero no falla cuando (T chica) casi todos los pesos hacen
+        # underflow a 0: np.random.choice(p=...) lanzaba
+        # 'Fewer non-zero entries in p than size' para T <= 0.01 [audit r2-17].
+        # Estabilidad: se resta max(E) ANTES de dividir por T (E - max(E) <= 0 es
+        # finito, así (E - max)/T nunca produce inf - inf).
+        n_cand = len(candidates)
+        k_actual = min(k, n_cand)
+        if temperature == 0.0:
+            order = np.argsort(-energies, kind="stable")[:k_actual]
+            return [candidates[int(i)] for i in order]
+        e64 = energies.astype(np.float64)
+        with np.errstate(over="ignore", divide="ignore"):
+            logits = (e64 - float(np.max(e64))) / temperature
+        noise = np.random.gumbel(size=n_cand)
+        gumbel = logits + noise
+        if np.isinf(logits).any():
+            # T tan chica que (E - max)/T hace overflow: esos logits quedan en -inf
+            # empatados y el ruido ya no puede ordenarlos. Su orden real es el de la
+            # energía (mismo T): se desempata por E y después por el ruido, que es
+            # exactamente el límite T -> 0 (top-k por energía) sin perder los empates
+            # exactos de E, que sí deben sortearse.
+            order = sorted(
+                range(n_cand), key=lambda i: (gumbel[i], float(e64[i]), noise[i]), reverse=True
+            )
+            pick = order[:k_actual]
+        elif k_actual < n_cand:
+            pick = np.argpartition(-gumbel, k_actual - 1)[:k_actual]
+        else:
+            pick = range(n_cand)
+        return [candidates[int(i)] for i in pick]
 
     def suggest_exploration(
         self,
