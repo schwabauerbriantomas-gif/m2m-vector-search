@@ -35,8 +35,8 @@ Constructor parameters are documented in [`CONFIGURATION.md`](CONFIGURATION.md).
 
 | Method | Returns |
 |---|---|
-| `search(query, k=10, filter=None, include_energy=False, include_metadata=False)` | With `include_metadata=True`, `include_energy=True` or `filter`: `list[DocResult]`, at most `k` active documents that pass the filter. Otherwise the legacy tuple `(mu, alpha, kappa, splat_indices)` — always four values, also when empty or in LSH mode. With a filter in IVF mode the top-k is **exact** (pruning bound on the cluster radius [P17]; `tests/test_p17_exact_filter.py`). |
-| `search_batch(queries, k=10, include_metadata=False)` | `include_metadata=False`: `np.ndarray` `[B, k]` of positions (`-1` when missing); `True`: `list[list[DocResult]]`. `(B, 0)` for an empty database. Each query is scored against the rows of **its own** probed clusters, never the union of the batch. Without a filter the probe is **not widened** to replace soft-deleted documents: in HRM2 mode (`n > 3000`) rows can hold fewer than `k` positions (`-1`) when most documents of the probed clusters are deleted; a filter widens the probe and is exact (known limitation, see [PERFORMANCE.md](PERFORMANCE.md); `tests/test_audit_batch.py`). |
+| `search(query, k=10, filter=None, include_energy=False, include_metadata=False)` | With `include_metadata=True`, `include_energy=True` or `filter`: `list[DocResult]`, at most `k` active documents that pass the filter. Otherwise the legacy tuple `(mu, alpha, kappa, splat_indices)` — always four values, also when empty or in LSH mode. With a filter in IVF mode the top-k is **exact** (pruning bound on the cluster radius [P17]; `tests/test_p17_exact_filter.py`). `metadata` and `document` are only loaded when the call passes `include_metadata=True`; with `filter=` or `include_energy=True` alone they come back as `{}` / `None`. |
+| `search_batch(queries, k=10, include_metadata=False)` | `include_metadata=False`: `np.ndarray` `[B, k]` of positions (`-1` when missing); `True`: `list[list[DocResult]]`. `(B, 0)` for an empty database. Each query is scored against the rows of **its own** probed clusters, never the union of the batch. Without a filter the probe is **not widened** to replace soft-deleted documents: in HRM2 mode (`n > 3000`) rows can hold fewer than `k` positions (`-1`) when most documents of the probed clusters are deleted; a filter widens the probe and is exact (known limitation, see [PERFORMANCE.md](PERFORMANCE.md); `tests/test_audit_batch.py` covers that deleted documents are excluded from the results — the missing widening itself has no dedicated test). |
 | `search_batch_filtered(queries, k=10, filter_fn=None, filter=None)` | `np.ndarray` `[B, k]` of positions. The filter runs **before** the top-k; `filter_fn` is `callable(position) -> bool`, `filter` a dict or `callable(metadata) -> bool` (same syntax as `search`). Both together: `ValueError`. Exact top-k in IVF mode [P17]. |
 | `search_with_energy(query, k=10) -> SearchResult` | `SearchResult.results` (list of `DocResult` with `energy`/`confidence`), `total_confidence`, `query_energy`. Needs the energy features (`enable_ebm=True`, `mode="ebm"` or `AdvancedVectorDB`). |
 | `get_energy(vector) -> float`, `suggest_exploration(n=3)`, `find_knowledge_gaps(n=5)` | Energy features; they raise `RuntimeError` without the energy features (`tests/test_crud.py`). |
@@ -76,7 +76,7 @@ and adds:
 | `distance` | L2 distance between the normalized query and the stored vector; `distance**2 == 2 - 2*score` on the sphere. |
 | `energy` | With energy features only: `E_i(q) = -ln(alpha_i) + kappa_i*||q - mu_i||**2`, capped at `OOD_ENERGY = 10`. Lower is more confident. |
 | `confidence` | With energy features only: `sigmoid(-energy)`. `0.5` at the exact centre of a splat with `alpha = 1`; the cap maps to `4.5e-5`. |
-| `metadata`, `document` | As passed to `add()` (`{}` / `None` when absent). |
+| `metadata`, `document` | As passed to `add()` (`{}` / `None` when absent), and only when the call passed `include_metadata=True`; with `filter=` or `include_energy=True` alone they come back as `{}` / `None`. |
 | `vector` | Stored vector in `search()`; `None` in `search_batch(include_metadata=True)`. |
 
 **Reading the energy.** `energy == 10.0` and `confidence == 0.0000` on every result
@@ -122,7 +122,7 @@ in place after `add()` is not seen by the cache — call `update()` instead.
   takes a `[B, D]` batch and returns four `[B, k, ...]` arrays
   `(mu, alpha, kappa, splat_indices)`.
 - `m2m.hrm2_engine.HRM2Engine` / `HRM2Config`: hierarchical routing with
-  `query(q, k, lod=2)` and `query_batch(Q, k, lod=2)`, which agree row by row.
+  `query(query_vector, k=10, lod=2)` and `query_batch(query_vectors, k=10, lod=2)`, which agree row by row (`tests/test_audit_gate_hrm2.py`). The three levels of detail are measured in `benchmarks/results/bench_index_types.json`: on clustered data all of them reach recall@10 1.0 and `lod=2` is the fastest.
 - `m2m.gate_modulus.gate_select_k(X, target_docs_per_cluster=25, verdict_cache=None,
   seed=42, stability_seeds=0)` chooses the number of coarse clusters and returns a
   `GateKSelection` whose verdict reports the discarded and omitted scales.
@@ -158,7 +158,7 @@ uvicorn m2m.api.coordinator_api:app --port 8000 # cluster coordinator
 | `POST /v1/collections/{name}/vectors` | Insert vectors (ids, vectors, metadata, documents). |
 | `GET`, `PUT`, `DELETE /v1/collections/{name}/vectors/{vector_id}` | Read, upsert or delete one vector. |
 | `GET /v1/collections/{name}/stats` | Per-collection statistics. |
-| `POST /v1/collections/{name}/search`, `/query` | k-NN search (`query`, `k`, optional `filter`). |
+| `POST /v1/collections/{name}/search`, `/query` | k-NN search. Body: `vector`, `k`, optional `filter` (the field is `vector`; a body with `query` instead gets `422`). `/query` adds the energy summary (`query_energy`, `total_confidence`, `uncertainty_regions`) on a collection created with `enable_ebm=True` when the body has `include_energy=True`; that path takes no filter (`400`, use `/search`). Otherwise `/query` behaves as `/search`. |
 | `POST /v1/collections/{name}/energy`, `/explore`, `GET .../suggest` | Energy features. |
 | `POST /v1/admin/checkpoint`, `POST /v1/admin/backup` | Checkpoint every collection with a `storage_path`; write a backup. Fail closed without a key. |
 | `POST /ingest`, `POST /search` | Legacy endpoints. |
@@ -171,7 +171,7 @@ The OpenAPI schema is served at `/docs` and `/openapi.json` by the running serve
 
 | Code | When |
 |---|---|
-| `400` | A validation `ValueError` from `add`/`update`/`delete` (bad vector, bad filter, duplicate ids). |
+| `400` | A validation `ValueError` from `add`/`update`/`delete` (bad vector, duplicate ids) or from `search` (invalid metadata filter). The HTTP `add`/`update`/`delete` endpoints take no filter. |
 | `401` | Missing or wrong API key on an endpoint that requires it. |
 | `404` | Unknown collection or vector. |
 | `413` | Body larger than `M2M_MAX_BODY_BYTES`; rejected before being read (`text/plain`). |

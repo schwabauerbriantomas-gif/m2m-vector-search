@@ -113,7 +113,8 @@ class TestCriterio1RoundTrip:
         # KMeans completo, igual que un add() del mismo tamaño
         assert db2.engine.m2m.splats._last_trained_n == len(order)
 
-    # Criterio 3: update(vector) → save → reopen devuelve el vector nuevo
+    # Criterio 3 [audit r1-24]: update(vector) se persiste en el lugar → save → reopen
+    # devuelve el vector nuevo
     def test_update_vector_survives_reopen(self, tmp_path):
         st = tmp_path / "st"
         db = _build(st)

@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Tags such as `[audit r1-13]` refer to the findings of the 2026-11 audit of the
-code base; each one has a regression test under `tests/test_audit_*.py`.
+code base. Every id either names a test under `tests/` that cites it, or carries
+`no unit test` with the reason (documentation, CI, packaging, deployment);
+`tests/test_audit_id_index.py` keeps that true.
 
 ## [Unreleased]
 
@@ -27,7 +29,8 @@ This release is the result of a full audit of the code, its claims and its
 benchmarks (2026-11). 99 commits (merges excluded) fix the behaviour of the engine, the
 persistence layer and the HTTP API; the documentation was rewritten to describe
 what the code does. Every behavioural change listed here cites the audit id of
-the finding it closes, and each has a regression test. Entries of the versions before
+the finding it closes, and each has a regression test that cites the id; ids without a
+test say so inline (`no unit test`). Entries of the versions before
 2.4.0 are not reproduced here: they quoted benchmark figures the audit could not
 sustain and remain in the git history of the README.
 
@@ -190,13 +193,16 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
   shaders or starting Vulkan [audit r2-20].
 - `HNSWIndex`: `_search_layer` returns candidates closest-first and `_insert` enters
   the next layer from the closest candidate [audit r2-07]; the default level multiplier
-  is `1/ln(M)` as in the paper (fraction of nodes above layer 0 0.488-0.499 → 0.054-0.057,
-  build CPU -31% a -48%) [audit r2-09]. On uniform data the multiplier costs about
-  0.8 recall@10 points on average over 5 level seeds (0.265 against
-  0.274 at `ef_search=32`, 0.417 against 0.425 at 64) — a cost, not
-  an improvement. HNSW and LSH stay experimental and are slower than a linear scan
-  (N = 2500: 302 and 123 QPS against 18,000) [audit r2-08;
-  `tests/test_audit_hnsw_lsh.py`].
+  is `1/ln(M)` as in the paper [audit r2-09]. Measured once during the fix pass on the
+  developer's machine (N = 2500, not part of `benchmarks/results/`): the fraction of
+  nodes above layer 0 went from 0.488-0.499 to 0.054-0.057 and the CPU build time
+  dropped by 31% to 48%, at a cost of about 0.8 recall@10 points on uniform data,
+  averaged over 5 level seeds (0.265 against 0.274 at `ef_search=32`, 0.417 against
+  0.425 at 64) — a cost, not an improvement. The tests assert the structure of the
+  index, not these numbers. HNSW and LSH stay experimental and are slower than a linear scan
+  (N = 2500: 302 and 123 QPS against 18,000) [audit r2-08; no unit test: the QPS
+  comparison is `benchmarks/results/bench_index_types.json`; `tests/test_audit_hnsw_lsh.py`
+  covers the structural fixes of r2-03, r2-04 and r2-07].
 - `CrossPolytopeLSH` uses `np.random.default_rng(seed)` and a deterministic query
   fallback instead of seeding NumPy's global RNG [audit r2-04], and warns with
   `UserWarning` that the mode is experimental: with the defaults its recall on uniform
@@ -288,6 +294,26 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
   (the same class of bug recurred in `query_batch(lod=2)`; covered by the
   mask alignment of r1-11).
 
+- `POST /v1/collections/{name}/search` with an invalid metadata filter answers `400`;
+  it answered `500` (the `ValueError` of the filter validation was not caught)
+  [validator D02; `tests/test_p19_api_defects.py`].
+- `POST /v1/collections/{name}/query` works on collections without EBM; it answered `500`
+  on every call (the fallback called the `/search` handler without the `request`). The
+  body field is `vector`. With `include_energy=True` on a collection created with
+  `enable_ebm=True` a filter is now rejected with `400` instead of being ignored
+  [validator D04; `tests/test_p19_api_defects.py`].
+- `M2M_CORS_ORIGINS="https://a, https://b"` (a space after the comma) admits both
+  origins; the second one used to be left out [validator D15;
+  `tests/test_p19_api_defects.py`].
+- The coordinator answers `401`, not `500`, to a non-ASCII API key [validator D19;
+  `tests/test_p19_api_defects.py`].
+- Documentation: the README example said the nearest neighbour scored about `0.23`; the
+  block prints `0.3024` for the top hit (`0.22` is the mean of the ten). `docs/API.md`
+  described the body of `/query` and the `400` row incorrectly, promised `metadata`
+  without `include_metadata=True` and named the arguments of `HRM2Engine.query` wrong
+  [validator D01, D03, D06, D14, D18]. The CHANGELOG claimed a regression test for
+  every audit id; the ids without one now say so inline.
+
 ### Added
 
 - `DocResult.alpha` and `DocResult.distance` [audit r1-13].
@@ -299,7 +325,9 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
 - `m2m` console script (`python -m m2m`), `py.typed`, and the extras
   `core`, `api`, `langchain`, `bench`, `dev`, `all` (plus `vulkan`,
   `embeddings`, `distributed`) as the single source of dependencies;
-  `requirements.txt` is `-e .[dev,bench]` [audit r3b-09, r3b-10].
+  `requirements.txt` is `-e .[dev,bench]` [audit r3b-09, r3b-10; no unit test:
+  packaging, checked by building the sdist and the wheel and importing from the
+  wheel].
 - License declared as the SPDX expression `AGPL-3.0-only` (PEP 639) [audit r3b-09].
 - `SimpleVectorDB.feedback()` and `FeedbackResult` [audit r3a-08];
   `AdvancedVectorDB.maybe_consolidate()` (`ConsolidationDecision`: consolidates only
@@ -323,20 +351,21 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
 - `MANIFEST.in` lists only files that exist [audit r3b-09]. `pytest.ini` was
   removed; the single pytest configuration lives in `pyproject.toml`. `.flake8`
   is a real config, bandit reads `[tool.bandit]` via `-c pyproject.toml`,
-  pre-commit hooks are pinned to verified revisions [audit r3b-07].
+  pre-commit hooks are pinned to verified revisions [audit r3b-07; no unit test: configuration files].
 - CI runs lint, test (Python 3.10-3.12, coverage floor 68 %), build, security,
   docs and deploy-docs jobs with pinned action SHAs and minimal permissions
-  [audit r3b-08]. `test_lsh_speedup` became a parity test
+  [audit r3b-08; no unit test: CI workflow]. `test_lsh_speedup` became a parity test
   (`test_lsh_matches_exact_scan`); the measurement moved to
   `benchmarks/bench_lsh.py` [audit r4 methodology].
 - Dockerfiles install the `api` extra, ship the shaders and `py.typed`, and run
-  as a non-root user [audit r3b-04, r3b-11].
+  as a non-root user [audit r3b-04, r3b-11; no unit test: deployment manifests, not
+  validated with `docker` or `kubectl`].
 - `deploy/docker-compose.yml` and `deploy/k8s/` require API keys, bind the
   published ports to `127.0.0.1`, and declare resources, probes and a
   securityContext [audit r3b-11]. These manifests were **not** validated with
   `docker` or `kubectl` (neither is available on the machine that produced
   them).
-- `tests/README.md` describes the suite that exists [audit r3a-13].
+- `tests/README.md` describes the suite that exists [audit r3a-13; no unit test: documentation].
 - The root `docker-compose.yml` publishes `8080` on `127.0.0.1` only and passes
   `M2M_API_KEY` / `M2M_RATE_LIMIT_PER_MIN` through to the container;
   `deploy/docker-compose.yml` and `deploy/.env.example` take three keys (`M2M_API_KEY`,
@@ -348,15 +377,21 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
   JSON files without a producer were archived in `bench/history/` [audit r4 methodology;
   pack P9].
 - Style pass over `src/` and `tests/` (isort + black with AST equivalence checks;
-  flake8 208 → 0 findings, bandit 0): no behaviour change [P16]. The historical
+  flake8 208 → 0 findings, bandit 0): no behaviour change [P16; no unit test: style pass, equivalence of behaviour checked by AST comparison of the imports and by the suite]. The historical
   re-exports of `optimized_api`, `interfaces` and `semantic_memory` are explicit
   [cierre].
 - `MANIFEST.in` ships `CONTRIBUTING.md` and `docs/` in the sdist; `pyproject.toml`
-  declares PyPI topics and classifiers [P10b].
+  declares PyPI topics and classifiers [P10b; no unit test: documentation and packaging,
+  checked by building the sdist and the wheel].
 - Documentation rewritten: `README.md`, `docs/CONFIGURATION.md` (new),
   `docs/API.md`, `docs/PERFORMANCE.md`, `docs/TROUBLESHOOTING.md`,
-  `docs/cluster.md`, `SECURITY.md` and this file [audit r3a-01 ... r3a-19,
-  r3b-05, r3b-06, r3b-12, r3b-13, r3b-14].
+  `docs/cluster.md`, `SECURITY.md` and this file [audit r3a-01, r3a-13, r3a-15, r3a-16,
+  r3a-19, r3b-05, r3b-06, r3b-12, r3b-13, r3b-14; no unit test: documentation and
+  packaging findings]. An independent validator then checked the rewritten text
+  claim by claim against the code, the tests and the benchmark JSON (585 checks,
+  20 defects: 4 false, 7 not traceable, 2 misleading, 7 minor); the defects found in
+  the text are closed in this release, and what it could not verify without
+  `docker`/`kubectl` or the `embeddings` extra is labelled as such in the documentation.
 
 ### Removed
 
@@ -379,5 +414,5 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
 - The filtered batch path still probes with `expand=True`, slower than the
   unfiltered one [audit P15, item left open on purpose].
 - Unicode on Windows in benchmark scripts is only partially addressed
-  [audit r3b-14]; the deployment manifests were not validated with `docker` or
+  [audit r3b-14; no unit test: benchmark scripts]; the deployment manifests were not validated with `docker` or
   `kubectl`.

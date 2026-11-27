@@ -12,10 +12,10 @@ grepping `os.environ` in `src/`; there is no other configuration file and no
 |---|---|---|---|
 | `M2M_HOST` | `src/m2m/__main__.py:25` | `127.0.0.1` | Host `python -m m2m` binds to. The Dockerfiles set it to `0.0.0.0`. A warning is logged if the host is not loopback and `M2M_API_KEY` is unset (`src/m2m/__main__.py:51`). Only affects `python -m m2m` / the `m2m` script; `uvicorn m2m.api.edge_api:app` takes `--host` from the command line. |
 | `M2M_PORT` | `src/m2m/__main__.py:26` | `8080` | Port of `python -m m2m`. Must parse as an integer. |
-| `M2M_API_KEY` | `src/m2m/api/edge_api.py:408` | unset = no authentication | When set, every edge endpoint requires it as a bearer token in the `Authorization` header or in `X-API-Key` (constant-time compare), except `GET /health` and `GET /v1/health`; `/v1/admin/*` answer `503` when it is unset. Read per request. |
+| `M2M_API_KEY` | `src/m2m/api/edge_api.py:416` | unset = no authentication | When set, every edge endpoint requires it as a bearer token in the `Authorization` header or in `X-API-Key` (constant-time compare), except `GET /health` and `GET /v1/health`; `/v1/admin/*` answer `503` when it is unset. Read per request. |
 | `M2M_COORDINATOR_API_KEY` | `src/m2m/api/coordinator_api.py:26` | unset = no authentication | Key of the coordinator's `/register`, `/heartbeat`, `/route` and `/search`. **Read once at import time**: set it before importing the module. |
 | `M2M_EDGE_API_KEY` | `src/m2m/api/coordinator_api.py:39` | unset = no key sent to the edges | Key the coordinator sends to each edge on a fan-out (in the `X-API-Key` request header). It must equal the edges' `M2M_API_KEY`; the coordinator's own key is never forwarded. Read per request. |
-| `M2M_CORS_ORIGINS` | `src/m2m/api/edge_api.py:293` | `*` (open) | Comma-separated list of allowed origins for the edge API. With the wildcard, credentials are not allowed. Read once at import time. The coordinator has no CORS middleware. |
+| `M2M_CORS_ORIGINS` | `src/m2m/api/edge_api.py:301` | `*` (open) | Comma-separated list of allowed origins for the edge API (spaces around each origin are ignored). With the wildcard, credentials are not allowed. Read once at import time. The coordinator has no CORS middleware. |
 | `M2M_MAX_BODY_BYTES` | `src/m2m/api/edge_api.py:248` | `33554432` (32 MiB) | Requests with a larger body get `413` before the body is read. A value that is not a non-negative integer logs a warning and falls back to the default. Read when the app object is built. |
 | `M2M_HMAC_SECRET` | `src/m2m/storage/persistence.py:552, 567, 703, 719` | unset = no signing | When set, `save()`/checkpoint writes an HMAC-SHA256 manifest of the storage that is verified on reopen and by `load()` (mismatch: `IndexTamperedError`); a storage without a manifest loads with a warning. `M2MPersistence.save_index()`/`load_index()` require it (`RuntimeError` otherwise). Not encryption: it detects modification, it does not hide content. |
 | `M2M_RATE_LIMIT_PER_MIN` | `src/m2m/api/edge_api.py:272` | absent / `0` / negative = off | Opt-in rate limit per client IP over a sliding 60 s window; above the limit the edge answers `429` with `Retry-After`, and rejected requests are not counted. Read per request; a value that is not an integer is ignored with a warning (limit off) [P15; `tests/test_audit_closure.py`]. |
@@ -101,13 +101,19 @@ batch_size=None, random_state=None, config=None, metric=None, auto_k=None,
 k_selection=None, gate_target_docs_per_cluster=None)` takes either individual
 values or a `config=HRM2Config(...)`.
 
-Levels of detail of `HRM2Engine.query(q, k, lod=...)`:
+Levels of detail of `HRM2Engine.query(query_vector, k=10, lod=...)`:
 
-| `lod` | What is scanned | Use |
+| `lod` | What is scanned | Measured (`benchmarks/results/bench_index_types.json`, clustered data) |
 |---|---|---|
-| `0` | The probed coarse clusters; returns the nearest splats among them. | Fast, approximate. |
-| `1` | Only the nearest fine clusters inside the probed coarse clusters. | Approximation; recall is lower than `lod=2` because the neighbours of a query spread over several fine clusters. |
-| `2` (default) | Coarse routing plus fine re-ranking. | Default. |
+| `0` | The probed coarse clusters; returns the nearest splats among them. | recall@10 1.0 at 10k and 50k; 2.3× (10k) and 3.7× (50k) slower than `lod=2`. |
+| `1` | Only the nearest fine clusters inside the probed coarse clusters. | recall@10 1.0 at 10k and 50k; 2.3× (10k) and 3.6× (50k) slower than `lod=2`. |
+| `2` (default) | Coarse routing plus fine re-ranking. | recall@10 1.0; the fastest of the three (1,356 QPS at 10k, 517 at 50k). |
+
+`lod=0` and `lod=1` return the nearest splats **among what they scan**: a neighbour that
+falls outside the scanned clusters is missed. On the benchmark's clustered data that never
+happened (recall 1.0 at every level); on overlapping clusters it was not measured. There is
+no reason to leave the default. `query()` and `query_batch()` agree row by row
+(`tests/test_audit_gate_hrm2.py`).
 
 Adaptive probing (`adaptive_probing=True` in `HRM2Config`, or
 `engine.adaptive_probing = True`) adds probes for a query when the first ones

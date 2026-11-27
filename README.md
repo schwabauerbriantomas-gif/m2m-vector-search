@@ -98,8 +98,9 @@ for r in results:
 ```
 
 `score` is the cosine similarity between the (normalized) query and the stored vector. On
-random data the nearest neighbour is only loosely similar (about `0.23` here); on real
-embeddings the top scores are much closer to `1`.
+random data even the nearest neighbour is only loosely similar (about `0.30` for the top
+hit here, `0.22` averaged over the ten results); on real embeddings the top scores are
+much closer to `1`.
 
 ### Advanced: Gaussian splats, energy and confidence
 

@@ -5,6 +5,7 @@ filtro dejaba < 1.5*k candidatos; con filtros correlacionados con los clusters e
 recall@10 caía (0.458 / 0.701 en clustered 10k x 384). Ahora: los clusters se
 recorren en orden de cercanía y sólo se saltea uno si
 ``(dist(q, c) - r_c)^2 >= d2_k`` (cota exacta), con ``r_c`` mantenido en cada mutación.
+Cierra el hallazgo [audit P17-1].
 """
 
 import numpy as np

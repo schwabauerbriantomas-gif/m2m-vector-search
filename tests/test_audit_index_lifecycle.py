@@ -155,6 +155,8 @@ def test_r1_11_attach_keeps_all_masks_aligned(attached):
     assert n == N_BASE + N_ATTACH + 1
 
 
+# r1-11 y [audit r1-24]: update(vector=) tras un attach mantiene alineadas las
+# asignaciones, los embeddings de cluster y las máscaras
 def test_r1_11_update_vector_after_attach():
     """Criterio 2: update(id, vector=) sobre docs agregados post-índice, 50 vectores."""
     db, X, ids, _ = _build_attached()

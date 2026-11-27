@@ -192,7 +192,8 @@ class TestR120IndependentCopy:
 
 
 class TestR124EmbeddingsSync:
-    """Criterio 4: tras update(id, vector=v), engine.embeddings[pos] == normalize_sphere(v)."""
+    """Criterio 4 [audit r1-09, r1-24]: tras update(id, vector=v),
+    engine.embeddings[pos] == normalize_sphere(v)."""
 
     def test_update_vector_updates_engine_embeddings(self):
         db, ids = _db(40)

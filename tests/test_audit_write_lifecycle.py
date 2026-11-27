@@ -7,6 +7,7 @@ concurrencia corre con timeout (hilos daemon + join acotado) para no colgar la
 suite si un writer se cuelga con el lock tomado.
 """
 
+import logging
 import threading
 
 import numpy as np
@@ -74,7 +75,8 @@ def _legacy_rows(db, q, k):
 
 
 # ---------------------------------------------------------------------------
-# r1-03: concurrencia de add() — una sola sección crítica para toda la mutación
+# r1-03, r1-20: concurrencia de add() — una sola sección crítica para toda la mutación
+# (y add() guarda su propia copia de los vectores, sin aliasing con el array del llamador)
 # ---------------------------------------------------------------------------
 
 
@@ -277,6 +279,49 @@ def test_hard_delete_frees_capacity():
     assert db.add(ids=["x"], vectors=_vecs(1, 1)) == 1
     assert db.engine.m2m.splats.n_active == 5
     assert db.get_stats()["active_documents"] == 5
+
+
+# ---------------------------------------------------------------------------
+# [audit r1-20]: add() guarda su propia copia (sin aliasing con el array del llamador)
+# ---------------------------------------------------------------------------
+
+
+def test_add_stores_its_own_copy_no_aliasing():
+    X = _vecs(5, 7)
+    X_before = X.copy()
+    db = _db()
+    db.add(ids=[f"d{i}" for i in range(5)], vectors=X)
+    # El llamador reusa su buffer: la base no debe cambiar.
+    X[:] = 0.0
+    store = db.engine.m2m.splats
+    np.testing.assert_allclose(store.mu[:5], normalize_sphere(X_before), atol=1e-6)
+    for i in range(5):
+        np.testing.assert_array_equal(db._vectors[f"d{i}"], X_before[i])
+    assert _ids(db.search(X_before[0], k=1, include_metadata=True)) == ["d0"]
+
+
+# ---------------------------------------------------------------------------
+# [audit r1-26]: lo que no entra por max_splats no se indexa ni se persiste, y se avisa
+# ---------------------------------------------------------------------------
+
+
+def test_add_beyond_max_splats_warns_and_persists_nothing(tmp_path, caplog):
+    st = tmp_path / "st"
+    db = SimpleVectorDB(latent_dim=D, max_splats=5, storage_path=str(st), enable_wal=False)
+    with caplog.at_level(logging.WARNING, logger="m2m"):
+        n = db.add(ids=[f"d{i}" for i in range(8)], vectors=_vecs(8, 3))
+    assert n == 5
+    assert "rechazad" in caplog.text
+    for i in range(5, 8):
+        assert f"'d{i}'" in caplog.text, caplog.text
+        assert f"d{i}" not in db._vectors
+    assert db.get_stats()["active_documents"] == 5
+    # Tampoco sobrevive al ciclo save → load.
+    db.save()
+    db2 = SimpleVectorDB(latent_dim=D, max_splats=50, storage_path=str(st), enable_wal=False)
+    db2.load(str(st))
+    assert db2.get_stats()["active_documents"] == 5
+    assert all(f"d{i}" not in db2._vectors for i in range(5, 8))
 
 
 def test_hard_delete_in_lsh_mode_removes_from_lsh_index():

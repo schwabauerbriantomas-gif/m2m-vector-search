@@ -3,6 +3,7 @@
 Antes: el camino por chunks deja los float32 originales mmapeados DESDE el .npy
 fuente y no escribe `float32.npy` en el dump; `load(dump)` hacía `np.load` de ese
 archivo sin comprobar y levantaba `FileNotFoundError` críptico.
+Cierra el hallazgo [audit P17-2].
 """
 
 import numpy as np
