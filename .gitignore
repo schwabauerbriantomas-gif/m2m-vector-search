@@ -156,8 +156,10 @@ checkpoints/
 logs/
 *.log
 data/
-benchmarks/
+benchmarks/*
+!benchmarks/bench_lsh.py
 benchmark_results.json
+benchmark_lsh.json
 linear_scan_baseline.json
 
 # Vulkan shaders (compiled)
