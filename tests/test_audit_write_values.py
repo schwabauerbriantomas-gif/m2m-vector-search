@@ -216,3 +216,40 @@ class TestR124EmbeddingsSync:
         row = int(np.flatnonzero(eng.coarse_cluster_indices[cid] == pos)[0])
         np.testing.assert_allclose(eng.coarse_cluster_embeddings[cid][row], _sphere(newv), atol=1e-6)
         np.testing.assert_allclose(eng.embeddings[pos], _sphere(newv), atol=1e-6)
+
+
+class TestR126CapacityHonesty:
+    """Criterio 6: al llegar a max_splats, los descartados no se guardan, hay warning con ids
+    y get_stats() cuenta solo indexados."""
+
+    def test_rejected_not_stored_not_persisted_and_warning_logged(self, tmp_path, caplog):
+        db = m2m.SimpleVectorDB(latent_dim=D, max_splats=10, storage_path=str(tmp_path / "st"), enable_wal=False)
+        r1 = db.add(ids=[f"s{i}" for i in range(6)], vectors=X[:6])
+        with caplog.at_level(logging.WARNING, logger="m2m"):
+            r2 = db.add(ids=[f"s{i}" for i in range(6, 16)], vectors=X[6:16])
+        assert (r1, r2) == (6, 4)
+        accepted = {f"s{i}" for i in range(10)}
+        assert set(db._vectors) == accepted
+        assert set(db._metadata) == accepted
+        assert len(db._splat_id_order) == 10 == db.engine.m2m.splats.n_active
+        stats = db.get_stats()
+        assert stats["total_documents"] == 10 and stats["active_documents"] == 10
+        assert sorted(r.id for r in db.search(X[7], k=10, include_metadata=True)) == sorted(accepted)
+        # storage: solo los indexados (shard_002 = 4 filas, no 10)
+        assert set(db.storage.get_all_ids()) == accepted
+        assert db.storage.get_metadata("s10") is None
+        assert db.storage.load_vectors("shard_002").shape == (4, D)
+        # warning con los ids descartados
+        msgs = " ".join(r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING)
+        assert msgs, "se esperaba un warning de capacidad"
+        assert all(f"s{i}" in msgs for i in range(10, 16)), msgs
+        assert "max_splats=10" in msgs
+
+    def test_add_when_already_full_returns_zero_without_storing(self, caplog):
+        db = m2m.SimpleVectorDB(latent_dim=D, max_splats=5)
+        assert db.add(ids=[f"a{i}" for i in range(5)], vectors=X[:5]) == 5
+        with caplog.at_level(logging.WARNING, logger="m2m"):
+            assert db.add(ids=["b0", "b1"], vectors=X[5:7]) == 0
+        assert set(db._vectors) == {f"a{i}" for i in range(5)}
+        assert db.get_stats()["active_documents"] == 5
+        assert "b1" in " ".join(r.getMessage() for r in caplog.records)

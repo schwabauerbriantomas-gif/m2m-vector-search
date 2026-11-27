@@ -734,6 +734,22 @@ class SimpleVectorDB:
         self._use_lsh = False
         n_added = self.engine.add_splats(vectors)
 
+        # Honestidad de capacidad (audit r1-26): SplatStore.add_splat acepta "tantos
+        # como entren" en max_splats. Lo que no entró NO es buscable: no se guarda en
+        # _vectors ni en storage y se avisa con los ids descartados.
+        if n_added < n:
+            rejected = [str(i) for i in ids[n_added:]]
+            logger.warning(
+                "max_splats=%d alcanzado: %d de %d vectores rechazados (no indexados ni "
+                "persistidos). Ids descartados: %s%s",
+                self.max_splats,
+                n - n_added,
+                n,
+                rejected[:20],
+                " ..." if len(rejected) > 20 else "",
+            )
+            ids = ids[:n_added]
+
         # Thread-safe mutation block
         with self._rw_lock:
             # Track which doc_ids correspond to splat positions (first n_added accepted)
@@ -746,11 +762,11 @@ class SimpleVectorDB:
                 self._metadata[doc_id] = metadata[i] if metadata else {}
                 self._documents[doc_id] = documents[i] if documents else None
 
-        # Persistencia (outside lock — I/O)
-        if self.storage:
+        # Persistencia (outside lock — I/O); solo lo que realmente se indexó
+        if self.storage and n_added > 0:
             # Cada lote a su propio shard (shard_001, shard_002, ...); la
             # metadata referencia el shard real vía _last_shard_idx.
-            self.storage.save_vectors(vectors, ids)
+            self.storage.save_vectors(vectors[:n_added], ids)
             shard_idx = getattr(self.storage, "_last_shard_idx", 1)
             for i, doc_id in enumerate(ids):
                 self.storage.save_metadata(
