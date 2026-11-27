@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -668,7 +667,6 @@ class CUDAVectorIndex:
             dists_sq = torch.clamp(dists_sq, min=0.0)
             chunk_dists = torch.sqrt(dists_sq).cpu().numpy()
 
-            chunk_n = chunk_end - chunk_start
             combined_ids = np.concatenate(
                 [
                     best_ids,
@@ -724,7 +722,6 @@ def create_gpu_index(
     if prefer_cuda and _has_cuda():
         return CUDAVectorIndex(index_vectors, max_batch_size)
     if _has_vulkan():
-        import vulkan as vk
 
         return GPUVectorIndex(index_vectors, max_batch_size)
     return None

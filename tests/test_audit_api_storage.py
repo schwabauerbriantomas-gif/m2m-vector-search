@@ -141,8 +141,13 @@ class TestApiKey:
 
     def test_bearer_scheme_is_normalized(self, api_key):
         """Scheme case-insensitive y espacios tolerados (RFC 7235)."""
-        assert client.get("/v1/stats", headers={"Authorization": f"bearer {KEY}"}).status_code == 200
-        assert client.get("/v1/stats", headers={"Authorization": f"Bearer   {KEY} "}).status_code == 200
+        assert (
+            client.get("/v1/stats", headers={"Authorization": f"bearer {KEY}"}).status_code == 200
+        )
+        assert (
+            client.get("/v1/stats", headers={"Authorization": f"Bearer   {KEY} "}).status_code
+            == 200
+        )
 
     def test_x_api_key_header_still_accepted(self, api_key):
         assert client.get("/v1/stats", headers={"X-API-Key": KEY}).status_code == 200
@@ -153,7 +158,10 @@ class TestApiKey:
     def test_without_key_normal_endpoints_stay_open(self):
         """Decisión: sin M2M_API_KEY la API es abierta (desarrollo local)."""
         assert client.get("/v1/stats").status_code == 200
-        assert client.post("/v1/collections", json={"name": "open", "dimension": DIM}).status_code == 201
+        assert (
+            client.post("/v1/collections", json={"name": "open", "dimension": DIM}).status_code
+            == 201
+        )
 
     def test_admin_fail_closed_without_key(self):
         """Sin key configurada, /v1/admin/* se niega en vez de quedar abierto."""
@@ -287,7 +295,9 @@ class TestRateLimitMemory:
         store = edge_api._rate_limit_store
         store.clear()
         for i in range(150):
-            store[f"ip{i:03d}"] = [290.0 + i / 1000]  # pedidos recientes: el barrido por ventana no los purga
+            store[f"ip{i:03d}"] = [
+                290.0 + i / 1000
+            ]  # pedidos recientes: el barrido por ventana no los purga
         edge_api._check_rate_limit("new", now=300.0)
         assert len(store) <= 100
         # El más reciente sigue trackeado; el de actividad más vieja se evictó.
@@ -357,7 +367,9 @@ class TestAdminNoSwallow:
     def test_backup_failure_is_500_with_reason(self, api_key, tmp_path):
         _install_boom("boom", OSError("disk full"))
         _create("mem")
-        r = client.post("/v1/admin/backup", json={"backup_path": str(tmp_path / "bk")}, headers=AUTH)
+        r = client.post(
+            "/v1/admin/backup", json={"backup_path": str(tmp_path / "bk")}, headers=AUTH
+        )
         assert r.status_code == 500, r.text
         body = r.json()
         assert body["results"]["boom"] == {"status": "error", "reason": "disk full"}
@@ -426,7 +438,10 @@ class TestMetadataBatch:
     def test_save_metadata_many_is_one_atomic_transaction(self, tmp_path, monkeypatch):
         p = M2MPersistence(str(tmp_path / "st"), enable_wal=False)
         commits = _count_commits(monkeypatch)
-        rows = [{"id": f"d{i}", "shard_idx": 1, "vector_idx": i, "metadata": {"i": i}, "document": None} for i in range(200)]
+        rows = [
+            {"id": f"d{i}", "shard_idx": 1, "vector_idx": i, "metadata": {"i": i}, "document": None}
+            for i in range(200)
+        ]
         p.save_metadata_many(rows)
         assert commits["n"] == 1
         docs = p.get_all_documents(include_deleted=False)
@@ -592,6 +607,11 @@ class TestPathConfinement:
         assert p.load_index("custom") == {"k": [1, 2]}
         p.save_vectors(np.ones((2, 3), dtype=np.float32), ["a", "b"])
         assert p.load_vectors("shard_001").shape == (2, 3)
-        p.save_metadata_many([{"id": "a", "shard_idx": 1, "vector_idx": 0}, {"id": "b", "shard_idx": 1, "vector_idx": 1}])
+        p.save_metadata_many(
+            [
+                {"id": "a", "shard_idx": 1, "vector_idx": 0},
+                {"id": "b", "shard_idx": 1, "vector_idx": 1},
+            ]
+        )
         assert p.write_manifest() is not None
         assert p.verify_manifest() is True

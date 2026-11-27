@@ -61,7 +61,23 @@ SLOPE_FINO_UMBRAL = -0.75
 SLOPE_KNEE_STRUCTURAL = -3.0
 # Escalas base del sweep de trayectoria (sub-octavas de 2 aprox.).
 BASE_SCALES: Tuple[int, ...] = (
-    16, 22, 30, 44, 56, 64, 88, 105, 125, 144, 175, 250, 350, 700, 1400, 2750, 5500,
+    16,
+    22,
+    30,
+    44,
+    56,
+    64,
+    88,
+    105,
+    125,
+    144,
+    175,
+    250,
+    350,
+    700,
+    1400,
+    2750,
+    5500,
 )
 # Versión del algoritmo/clave del cache de veredictos [audit r2-11]: los
 # caches escritos por versiones anteriores (sin fingerprint) no se reusan.
@@ -87,6 +103,7 @@ class GateKSelection:
 # Internos (no forman parte de la API pública; names estables para tests)
 # ---------------------------------------------------------------------------
 
+
 def _data_fingerprint(X: np.ndarray) -> str:
     """SHA-1 del contenido de X (float32 C-contiguo, por chunks) + shape.
 
@@ -100,7 +117,7 @@ def _data_fingerprint(X: np.ndarray) -> str:
     h = hashlib.sha1(usedforsecurity=False)
     h.update(f"{X.shape[0]}x{X.shape[1]} float32;".encode())
     for s in range(0, X.shape[0], 65536):
-        h.update(X[s:s + 65536].tobytes())
+        h.update(X[s : s + 65536].tobytes())
     return h.hexdigest()
 
 
@@ -109,10 +126,10 @@ def _knn_edges(X: np.ndarray, k: int = 10, chunk: int = 512) -> np.ndarray:
     n = X.shape[0]
     pairs = set()
     for s in range(0, n, chunk):
-        S = X[s:s + chunk] @ X.T
+        S = X[s : s + chunk] @ X.T
         for row in range(S.shape[0]):
             i = s + row
-            top = np.argpartition(-S[row], k + 1)[:k + 1]
+            top = np.argpartition(-S[row], k + 1)[: k + 1]
             for j in top:
                 if j != i:
                     pairs.add((min(i, int(j)), max(i, int(j))))
@@ -129,8 +146,7 @@ def _one_pair_energy(gu, gv, gw, n_cl, A, B, idx_map) -> Optional[float]:
     n_int = n_cl - 2
     both = (iu >= 0) & (iv >= 0)
     W = sp.coo_matrix(
-        (np.r_[ew[both], ew[both]],
-         (np.r_[iu[both], iv[both]], np.r_[iv[both], iu[both]])),
+        (np.r_[ew[both], ew[both]], (np.r_[iu[both], iv[both]], np.r_[iv[both], iu[both]])),
         shape=(n_int, n_int),
     ).tocsc()
     deg = np.zeros(n_int)
@@ -211,14 +227,20 @@ def _trajectory(
                 continue
         if report is not None:
             if es:
-                report[K] = {"estado": "ok", "motivo": "", "n_pares": len(es),
-                             "pares_descartados": n_desc}
+                report[K] = {
+                    "estado": "ok",
+                    "motivo": "",
+                    "n_pares": len(es),
+                    "pares_descartados": n_desc,
+                }
             else:
                 report[K] = {
                     "estado": "descartada",
-                    "motivo": ("sin energía: ningún par (A,B) de clústeres con corte "
-                               "finito (grafo de clústeres desconectado: el kNN k=10 "
-                               "no conecta clústeres bien separados)"),
+                    "motivo": (
+                        "sin energía: ningún par (A,B) de clústeres con corte "
+                        "finito (grafo de clústeres desconectado: el kNN k=10 "
+                        "no conecta clústeres bien separados)"
+                    ),
                     "n_pares": 0,
                     "pares_descartados": n_desc,
                 }
@@ -241,8 +263,11 @@ def _knee_detector(med: Dict[int, float], N: Optional[int] = None) -> Optional[D
         return None
     glob = (np.log(med[ks[-1]]) - np.log(med[ks[0]])) / (np.log(ks[-1]) - np.log(ks[0]))
     segs = [
-        (ks[i], ks[i + 1],
-         (np.log(med[ks[i + 1]]) - np.log(med[ks[i]])) / (np.log(ks[i + 1]) - np.log(ks[i])))
+        (
+            ks[i],
+            ks[i + 1],
+            (np.log(med[ks[i + 1]]) - np.log(med[ks[i]])) / (np.log(ks[i + 1]) - np.log(ks[i])),
+        )
         for i in range(len(ks) - 1)
     ]
     dev = max(segs, key=lambda s: abs(s[2] - glob))
@@ -262,8 +287,10 @@ def _ratio_ci(traj, Khi, Klo, B=10000, seed=42):
     ia = r.integers(0, len(a), (B, len(a)))
     ib = r.integers(0, len(b), (B, len(b)))
     rats = np.median(a[ia], axis=1) / np.median(b[ib], axis=1)
-    return float(np.median(rats)), [float(np.percentile(rats, 2.5)),
-                                    float(np.percentile(rats, 97.5))]
+    return float(np.median(rats)), [
+        float(np.percentile(rats, 2.5)),
+        float(np.percentile(rats, 97.5)),
+    ]
 
 
 def _slope_fino_ci(traj, fine_oct, B=10000, seed=42):
@@ -349,8 +376,9 @@ def _escalas_block(
         # descartados en escalas 'ok' indican desconexión parcial).
         "detalle": {str(int(K)): dict(r) for K, r in report.items()},
         "descartadas": {str(K): dict(report[K]) for K in descartadas},
-        "omitidas_K_ge_N4": sorted(int(K) for K, r in report.items()
-                                   if r.get("estado") == "omitida"),
+        "omitidas_K_ge_N4": sorted(
+            int(K) for K, r in report.items() if r.get("estado") == "omitida"
+        ),
         "finas_perdidas": [],
     }
 
@@ -432,7 +460,8 @@ def _verdict(X: np.ndarray, seed: int = 42) -> Dict:
         f" | inconclusivo: {len(finas_perdidas)} escalas finas perdidas por grafo de "
         f"clústeres desconectado {finas_perdidas} (clasificación sin esas "
         f"pérdidas: '{clasificacion_cruda}')"
-        if finas_perdidas else ""
+        if finas_perdidas
+        else ""
     )
     res = {
         "N": N,
@@ -453,10 +482,10 @@ def _verdict(X: np.ndarray, seed: int = 42) -> Dict:
             "NO buscar K* interior: corpus jerárquico de curva lisa, barrer K o router jerárquico"
             if jerarquico
             else f"corpus mono-escala o knee/artefacto: knee={knee['knee_K'] if knee else '?'} "
-                 # [audit r2-10] knee es None con < 4 escalas (N <= ~177):
-                 # este formato se evaluaba sin guardia -> TypeError.
-                 f"slope_seg={(knee['slope_seg'] if knee else float('nan')):.2f} -> revisar "
-                 f"bracket; codebook K ~ bracket del knee si es real" + nota_perdidas
+            # [audit r2-10] knee es None con < 4 escalas (N <= ~177):
+            # este formato se evaluaba sin guardia -> TypeError.
+            f"slope_seg={(knee['slope_seg'] if knee else float('nan')):.2f} -> revisar "
+            f"bracket; codebook K ~ bracket del knee si es real" + nota_perdidas
         ),
         "t_s": round(_time.time() - t0, 1),
     }
@@ -466,6 +495,7 @@ def _verdict(X: np.ndarray, seed: int = 42) -> Dict:
 # ---------------------------------------------------------------------------
 # API pública
 # ---------------------------------------------------------------------------
+
 
 def gate_select_k(
     X: np.ndarray,
@@ -509,7 +539,6 @@ def gate_select_k(
     fingerprint = _data_fingerprint(X)
 
     verdict: Optional[Dict] = None
-    cache_ok = False
     if verdict_cache:
         import json as _json
         import os as _os
@@ -528,7 +557,6 @@ def gate_select_k(
                     and cached.get("algo") == _CACHE_ALGO
                 ):
                     verdict = cv
-                    cache_ok = True
             except Exception:
                 verdict = None  # cache corrupta -> recomputar
 
@@ -559,15 +587,16 @@ def gate_select_k(
         "clasificaciones": clases,
         "flip_rate": None,
         "estable": None,
-        "nota": ("no evaluada (stability_seeds=0): cerca del umbral la "
-                 "clasificación puede cambiar con la semilla"),
+        "nota": (
+            "no evaluada (stability_seeds=0): cerca del umbral la "
+            "clasificación puede cambiar con la semilla"
+        ),
     }
     n_alt = int(stability_seeds)
     if n_alt > 0:
         for s in range(int(seed) + 1, int(seed) + n_alt + 1):
             clases[str(s)] = _verdict(Xn, seed=s)["clasificacion"]
-        n_flip = sum(c != clases[str(int(seed))] for s, c in clases.items()
-                     if s != str(int(seed)))
+        n_flip = sum(c != clases[str(int(seed))] for s, c in clases.items() if s != str(int(seed)))
         estabilidad = {
             "evaluada": True,
             "n_seeds": 1 + n_alt,

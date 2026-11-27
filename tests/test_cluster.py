@@ -85,7 +85,8 @@ def test_cluster_client_failover():
 
     # Test local ingest with failover
     added = 0
-    # Custom simple mock ingest instead of client.ingest which relies on hash shards matching exact keys
+    # Custom simple mock ingest instead of client.ingest which relies on hash
+    # shards matching exact keys
     for i in range(5):
         added += edge0.ingest(vectors[i : i + 1], [doc_ids[i]])
     for i in range(5, 10):

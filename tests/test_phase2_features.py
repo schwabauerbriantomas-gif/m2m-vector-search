@@ -4,15 +4,13 @@ Tests for Phase 2 features: temporal decay, auto-categorize, fusion methods, cha
 Research-backed via Z.AI tools investigation (2026-03-18).
 """
 
-import math
 import time
-import uuid
 
 import numpy as np
 import pytest
 
 from m2m.bm25_index import BM25Index
-from m2m.semantic_memory import MemoryResult, SemanticMemoryDB, auto_categorize
+from m2m.semantic_memory import SemanticMemoryDB, auto_categorize
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +114,7 @@ class TestTemporalDecay:
 
         id1 = db.store("Python programming language")
         time.sleep(0.01)
-        id2 = db.store("Python snake animal")
+        db.store("Python snake animal")
 
         # Age id1
         db._timestamps[id1] = time.time() - (100 * 86400)

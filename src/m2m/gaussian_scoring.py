@@ -174,8 +174,9 @@ def two_phase_search(
     cand_alpha = alpha[candidates]
     cand_kappa = kappa[candidates]
 
-    scores = gaussian_score(query, mu[candidates], cand_alpha, cand_kappa,
-                           precomputed_dist_sq=cand_dist_sq)
+    scores = gaussian_score(
+        query, mu[candidates], cand_alpha, cand_kappa, precomputed_dist_sq=cand_dist_sq
+    )
 
     # Gaussian ranking (descending score = best first)
     gauss_order = np.argsort(-scores)

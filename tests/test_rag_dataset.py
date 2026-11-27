@@ -4,11 +4,9 @@ Tests: basic retrieval, edge cases, RAG pipeline, semantic memory, numerical sta
 """
 
 import json
-import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pytest
@@ -24,7 +22,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Skip all tests in this module if the dataset is not present
 _HAS_DATASET = (DATASET_DIR / "embeddings.npy").exists()
-pytestmark = [pytest.mark.embeddings, pytest.mark.skipif(not _HAS_DATASET, reason="RAG test dataset not built")]
+pytestmark = [
+    pytest.mark.embeddings,
+    pytest.mark.skipif(not _HAS_DATASET, reason="RAG test dataset not built"),
+]
 
 
 # ── Fixtures ────────────────────────────────────────────────────────
@@ -178,10 +179,11 @@ class TestEdgeCases:
     def test_long_paragraph_query(self, embedder, embeddings):
         long_query = (
             "Recent advances in machine learning have focused on developing more efficient "
-            "architectures for training large language models. Techniques such as mixture of experts, "
-            "quantization, and knowledge distillation have been explored to reduce computational costs "
-            "while maintaining model quality. Additionally, new approaches to reasoning and chain-of-thought "
-            "prompting have shown promise in improving model performance on complex tasks."
+            "architectures for training large language models. Techniques such as mixture of "
+            "experts, quantization, and knowledge distillation have been explored to reduce "
+            "computational costs while maintaining model quality. Additionally, new approaches "
+            "to reasoning and chain-of-thought prompting have shown promise in improving model "
+            "performance on complex tasks."
         )
         q_emb = embedder.encode([long_query])[0]
         results = linear_search(q_emb, embeddings, k=5)

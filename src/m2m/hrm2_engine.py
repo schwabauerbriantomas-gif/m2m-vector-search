@@ -8,7 +8,7 @@ in large-scale Gaussian splat datasets.
 import math
 import time
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -134,9 +134,16 @@ class HRM2Engine:
         # kwarg explícito > campo de HRM2Config (si `config` lo es) > default
         # histórico de __init__. Con M2MConfig (o sin config) no cambia nada.
         defaults = dict(
-            n_coarse=100, n_fine=1000, embedding_dim=640, n_probe=5,
-            batch_size=10000, random_state=42, metric="euclidean", auto_k=False,
-            k_selection="fixed", gate_target_docs_per_cluster=25,
+            n_coarse=100,
+            n_fine=1000,
+            embedding_dim=640,
+            n_probe=5,
+            batch_size=10000,
+            random_state=42,
+            metric="euclidean",
+            auto_k=False,
+            k_selection="fixed",
+            gate_target_docs_per_cluster=25,
         )
         adaptive = dict(adaptive_probing=False, adaptive_threshold=1.5, adaptive_min_probe=1)
         if isinstance(config, HRM2Config):
@@ -145,9 +152,15 @@ class HRM2Engine:
         resolved: Dict[str, Any] = {
             k: (v if v is not None else defaults[k])
             for k, v in (
-                ("n_coarse", n_coarse), ("n_fine", n_fine), ("embedding_dim", embedding_dim),
-                ("n_probe", n_probe), ("batch_size", batch_size), ("random_state", random_state),
-                ("metric", metric), ("auto_k", auto_k), ("k_selection", k_selection),
+                ("n_coarse", n_coarse),
+                ("n_fine", n_fine),
+                ("embedding_dim", embedding_dim),
+                ("n_probe", n_probe),
+                ("batch_size", batch_size),
+                ("random_state", random_state),
+                ("metric", metric),
+                ("auto_k", auto_k),
+                ("k_selection", k_selection),
                 ("gate_target_docs_per_cluster", gate_target_docs_per_cluster),
             )
         }
@@ -467,14 +480,10 @@ class HRM2Engine:
         assert coarse_model is not None
         centroids = getattr(coarse_model, "centroids_", None)
         if centroids is not None:
-            return np.sqrt(
-                np.maximum(((centroids - query_vector) ** 2).sum(axis=1), 0.0)
-            )
+            return np.sqrt(np.maximum(((centroids - query_vector) ** 2).sum(axis=1), 0.0))
         return coarse_model.transform(query_vector.reshape(1, -1))[0]
 
-    def _lod01_candidates(
-        self, query_vector: np.ndarray, closest_coarse, k: int, lod: int
-    ) -> list:
+    def _lod01_candidates(self, query_vector: np.ndarray, closest_coarse, k: int, lod: int) -> list:
         """Candidatos de lod 0/1: los k MÁS CERCANOS (distancia exacta) de los
         clústeres sondeados [audit r2-19; antes eran los primeros k por orden
         de índice — miembros arbitrarios del clúster, recall@10 1-17% en la
@@ -516,8 +525,7 @@ class HRM2Engine:
                     dist = np.sqrt(np.einsum("ij,ij->i", diff, diff))
                     order = np.argsort(dist, kind="stable")[:k]
                     candidates.extend(
-                        (int(members[i]), float(dist[i]), coarse_id, int(fine_id))
-                        for i in order
+                        (int(members[i]), float(dist[i]), coarse_id, int(fine_id)) for i in order
                     )
                     added += len(order)
                     if added >= k:
@@ -569,9 +577,7 @@ class HRM2Engine:
                 self._build_fine_index()
             candidates = [
                 (i, d, c)
-                for i, d, c, _ in self._lod01_candidates(
-                    query_vector, closest_coarse, k, lod
-                )
+                for i, d, c, _ in self._lod01_candidates(query_vector, closest_coarse, k, lod)
             ]
 
         else:
@@ -698,9 +704,7 @@ class HRM2Engine:
                 self._build_fine_index()
             candidates = [
                 (self.splats[i].id if _has_splats else i, d, c, f)
-                for i, d, c, f in self._lod01_candidates(
-                    query_vector, closest_coarse, k, lod
-                )
+                for i, d, c, f in self._lod01_candidates(query_vector, closest_coarse, k, lod)
             ]
 
         else:
@@ -754,7 +758,11 @@ class HRM2Engine:
 
                     candidates = [
                         (
-                            self.splats[int(expert_indices[i])].id if _has_splats else int(expert_indices[i]),
+                            (
+                                self.splats[int(expert_indices[i])].id
+                                if _has_splats
+                                else int(expert_indices[i])
+                            ),
                             float(np.sqrt(distances_sq[i])),
                             int(coarse_ids[i]),
                             0,
@@ -842,7 +850,8 @@ class HRM2Engine:
             # is empty (no Splat objects) — return (int, dist) like query() does.
             if self.splats:
                 local_res = [
-                    (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i]))) for i in topk_idx
+                    (self.splats[expert_indices[i]], float(np.sqrt(distances_sq[i])))
+                    for i in topk_idx
                 ]
             else:
                 local_res = [

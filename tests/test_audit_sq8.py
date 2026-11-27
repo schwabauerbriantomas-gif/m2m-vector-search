@@ -9,6 +9,7 @@ GT por fuerza bruta en float64. Datos sinteticos clustered con queries
 IN-distribution (misma mezcla que el corpus): no hay datasets reales en esta
 maquina. El stream del RNG es el de la sonda del auditor (work/r2/p7_followup.py).
 """
+
 import json
 import tracemalloc
 
@@ -35,16 +36,12 @@ def _clustered_corpus(n=N, dim=D, n_clusters=50, n_queries=200):
 
 def _gt(q, x, k=K):
     q64, x64 = q.astype(np.float64), x.astype(np.float64)
-    g = np.maximum(
-        (q64 ** 2).sum(1)[:, None] + (x64 ** 2).sum(1)[None, :] - 2 * q64 @ x64.T, 0
-    )
+    g = np.maximum((q64**2).sum(1)[:, None] + (x64**2).sum(1)[None, :] - 2 * q64 @ x64.T, 0)
     return np.argsort(g, axis=1)[:, :k]
 
 
 def _recall(out, gt, k=K):
-    return float(np.mean([
-        len(set(o.tolist()) & set(g.tolist())) / k for o, g in zip(out, gt)
-    ]))
+    return float(np.mean([len(set(o.tolist()) & set(g.tolist())) / k for o, g in zip(out, gt)]))
 
 
 def _build(spec, data, dump_dir, dim=None):
@@ -121,9 +118,9 @@ def test_spectral_recall_with_default_oversample_in_distribution(clustered_case,
     st = stores[spec]
     assert st._rdim < D  # la fase 1 SI trunca (r explicito / rodilla real)
     rec = _recall(st.search_batch(Q, k=K), gt)
-    assert rec >= 0.98, (
-        f"recall@10={rec:.4f} con spectral_r={spec!r} (r={st._rdim}) y oversample por defecto"
-    )
+    assert (
+        rec >= 0.98
+    ), f"recall@10={rec:.4f} con spectral_r={spec!r} (r={st._rdim}) y oversample por defecto"
 
 
 def test_full_mode_recall_default_unchanged(clustered_case):
@@ -153,10 +150,15 @@ def test_add_rejects_non_finite_before_writing(tmp_path, spec, bad):
     st = SQ8DiskStore(dim=dim, dump_dir=str(tmp_path), spectral_r=spec)
     st.add(rng.standard_normal((50, dim)).astype(np.float32))
     st.flush()  # dump activo: el add rechazado no debe invalidarlo ni abrir spill
-    before = (len(st), st._f32_lines, st._f32_path, st._float_mm is not None,
-              None if st._q is None else st._q.copy(),
-              None if st._scale is None else st._scale.copy(),
-              None if st._stats is None else st._stats[0])
+    before = (
+        len(st),
+        st._f32_lines,
+        st._f32_path,
+        st._float_mm is not None,
+        None if st._q is None else st._q.copy(),
+        None if st._scale is None else st._scale.copy(),
+        None if st._stats is None else st._stats[0],
+    )
     rows = rng.standard_normal((3, dim)).astype(np.float32)
     rows[1, 2] = bad
     with pytest.raises(ValueError, match="NaN or Inf"):

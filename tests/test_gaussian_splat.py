@@ -148,7 +148,6 @@ class TestTwoPhaseSearch:
 
     def test_high_alpha_promoted(self):
         """A splat with very high alpha should be promoted even if not closest."""
-        D = 4
         query = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         # Close splat with low alpha

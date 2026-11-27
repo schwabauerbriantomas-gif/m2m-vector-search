@@ -38,17 +38,13 @@ Usage:
 from __future__ import annotations
 
 import math
-import os
-import re
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 
 from .bm25_index import BM25Index
-from .config import M2MConfig
 
 # --- Category keywords for auto-categorization ---
 _CATEGORY_KEYWORDS = {
@@ -224,7 +220,8 @@ class SemanticMemoryDB:
                  of shape (D,) or (N, D). If None, vectors must be provided manually.
         latent_dim: Embedding dimension (default 384 for all-MiniLM-L6-v2)
         storage_path: Directory for persistence (None = in-memory only)
-        hybrid_weight: Weight for vector vs BM25 in weighted fusion (0.0=bm25 only, 1.0=vector only, default 0.6)
+        hybrid_weight: Weight for vector vs BM25 in weighted fusion
+                        (0.0=bm25 only, 1.0=vector only, default 0.6)
         fusion_method: "rrf" (Reciprocal Rank Fusion, default), "weighted" (linear combination),
                        "vector_only", or "bm25_only"
         bm25_k1: BM25 k1 parameter (default 1.5)
@@ -261,7 +258,8 @@ class SemanticMemoryDB:
     ):
         if fusion_method not in ("rrf", "weighted", "vector_only", "bm25_only"):
             raise ValueError(
-                f"fusion_method must be one of: rrf, weighted, vector_only, bm25_only. Got: {fusion_method}"
+                "fusion_method must be one of: rrf, weighted, vector_only, bm25_only. "
+                f"Got: {fusion_method}"
             )
 
         self.encoder = encoder

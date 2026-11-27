@@ -3,12 +3,6 @@
 Skips all tests if no NVIDIA GPU / CUDA is available.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import numpy as np
 import pytest
 
@@ -193,7 +187,6 @@ class TestCUDASearcher:
             searcher.search(query, k=10)
 
         after_mem = torch.cuda.memory_allocated()
-        peak_mem = torch.cuda.max_memory_allocated()
 
         # Memory should not grow more than 1MB beyond baseline
         growth = after_mem - baseline_mem

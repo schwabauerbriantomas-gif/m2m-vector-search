@@ -20,9 +20,8 @@ import numpy as np
 import pytest
 
 from m2m.gate_modulus import (
-    GateKSelection,
-    SLOPE_FINO_UMBRAL,
     _CACHE_ALGO,
+    SLOPE_FINO_UMBRAL,
     _classify_fine,
     _data_fingerprint,
     gate_select_k,
@@ -40,6 +39,7 @@ D_SYNTH = 384
 # Generadores (congelados: NO retocar sin re-validar el gate)
 # ---------------------------------------------------------------------------
 
+
 def make_mono(n=N_SYNTH, d=D_SYNTH, n_clu=32, seed=7, bg=0.20, sig=0.35):
     """Corpus mono-escala: n_clu clusters equilibrados + background difuso."""
     r = np.random.default_rng(seed)
@@ -51,7 +51,7 @@ def make_mono(n=N_SYNTH, d=D_SYNTH, n_clu=32, seed=7, bg=0.20, sig=0.35):
     idx = r.choice(n_clu, size=nc)
     pts[:nc] = C[idx] + sig * r.normal(size=(nc, d)).astype(np.float32)
     pts[nc:] = r.normal(size=(nb, d)).astype(np.float32)
-    pts /= (np.linalg.norm(pts, axis=1, keepdims=True) + 1e-12)
+    pts /= np.linalg.norm(pts, axis=1, keepdims=True) + 1e-12
     return pts
 
 
@@ -75,7 +75,7 @@ def make_hier(n=N_SYNTH, d=D_SYNTH, seed=41, sig=0.30):
                 m_g = int(r.integers(2, 5))
                 pts.append(G + 0.5 * sig * r.normal(size=(m_g, d)).astype(np.float32))
     X = np.vstack(pts)[:n]
-    X /= (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    X /= np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
     return X.astype(np.float32)
 
 
@@ -83,6 +83,7 @@ def make_hier(n=N_SYNTH, d=D_SYNTH, seed=41, sig=0.30):
 # (a) clasificación: regla de decisión del slope fino (función pura, sin
 #     KMeans -> determinística en cualquier versión de numpy/BLAS)
 # ---------------------------------------------------------------------------
+
 
 def _traj_consta(med_dict, eps=0.0, n_pairs=30):
     """Trayectoria sintética con mediana EXACTA por escala.
@@ -126,7 +127,7 @@ def test_classify_borderline_is_inconclusive():
     # slope puntual ~ -0.8 (del lado jerárquico del umbral) PERO con dispersión
     # ±25% por escala -> el IC cruza -0.75 -> inconclusivo (honesto)
     m_b = 100.0
-    m_a = m_b * (2 ** -0.8)
+    m_a = m_b * (2**-0.8)
     med = {88: m_b, 175: m_a}
     traj = _traj_consta(med, eps=0.25)
     cls = _classify_fine(traj, med, "88->175", seed=42)
@@ -142,6 +143,7 @@ def test_classify_borderline_is_inconclusive():
 #     testeada arriba y contra anclas reales en swarm11)
 # ---------------------------------------------------------------------------
 
+
 def _fake_X(n=64, d=8, seed=0):
     r = np.random.default_rng(seed)
     return r.normal(size=(n, d)).astype(np.float32)
@@ -149,7 +151,8 @@ def _fake_X(n=64, d=8, seed=0):
 
 def _fake_verdict(tmp_path, N, D, jerarquico, knee, X, slope=-1.2, ic=(-1.5, -0.9)):
     verdict = {
-        "N": N, "D": D,
+        "N": N,
+        "D": D,
         "medianas": {16: 10.0, 22: 9.0},
         "octave_slopes": {"16->22": -0.15},
         "slope_octava_fina": {"octava": "16->22", "slope": slope, "IC95": list(ic)},
@@ -164,17 +167,25 @@ def _fake_verdict(tmp_path, N, D, jerarquico, knee, X, slope=-1.2, ic=(-1.5, -0.
     # [audit r2-11] La clave del cache incorpora el fingerprint del contenido
     # y la versión del algoritmo: un cache sin ellos (formato viejo) ya no se
     # reusa, así que el veredicto inyectado debe declararlos.
-    path.write_text(json.dumps({
-        "target_docs_per_cluster": 25, "seed": 42, "verdict": verdict,
-        "fingerprint": _data_fingerprint(X), "algo": _CACHE_ALGO,
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "target_docs_per_cluster": 25,
+                "seed": 42,
+                "verdict": verdict,
+                "fingerprint": _data_fingerprint(X),
+                "algo": _CACHE_ALGO,
+            }
+        )
+    )
     return str(path)
 
 
 def test_selection_hierarchical_uses_operational_k(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=True,
-                          knee={"knee_K": 10, "slope_seg": -5.0})
+    cache = _fake_verdict(
+        tmp_path, len(X), X.shape[1], X=X, jerarquico=True, knee={"knee_K": 10, "slope_seg": -5.0}
+    )
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     # jerárquico: K operacional N//target aunque exista knee estructural
     assert sel.jerarquico is True
@@ -183,8 +194,9 @@ def test_selection_hierarchical_uses_operational_k(tmp_path):
 
 def test_selection_structural_knee_wins_on_mono(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=False,
-                          knee={"knee_K": 10, "slope_seg": -5.0})
+    cache = _fake_verdict(
+        tmp_path, len(X), X.shape[1], X=X, jerarquico=False, knee={"knee_K": 10, "slope_seg": -5.0}
+    )
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     assert sel.jerarquico is False
     # mono con knee ESTRUCTURAL (slope_seg < -3): el knee manda
@@ -193,8 +205,9 @@ def test_selection_structural_knee_wins_on_mono(tmp_path):
 
 def test_selection_phantom_knee_discarded_on_mono(tmp_path):
     X = _fake_X()
-    cache = _fake_verdict(tmp_path, len(X), X.shape[1], X=X, jerarquico=False,
-                          knee={"knee_K": 10, "slope_seg": -1.0})
+    cache = _fake_verdict(
+        tmp_path, len(X), X.shape[1], X=X, jerarquico=False, knee={"knee_K": 10, "slope_seg": -1.0}
+    )
     sel = gate_select_k(X, target_docs_per_cluster=25, verdict_cache=cache, seed=42)
     assert sel.jerarquico is False
     # knee fantasma (argmax de desviación sobre curva plana): descartado,
@@ -214,15 +227,14 @@ def test_selection_no_knee_operational_k(tmp_path):
 # (c) integración: HRM2Engine con k_selection='gate' sobre el dataset real
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(not os.path.exists(DATA_NPY), reason="dataset de validación ausente")
 def test_engine_gate_integration_recall():
     X = np.load(DATA_NPY).astype(np.float32)
     Xn = X / np.linalg.norm(X, axis=1, keepdims=True)
     n = Xn.shape[0]
 
-    engine = HRM2Engine(
-        metric="cosine", batch_size=1000, random_state=42, k_selection="gate"
-    )
+    engine = HRM2Engine(metric="cosine", batch_size=1000, random_state=42, k_selection="gate")
     engine.index(precomputed_embeddings=Xn)
 
     # El gate sobre este corpus (validado en swarm11): mono-escala, SIN knee
@@ -254,6 +266,7 @@ def test_engine_gate_integration_recall():
 # ---------------------------------------------------------------------------
 # (d) regresión: silhouette produce EXACTAMENTE el mismo K que antes del cambio
 # ---------------------------------------------------------------------------
+
 
 def _golden():
     with open(GOLDEN_K) as fh:

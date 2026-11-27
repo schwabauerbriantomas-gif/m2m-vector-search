@@ -21,8 +21,8 @@ delega en ella, así a la misma entrada le corresponde el mismo valor en todas l
 [audit r2-15, r3a-02].
 """
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
@@ -160,8 +160,6 @@ def confidence_from_energy(energy: float) -> float:
         return z / (1.0 + z)
     z = math.exp(e)
     return 1.0 / (1.0 + z)
-
-
 
 
 @dataclass
@@ -350,9 +348,7 @@ class EBMEnergy:
         if not np.any(pos):
             return float("inf")
 
-        log_terms = (
-            np.log(alpha[pos]) + 0.5 * d * (np.log(np.pi) - np.log(kappa[pos]))
-        )
+        log_terms = np.log(alpha[pos]) + 0.5 * d * (np.log(np.pi) - np.log(kappa[pos]))
         m = float(np.max(log_terms))
         if not np.isfinite(m):
             return float("inf")

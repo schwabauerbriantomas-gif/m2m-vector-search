@@ -19,13 +19,15 @@ __author__ = "Brian Schwabauer"
 __email__ = "schwabauerbriantomas@gmail.com"
 __license__ = "AGPL-3.0"
 
-import logging
-from typing import Any, Dict, List, Optional, Tuple, Callable, Union
-
-import numpy as np
 import json
+import logging
 import operator
 from collections import OrderedDict
+from dataclasses import dataclass
+from dataclasses import field as _dataclass_field
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,10 @@ try:
     from .ebm.exploration import EnergyRegion, ExplorationSuggestion
     from .ebm.soc import AvalancheResult, CriticalityReport, RelaxationResult
     from .energy import EnergyFunction
-    from .engine import M2MEngine
+
+    # `m2m.M2MEngine` es el envoltorio definido abajo (ver __all__); este import
+    # solo carga/valida m2m.engine dentro del bloque try, igual que antes.
+    from .engine import M2MEngine as _EngineM2MEngine  # noqa: F401
     from .entity_extractor import EntityCandidate as EntityCandidate
     from .entity_extractor import M2MEntityExtractor as M2MEntityExtractor
     from .entity_extractor import M2MGraphEntityExtractor as M2MGraphEntityExtractor
@@ -60,8 +65,7 @@ try:
     from .graph_splat import GraphEdge as GraphEdge
     from .graph_splat import GraphSplat as GraphSplat
     from .graph_splat import NodeType as NodeType
-    from .hrm2_engine import HRM2Config
-    from .hrm2_engine import HRM2Engine
+    from .hrm2_engine import HRM2Config, HRM2Engine
     from .mapreduce_indexer import parallel_index
     from .quality_reflector import QualityLevel, QualityReflector, QualityReport
     from .query_router import QueryProfile, QueryRouter, SearchStrategy
@@ -313,9 +317,7 @@ class M2MEngine:
         # caída con su motivo). Antes este bloque logueaba 'Vulkan GPU acceleration
         # enabled' con enable_vulkan aunque Vulkan hubiera fallado y corriera en CPU.
         info = self.get_backend_info()
-        logger.info(
-            "M2M backend efectivo: %s (pedido: %s)", info["effective"], info["requested"]
-        )
+        logger.info("M2M backend efectivo: %s (pedido: %s)", info["effective"], info["requested"])
 
     @property
     def backend(self) -> str:
@@ -324,12 +326,11 @@ class M2MEngine:
 
     def get_backend_info(self) -> Dict[str, Any]:
         """Delega en el selector real: ``{'requested', 'effective', 'reasons'}``."""
-        router = getattr(
-            getattr(getattr(self.m2m, "splats", None), "engine", None), "router", None
-        )
+        router = getattr(getattr(getattr(self.m2m, "splats", None), "engine", None), "router", None)
         if not hasattr(router, "get_backend_info"):
             return {"requested": "cpu", "effective": "cpu", "reasons": {}}
         return router.get_backend_info()
+
     def add_splats(self, vectors: np.ndarray, labels: List[str] = None) -> int:
         """Add new splats to the system (batch-vectorized for large datasets)."""
         vectors_norm = normalize_sphere(vectors)
@@ -808,7 +809,11 @@ class SimpleVectorDB:
 
         self.latent_dim = latent_dim
         self.max_splats = config.max_splats
-        self.n_probe = n_probe if n_probe is not None else getattr(self.engine.m2m.splats.engine, 'n_probe', None)
+        self.n_probe = (
+            n_probe
+            if n_probe is not None
+            else getattr(self.engine.m2m.splats.engine, "n_probe", None)
+        )
 
         self.enable_lsh_fallback = enable_lsh_fallback
         self.lsh_threshold = lsh_threshold
@@ -842,6 +847,7 @@ class SimpleVectorDB:
 
         # Thread safety: protect all mutations to shared dicts
         import threading as _threading
+
         self._rw_lock = _threading.RLock()
         # audit r1-03/P15: hasta P3, search() entraba al índice por
         # engine.search() sin tomar el lock y un lector veía el índice a medias
@@ -954,9 +960,7 @@ class SimpleVectorDB:
                 )
             if n == 0:
                 return
-            vectors = np.ascontiguousarray(
-                np.stack([r[1] for r in restored]), dtype=np.float32
-            )
+            vectors = np.ascontiguousarray(np.stack([r[1] for r in restored]), dtype=np.float32)
 
             # LSH: misma decisión única que add() (primer lote con n>=3)
             if self.enable_lsh_fallback and n >= 3:
@@ -987,9 +991,7 @@ class SimpleVectorDB:
                         self._lsh_id_map = [r[0] for r in restored]
                         self._splat_id_order = [r[0] for r in restored]
                         self._meta_version += 1  # [P13] metadata / posiciones nuevas
-                    logger.info(
-                        "Restored %d documents from storage (LSH index rebuilt)", n
-                    )
+                    logger.info("Restored %d documents from storage (LSH index rebuilt)", n)
                     return
                 except ImportError as e:
                     logger.warning("Could not load LSH module: %s.", e)
@@ -1149,7 +1151,9 @@ class SimpleVectorDB:
             eng.coarse_cluster_indices[old_cid] = idx_old[keep]
             eng.coarse_cluster_embeddings[old_cid] = eng.coarse_cluster_embeddings[old_cid][keep]
             eng._cluster_masks[old_cid][pos] = False
-            eng.coarse_cluster_indices[new_cid] = np.append(eng.coarse_cluster_indices[new_cid], pos)
+            eng.coarse_cluster_indices[new_cid] = np.append(
+                eng.coarse_cluster_indices[new_cid], pos
+            )
             eng.coarse_cluster_embeddings[new_cid] = np.vstack(
                 [eng.coarse_cluster_embeddings[new_cid], store.mu[pos][np.newaxis, :]]
             )
@@ -1339,9 +1343,7 @@ class SimpleVectorDB:
                     logger.info("Activando LSH fallback...")
                     self._lsh_active_mode = True
                 else:
-                    logger.info(
-                        "Distribución clustered (silhouette=%.4f): splats+HRM2", silhouette
-                    )
+                    logger.info("Distribución clustered (silhouette=%.4f): splats+HRM2", silhouette)
 
             if self._lsh_active_mode and self.enable_lsh_fallback:
                 n_lsh = self._add_lsh(ids, vectors, metadata, documents)
@@ -1455,7 +1457,8 @@ class SimpleVectorDB:
         with self._rw_lock:
             if vector is not None:
                 old_vec = self._vectors.get(id)
-                # Copia propia: mutar el array del llamador no debe desincronizar _vectors (audit r1-20)
+                # Copia propia: mutar el array del llamador no debe desincronizar
+                # _vectors (audit r1-20)
                 vec = np.array(vector, dtype=np.float32, copy=True)
                 if vec.ndim != 1 or vec.shape[0] != self.latent_dim:
                     raise ValueError(
@@ -1815,7 +1818,11 @@ class SimpleVectorDB:
             out = np.zeros(n, dtype=bool)
             for i in range(min(n, len(order))):
                 doc_id = order[i]
-                if doc_id in vectors and doc_id not in deleted and match(metadata.get(doc_id, {}), filter):
+                if (
+                    doc_id in vectors
+                    and doc_id not in deleted
+                    and match(metadata.get(doc_id, {}), filter)
+                ):
                     out[i] = True
             return out
 
@@ -1992,7 +1999,9 @@ class SimpleVectorDB:
 
             if legacy:
                 if n_bad == 0:
-                    return raw  # Compatibilidad legacy: sin posiciones invalidas, tal cual el indice
+                    return (
+                        raw  # Compatibilidad legacy: sin posiciones invalidas, tal cual el indice
+                    )
                 mu, alpha, kappa, idx = raw
                 rows = np.asarray(idx).reshape(-1)
                 sel = np.zeros(len(rows), dtype=bool)
@@ -2049,8 +2058,12 @@ class SimpleVectorDB:
                                 # [audit r1-13] antes -dist: el mismo coseno que el resto
                                 score=_cosine_to_query(qn, mu_i),
                                 vector=(mu_i.copy() if include_metadata else None),
-                                metadata=(self._metadata.get(doc_id, {}) if include_metadata else {}),
-                                document=(self._documents.get(doc_id) if include_metadata else None),
+                                metadata=(
+                                    self._metadata.get(doc_id, {}) if include_metadata else {}
+                                ),
+                                document=(
+                                    self._documents.get(doc_id) if include_metadata else None
+                                ),
                                 energy=energy_val,
                                 confidence=confidence_val,
                                 alpha=float(store.alpha[s_idx]),
@@ -2070,7 +2083,7 @@ class SimpleVectorDB:
             results = []
             # Handle batch dim: mu is (1, k, dim) for single query
             if mu.ndim == 3:
-                mu = mu[0]       # (k, dim)
+                mu = mu[0]  # (k, dim)
                 alpha = alpha[0]  # (k,)
                 kappa = kappa[0]  # (k,)
                 splat_indices = splat_indices[0]  # (k,)
@@ -2265,7 +2278,9 @@ class SimpleVectorDB:
             # (n_active=0 en splats), por lo que el path HRM2 de abajo devolvia
             # -1/[] para toda query. Routear al LSH igual que search() single.
             if self._use_lsh and self.lsh is not None:
-                out_idx, rows = self._lsh_batch_topk(queries, k=k, include_metadata=include_metadata)
+                out_idx, rows = self._lsh_batch_topk(
+                    queries, k=k, include_metadata=include_metadata
+                )
                 return rows if include_metadata else out_idx
 
             store = self.engine.m2m.splats
@@ -2372,7 +2387,10 @@ class SimpleVectorDB:
                 id_map = self._lsh_id_map
                 with self._rw_lock:
                     allowed = self._filter_position_mask(filter, id_map, len(id_map))
-                filter_fn = lambda i: i < len(allowed) and bool(allowed[i])
+
+                def filter_fn(i):
+                    return i < len(allowed) and bool(allowed[i])
+
             return self._lsh_batch_topk(queries, k=k, filter_fn=filter_fn)[0]
 
         # Mismo lock que los writers (audit r1-03): ver search_batch().
@@ -2396,9 +2414,7 @@ class SimpleVectorDB:
                 return np.full((B, k), -1, dtype=np.int64)
             return self._batch_topk_per_query(queries, k, allowed=allowed, expand=True)[0]
 
-    def _batch_alive_mask(
-        self, n: int, id_map: Optional[List[Any]] = None
-    ) -> Optional[np.ndarray]:
+    def _batch_alive_mask(self, n: int, id_map: Optional[List[Any]] = None) -> Optional[np.ndarray]:
         """Máscara [n] de posiciones VIVAS: su id sigue en _vectors y no está
         soft-deleted [audit r1-05, parte batch]. `id_map` es la lista posición -> id
         (_splat_id_order en modo HRM2, _lsh_id_map en modo LSH); posiciones fuera de
@@ -2516,8 +2532,16 @@ class SimpleVectorDB:
             if exact:
                 # [P17] top-k exacto garantizado: ya filtrado, puntuado y ordenado
                 cand, d2 = self._ivf_filtered_exact(
-                    queries[i], k, index_data, m_sq, allowed, cluster_rows,
-                    order[i], lb_ord[i], n_probe, float(q_sq[i]),
+                    queries[i],
+                    k,
+                    index_data,
+                    m_sq,
+                    allowed,
+                    cluster_rows,
+                    order[i],
+                    lb_ord[i],
+                    n_probe,
+                    float(q_sq[i]),
                 )
                 k_eff = len(cand)
                 if k_eff == 0:
@@ -2631,9 +2655,7 @@ class SimpleVectorDB:
         id_map = self._lsh_id_map
         B = len(queries)
         out_idx = np.full((B, k), -1, dtype=np.int64)
-        rows: List[List[DocResult]] = (
-            [[] for _ in range(B)] if include_metadata else None
-        )
+        rows: List[List[DocResult]] = [[] for _ in range(B)] if include_metadata else None
         alive = self._batch_alive_mask(len(id_map), id_map=id_map)
         if alive is not None and not alive.any():
             return np.full((B, 0), -1, dtype=np.int64), rows  # sin activos: (B, 0)
@@ -2862,7 +2884,6 @@ class SimpleVectorDB:
         if self.ebm_enabled and self._ebm_energy:
             base["free_energy"] = self._ebm_energy.free_energy()
         return base
-
 
     # ------------------------------------------------------------------
     # Online learning por ids de documento [audit r3a-08]
@@ -3122,9 +3143,6 @@ class SimpleVectorDB:
         return applied > 0
 
 
-from dataclasses import dataclass, field as _dataclass_field
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:  # sólo para anotaciones: ConsolidationDecision se importa dentro del método
     from .ebm.soc import ConsolidationDecision
 
@@ -3245,9 +3263,7 @@ class AdvancedVectorDB(SimpleVectorDB):
             labels = getattr(store.engine, "coarse_assignments", None)
             if labels is None or len(labels) != n:
                 labels = None  # índice vencido (compact): el SOC agrupa por geometría
-            soc.update_splats(
-                store.mu[:n], store.alpha[:n], store.kappa[:n], cluster_labels=labels
-            )
+            soc.update_splats(store.mu[:n], store.alpha[:n], store.kappa[:n], cluster_labels=labels)
         else:
             soc.update_splats(
                 np.zeros((0, self.latent_dim), dtype=np.float32),

@@ -8,19 +8,14 @@ Run with:
     pytest test_m2m_advanced.py -v -k "cache"  # Solo cache tests
 """
 
-import sys
 import time
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-
-from m2m import AdvancedVectorDB, M2MConfig, SimpleVectorDB
+from m2m import AdvancedVectorDB, SimpleVectorDB
 from m2m.auto_scaling import AutoScaler, HorizontalScaler, MetricsCollector, NodeMetrics
-from m2m.gpu_auto_tune import GPUAutoTuner, GPUMemoryPool, get_gpu_tuner
+from m2m.gpu_auto_tune import GPUAutoTuner, GPUMemoryPool
 from m2m.query_optimizer import QueryCache, QueryOptimizer, QueryPrefetcher
 
 # =============================================================================
@@ -637,10 +632,10 @@ class TestIntegration:
             return simple_db.search(query, k)
 
         # Primera búsqueda
-        result1 = optimizer.execute_with_cache(sample_query, 10, search_fn)
+        optimizer.execute_with_cache(sample_query, 10, search_fn)
 
         # Segunda búsqueda (cached)
-        result2 = optimizer.execute_with_cache(sample_query, 10, search_fn)
+        optimizer.execute_with_cache(sample_query, 10, search_fn)
 
         stats = optimizer.get_stats()
         assert stats["cache_hit_rate"] > 0

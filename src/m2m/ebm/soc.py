@@ -248,11 +248,7 @@ def _nearest_neighbor_distance(mu: np.ndarray, sample_if_larger: int = 4096) -> 
     out = np.empty(n, dtype=np.float32)
     for start in range(0, n, 1024):
         block = x[start : start + 1024]
-        d2 = (
-            np.einsum("ij,ij->i", block, block)[:, None]
-            - 2.0 * (block @ ref.T)
-            + sq[None, :]
-        )
+        d2 = np.einsum("ij,ij->i", block, block)[:, None] - 2.0 * (block @ ref.T) + sq[None, :]
         # descartar la comparación consigo mismo (misma fila si la muestra lo incluye)
         if ref_idx is None:
             rows = np.arange(start, start + len(block))
@@ -376,7 +372,6 @@ class SOCEngine:
         if mu is None or len(mu) == 0:
             self._clusters = []
             return self._clusters
-        n = len(mu)
         labels = self.cluster_labels
         if labels is None:
             labels = _geometric_labels(mu)
@@ -552,13 +547,18 @@ class SOCEngine:
             idxs = idxs[idxs < len(alpha)]
             if len(idxs):
                 # nunca por debajo del piso (alpha < 0.01 es "muerto" para compact())
-                alpha[idxs] = np.maximum(alpha[idxs] * 0.7, np.minimum(alpha[idxs], self.alpha_floor))
+                alpha[idxs] = np.maximum(
+                    alpha[idxs] * 0.7, np.minimum(alpha[idxs], self.alpha_floor)
+                )
             cluster.reorganize()
             # La energía liberada empuja a los vecinos: los que están por encima del
             # umbral se desbordan a su vez (cascada).
             for n_idx in neighbors[idx]:
                 n_cluster = clusters[n_idx]
-                if n_idx not in visited and n_cluster.energy / max(n_cluster.size, 1) > self.critical_threshold:
+                if (
+                    n_idx not in visited
+                    and n_cluster.energy / max(n_cluster.size, 1) > self.critical_threshold
+                ):
                     queue.append(n_idx)
 
         if affected_clusters:
@@ -670,7 +670,9 @@ class SOCEngine:
                 over = (kappa > kappa_star) & (kappa > 0.5)
                 if not np.any(over):
                     break
-                kappa[over] = (kappa[over] + lr * (kappa_star[over] - kappa[over])).astype(np.float32)
+                kappa[over] = (kappa[over] + lr * (kappa_star[over] - kappa[over])).astype(
+                    np.float32
+                )
                 done += 1
             iterations = done if done else iterations
 

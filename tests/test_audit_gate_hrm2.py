@@ -29,6 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Generadores
 # ---------------------------------------------------------------------------
 
+
 def _unit(A):
     A = np.asarray(A, dtype=np.float32)
     return (A / np.linalg.norm(A, axis=1, keepdims=True)).astype(np.float32)
@@ -110,6 +111,7 @@ def _expected_lod01(eng, q_raw, k, lod):
 # Criterio 1 (r2-10): gate_select_k no lanza; determinista 1 vs 4 hilos
 # ===========================================================================
 
+
 @pytest.mark.parametrize("n", [64, 100, 128, 176, 177, 256, 512, 1000, 4600])
 def test_gate_select_k_no_crash(n):
     X = _uniform(n, 32)
@@ -117,8 +119,10 @@ def test_gate_select_k_no_crash(n):
     assert isinstance(sel, GateKSelection)
     assert sel.verdict["clasificacion"] in ("jerarquico", "mono", "inconclusivo")
     assert 2 <= sel.k <= max(2, n // 4)
-    print(f"\n[r2-10] N={n} k={sel.k} jerarquico={sel.jerarquico} "
-          f"cls={sel.verdict['clasificacion']} escalas={sel.verdict['n_escalas_con_energia']}")
+    print(
+        f"\n[r2-10] N={n} k={sel.k} jerarquico={sel.jerarquico} "
+        f"cls={sel.verdict['clasificacion']} escalas={sel.verdict['n_escalas_con_energia']}"
+    )
 
 
 @pytest.mark.parametrize("n", [8, 16, 32])
@@ -157,7 +161,8 @@ X = rng.standard_normal((256, 16)).astype(np.float32)
 X /= np.linalg.norm(X, axis=1, keepdims=True)
 v = _verdict(X, seed=42)
 v = {k: val for k, val in v.items() if k != "t_s"}
-print(hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode()).hexdigest(), v["clasificacion"])
+print(hashlib.md5(json.dumps(v, sort_keys=True, default=str).encode()).hexdigest(),
+      v["clasificacion"])
 """
 
 
@@ -172,8 +177,13 @@ def test_gate_verdict_deterministic_1_vs_4_threads(tmp_path):
             MKL_NUM_THREADS=n_threads,
             PYTHONPATH=os.path.join(ROOT, "src"),
         )
-        r = subprocess.run([sys.executable, "-c", _THREAD_PROBE], env=env,
-                           capture_output=True, text=True, timeout=600)
+        r = subprocess.run(
+            [sys.executable, "-c", _THREAD_PROBE],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
         assert r.returncode == 0, r.stderr[-2000:]
         md5, cls = r.stdout.strip().split()
         hashes[n_threads] = md5
@@ -184,6 +194,7 @@ def test_gate_verdict_deterministic_1_vs_4_threads(tmp_path):
 # ===========================================================================
 # Criterio 2 (r2-11): el cache no reusa veredictos entre corpus distintos
 # ===========================================================================
+
 
 def test_gate_cache_does_not_reuse_verdict_across_corpora(tmp_path, monkeypatch):
     N, D = 400, 16
@@ -218,17 +229,23 @@ def test_gate_cache_rejects_legacy_cache_without_fingerprint(tmp_path, monkeypat
     # Cache del formato viejo (sin fingerprint/algo): no se confía en él.
     X = _uniform(400, 16, seed=3)
     legacy = {
-        "target_docs_per_cluster": 25, "seed": 42,
-        "verdict": {"N": 400, "D": 16, "jerarquico": True,
-                    "slope_octava_fina": {"octava": "16->22", "slope": -2.0, "IC95": [-2, -1]},
-                    "knee": None, "clasificacion": "jerarquico"},
+        "target_docs_per_cluster": 25,
+        "seed": 42,
+        "verdict": {
+            "N": 400,
+            "D": 16,
+            "jerarquico": True,
+            "slope_octava_fina": {"octava": "16->22", "slope": -2.0, "IC95": [-2, -1]},
+            "knee": None,
+            "clasificacion": "jerarquico",
+        },
     }
     cache = tmp_path / "legacy.json"
     cache.write_text(json.dumps(legacy))
     calls = []
     real = gm._verdict
     monkeypatch.setattr(gm, "_verdict", lambda X, seed=42: (calls.append(1), real(X, seed=seed))[1])
-    sel = gate_select_k(X, verdict_cache=str(cache))
+    gate_select_k(X, verdict_cache=str(cache))
     assert len(calls) == 1, "cache legacy sin fingerprint fue aceptado"
     assert "fingerprint" in json.loads(cache.read_text())
 
@@ -236,6 +253,7 @@ def test_gate_cache_rejects_legacy_cache_without_fingerprint(tmp_path, monkeypat
 # ===========================================================================
 # Criterio 3 (r2-12): escalas descartadas reportadas + estabilidad por semilla
 # ===========================================================================
+
 
 def test_gate_reports_dropped_scales_on_sharp_leaves():
     X = _sharp_leaves()
@@ -251,8 +269,9 @@ def test_gate_reports_dropped_scales_on_sharp_leaves():
         else:
             assert rep[K]["n_pares"] == len(traj[K])
     # La desconexión de hojas nítidas tiene que verse en algún lado.
-    assert any(r["estado"] == "descartada" or r.get("pares_descartados", 0) > 0
-               for r in rep.values())
+    assert any(
+        r["estado"] == "descartada" or r.get("pares_descartados", 0) > 0 for r in rep.values()
+    )
     sel = gate_select_k(X, seed=42)
     v = sel.verdict
     assert v["dropped_scales"] == sorted(K for K in evaluadas if K not in traj)
@@ -261,9 +280,11 @@ def test_gate_reports_dropped_scales_on_sharp_leaves():
     assert v["escalas"]["finas_perdidas"] == [K for K in v["dropped_scales"] if K <= fine_cap]
     for K in v["dropped_scales"]:
         assert v["escalas"]["descartadas"][str(K)]["motivo"]
-    print(f"\n[r2-12] con_energia={v['escalas']['con_energia']} "
-          f"descartadas={v['dropped_scales']} finas_perdidas={v['escalas']['finas_perdidas']} "
-          f"cls={v['clasificacion']} k={sel.k}")
+    print(
+        f"\n[r2-12] con_energia={v['escalas']['con_energia']} "
+        f"descartadas={v['dropped_scales']} finas_perdidas={v['escalas']['finas_perdidas']} "
+        f"cls={v['clasificacion']} k={sel.k}"
+    )
     # Honesto: si se perdió una escala fina, nunca 'mono'/'jerárquico' sin avisar.
     if v["escalas"]["finas_perdidas"]:
         assert v["clasificacion"] == "inconclusivo" and sel.jerarquico is False
@@ -281,13 +302,21 @@ def test_gate_downgrades_to_inconclusive_when_fine_scales_lost(monkeypatch, forz
         for K in sorted(traj)[:2]:  # "desconectamos" las 2 escalas más finas
             traj.pop(K)
             if report is not None:
-                report[K] = {"estado": "descartada", "motivo": "test: grafo desconectado",
-                             "n_pares": 0, "pares_descartados": 120}
+                report[K] = {
+                    "estado": "descartada",
+                    "motivo": "test: grafo desconectado",
+                    "n_pares": 0,
+                    "pares_descartados": 120,
+                }
         return traj
 
     # Clasificación forzada (independiente de los datos) para aislar la regla
-    fake = {"clasificacion": forzada, "jerarquico": forzada == "jerarquico",
-            "slope_fino": 0.0, "IC95": [0.0, 0.1]}
+    fake = {
+        "clasificacion": forzada,
+        "jerarquico": forzada == "jerarquico",
+        "slope_fino": 0.0,
+        "IC95": [0.0, 0.1],
+    }
     monkeypatch.setattr(gm, "_classify_fine", lambda *args, **kw: dict(fake))
     v_ok = gm._verdict(X, seed=42)  # sin pérdidas: la clasificación pasa tal cual
     assert v_ok["escalas"]["finas_perdidas"] == []
@@ -321,9 +350,9 @@ def test_gate_reports_seed_stability():
 # Criterio 4 (r2-18): query_batch == query fila a fila (norma != 1)
 # ===========================================================================
 
+
 def _build(metric, n=4000, d=32, n_coarse=50, n_probe=5):
-    eng = HRM2Engine(n_coarse=n_coarse, n_fine=20, embedding_dim=d, n_probe=n_probe,
-                     metric=metric)
+    eng = HRM2Engine(n_coarse=n_coarse, n_fine=20, embedding_dim=d, n_probe=n_probe, metric=metric)
     eng.index(precomputed_embeddings=_unit(_uniform(n, d, seed=7)))
     return eng
 
@@ -351,7 +380,7 @@ def test_query_batch_matches_query_row_by_row_non_unit_queries(metric):
 def test_query_batch_matches_query_with_adaptive_probing():
     eng = _build("cosine")
     eng.adaptive_probing = True
-    eng.adaptive_threshold = 1.0   # casi todas las queries "fáciles" -> 1 sonda
+    eng.adaptive_threshold = 1.0  # casi todas las queries "fáciles" -> 1 sonda
     eng.adaptive_min_probe = 1
     Q = _non_unit_queries(d=32, n=300)
     rb = eng.query_batch(Q, k=10)
@@ -378,16 +407,27 @@ def test_query_batch_lod01_delegates_with_parity(lod):
 # Criterio 5 (r2-19): HRM2Config cableado; lod 0/1 devuelven los más cercanos
 # ===========================================================================
 
+
 def test_hrm2config_is_wired_into_engine():
-    cfg = HRM2Config(adaptive_probing=True, adaptive_threshold=1.2, adaptive_min_probe=2,
-                     n_probe=7, n_coarse=12, n_fine=17, metric="cosine", random_state=7)
+    cfg = HRM2Config(
+        adaptive_probing=True,
+        adaptive_threshold=1.2,
+        adaptive_min_probe=2,
+        n_probe=7,
+        n_coarse=12,
+        n_fine=17,
+        metric="cosine",
+        random_state=7,
+    )
     eng = HRM2Engine(config=cfg)  # hoy: adaptive_probing False, n_probe 5
     assert eng.adaptive_probing is True
     assert eng.adaptive_threshold == 1.2 and eng.adaptive_min_probe == 2
     assert eng.n_probe == 7 and eng.n_coarse == 12 and eng.n_fine == 17
     assert eng.metric == "cosine" and eng.random_state == 7
     # El adaptive probing del config tiene efecto en el ruteo
-    assert eng._adaptive_n_probe(np.array([1.0, 2.0], dtype=np.float32)) == 2  # ratio 2 > 1.2 -> fácil
+    assert (
+        eng._adaptive_n_probe(np.array([1.0, 2.0], dtype=np.float32)) == 2
+    )  # ratio 2 > 1.2 -> fácil
     assert eng._adaptive_n_probe(np.array([1.0, 1.1], dtype=np.float32)) == 7
     # Kwarg explícito (distinto del default) manda sobre el config
     eng2 = HRM2Engine(config=cfg, n_probe=3, metric="euclidean")
@@ -396,6 +436,7 @@ def test_hrm2config_is_wired_into_engine():
     eng3 = HRM2Engine(n_coarse=10)
     assert eng3.adaptive_probing is False and eng3.n_probe == 5 and eng3.batch_size == 10000
     from m2m import engine as _engine_mod
+
     eng4 = HRM2Engine(n_coarse=10, config=_engine_mod.M2MConfig())
     assert eng4.adaptive_probing is False and eng4.n_probe == 5
 
@@ -433,6 +474,7 @@ def test_lod01_returns_nearest_within_probed_clusters(lod):
 # ===========================================================================
 # Criterio 6 (r2-20): dim > 1024 -> ValueError claro antes de tocar el shader
 # ===========================================================================
+
 
 def _stub_no_gpu(monkeypatch, boom=None):
     def _stop(*a, **k):

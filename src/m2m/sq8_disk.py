@@ -30,6 +30,7 @@ si hay rodilla real (``_knee_rank``: ruido Marchenko-Pastur o decaimiento sin
 codo -> r = dim) y (b) el oversample por defecto con codigos r < dim es
 ``SPECTRAL_DEFAULT_OVERSAMPLE`` (ver ``search_batch``).
 """
+
 from __future__ import annotations
 
 import json
@@ -141,22 +142,24 @@ class SQ8DiskStore:
     El rescoring SIEMPRE es full-D sobre los float32 originales en disco.
     """
 
-    def __init__(self, dim: int, dump_dir: Optional[str] = None,
-                 spectral_r: SpectralSpec = None):
+    def __init__(self, dim: int, dump_dir: Optional[str] = None, spectral_r: SpectralSpec = None):
         if dim < 1:
             raise ValueError(f"dim must be >= 1 (got {dim})")
         if spectral_r is not None and spectral_r != "auto":
-            if isinstance(spectral_r, bool) or not isinstance(spectral_r, (int, np.integer)) \
-                    or int(spectral_r) < 1:
+            if (
+                isinstance(spectral_r, bool)
+                or not isinstance(spectral_r, (int, np.integer))
+                or int(spectral_r) < 1
+            ):
                 raise ValueError(
                     f"spectral_r must be None, 'auto' or int >= 1 (got {spectral_r!r})"
                 )
         self.dim = int(dim)
         self.dump_dir = dump_dir
         self.spectral_r: SpectralSpec = spectral_r
-        self._q: Optional[np.ndarray] = None       # uint8 [n, rdim] en RAM
-        self._scale: Optional[np.ndarray] = None   # float32 [n]
-        self._zero: Optional[np.ndarray] = None    # float32 [n]
+        self._q: Optional[np.ndarray] = None  # uint8 [n, rdim] en RAM
+        self._scale: Optional[np.ndarray] = None  # float32 [n]
+        self._zero: Optional[np.ndarray] = None  # float32 [n]
         self._n = 0
         self._float_path: Optional[str] = None
         self._float_mm: Optional[np.ndarray] = None  # mmap float32 [n, dim]
@@ -168,14 +171,14 @@ class SQ8DiskStore:
         self._f32_mem: List[np.ndarray] = []  # solo si no hay dump_dir aun
         self._stale_path: Optional[str] = None  # dump previo con originales (merge en flush)
         # --- estado espectral (fase 1 proyectada) ---
-        self._P: Optional[np.ndarray] = None       # float32 [dim, r] (top-r PCs)
-        self._mean: Optional[np.ndarray] = None    # float32 [dim]
-        self._rdim = int(dim)                      # dimension de los codigos
+        self._P: Optional[np.ndarray] = None  # float32 [dim, r] (top-r PCs)
+        self._mean: Optional[np.ndarray] = None  # float32 [dim]
+        self._rdim = int(dim)  # dimension de los codigos
         self.eigenvalues: Optional[np.ndarray] = None  # autoespectro descendente
-        self._knee_info: Optional[dict] = None     # diagnostico de _knee_rank ("auto")
-        self._stats: Optional[tuple] = None        # (n, sum_x, sum_xx) float64
-        self._raw_chunks: list = []                # buffer transient de filas nuevas
-        self._float_rows_written = 0               # filas ya persistidas en float32.npy
+        self._knee_info: Optional[dict] = None  # diagnostico de _knee_rank ("auto")
+        self._stats: Optional[tuple] = None  # (n, sum_x, sum_xx) float64
+        self._raw_chunks: list = []  # buffer transient de filas nuevas
+        self._float_rows_written = 0  # filas ya persistidas en float32.npy
 
     # --- cuantizacion (formula historica, compartida por ambos modos) -----
     @staticmethod
@@ -243,9 +246,15 @@ class SQ8DiskStore:
         if self._P is None:
             # pre-finalize: acumular estadisticas PCA (D x D, RAM acotada) y
             # bufferizar las filas crudas para cuantizarlas al primer flush().
-            n0, sx, sxx = self._stats if self._stats is not None else (
-                0, np.zeros(self.dim, dtype=np.float64),
-                np.zeros((self.dim, self.dim), dtype=np.float64))
+            n0, sx, sxx = (
+                self._stats
+                if self._stats is not None
+                else (
+                    0,
+                    np.zeros(self.dim, dtype=np.float64),
+                    np.zeros((self.dim, self.dim), dtype=np.float64),
+                )
+            )
             x64 = x.astype(np.float64)
             sx = sx + x64.sum(axis=0)
             sxx = sxx + x64.T @ x64
@@ -328,9 +337,7 @@ class SQ8DiskStore:
                 self._f32_path = os.path.join(d, ".f32_spill.bin")
                 self._f32_file = open(self._f32_path, "ab")
             for blk in self._f32_mem:
-                self._f32_file.write(
-                    np.ascontiguousarray(blk, dtype=np.float32).tobytes(order="C")
-                )
+                self._f32_file.write(np.ascontiguousarray(blk, dtype=np.float32).tobytes(order="C"))
             self._f32_mem = []
         self._close_spill()
         spill = self._f32_path if self._f32_path is not None else os.path.join(d, ".f32_spill.bin")
@@ -347,10 +354,7 @@ class SQ8DiskStore:
                 and os.path.exists(spill)
                 and os.path.getsize(spill) == self._n * self.dim * 4
             )
-            stale_ok = (
-                self._stale_path is not None
-                and os.path.exists(self._stale_path)
-            )
+            stale_ok = self._stale_path is not None and os.path.exists(self._stale_path)
             mm = np.lib.format.open_memmap(
                 tmp_path, mode="w+", dtype=np.float32, shape=(self._n, self.dim)
             )
@@ -381,7 +385,8 @@ class SQ8DiskStore:
                     j = min(i + chunk, self._n)
                     # el spill solo tiene las filas nuevas: offset relativo a n_old
                     src = np.fromfile(
-                        spill, dtype=np.float32,
+                        spill,
+                        dtype=np.float32,
                         offset=(i - n_old) * self.dim * 4,
                         count=(j - i) * self.dim,
                     )
@@ -420,14 +425,22 @@ class SQ8DiskStore:
         np.save(os.path.join(d, "proj_P.npy"), self._P)
         np.save(os.path.join(d, "proj_mean.npy"), self._mean)
         meta = {
-            "spectral_r": self.spectral_r if not isinstance(self.spectral_r, np.integer)
-            else int(self.spectral_r),
+            "spectral_r": (
+                self.spectral_r
+                if not isinstance(self.spectral_r, np.integer)
+                else int(self.spectral_r)
+            ),
             "r_eff": int(self._rdim),
             "dim": int(self.dim),
             "n": int(self._n),
-            "eigenvalues_top": [float(v) for v in np.maximum(
-                self.eigenvalues[: min(64, len(self.eigenvalues))], 0.0)]
-            if self.eigenvalues is not None else [],
+            "eigenvalues_top": (
+                [
+                    float(v)
+                    for v in np.maximum(self.eigenvalues[: min(64, len(self.eigenvalues))], 0.0)
+                ]
+                if self.eigenvalues is not None
+                else []
+            ),
         }
         if self._knee_info is not None:
             meta["knee"] = self._knee_info  # audit r2-02: diagnostico de "auto"
@@ -441,8 +454,7 @@ class SQ8DiskStore:
             self._finalize_pca()
             raw = np.vstack(self._raw_chunks) if self._raw_chunks else None
             assert raw is not None and self._P is not None and self._mean is not None
-            q, scale, zero = self._quantize_rows(
-                (raw - self._mean[None, :]) @ self._P)
+            q, scale, zero = self._quantize_rows((raw - self._mean[None, :]) @ self._P)
             self._q, self._scale, self._zero = q, scale, zero
             self._n = len(q)
             self._float_path = os.path.join(d, "float32.npy")
@@ -489,7 +501,10 @@ class SQ8DiskStore:
 
     @classmethod
     def build_from_float_npy(
-        cls, float_npy_path: str, dump_dir: str, chunk: int = 100_000,
+        cls,
+        float_npy_path: str,
+        dump_dir: str,
+        chunk: int = 100_000,
         spectral_r: SpectralSpec = None,
     ) -> "SQ8DiskStore":
         """Cuantiza por chunks desde un .npy en disco (mmap) y deja el store
@@ -574,8 +589,11 @@ class SQ8DiskStore:
             return
         with open(os.path.join(self.dump_dir, "float_source.json"), "w") as f:
             json.dump(
-                {"float_path": os.path.abspath(str(float_path)), "n": int(self._n),
-                 "dim": int(self.dim)},
+                {
+                    "float_path": os.path.abspath(str(float_path)),
+                    "n": int(self._n),
+                    "dim": int(self.dim),
+                },
                 f,
             )
 
@@ -702,16 +720,17 @@ class SQ8DiskStore:
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
         if oversample is None:
-            oversample = (SPECTRAL_DEFAULT_OVERSAMPLE if self._rdim < self.dim
-                          else DEFAULT_OVERSAMPLE)
+            oversample = (
+                SPECTRAL_DEFAULT_OVERSAMPLE if self._rdim < self.dim else DEFAULT_OVERSAMPLE
+            )
         if oversample < 1:
             raise ValueError(f"oversample must be >= 1 (got {oversample})")
         if query_chunk is not None and (
-                isinstance(query_chunk, bool)
-                or not isinstance(query_chunk, (int, np.integer)) or query_chunk < 1):
-            raise ValueError(
-                f"query_chunk must be None or int >= 1 (got {query_chunk!r})"
-            )
+            isinstance(query_chunk, bool)
+            or not isinstance(query_chunk, (int, np.integer))
+            or query_chunk < 1
+        ):
+            raise ValueError(f"query_chunk must be None or int >= 1 (got {query_chunk!r})")
         assert self._q is not None and self._scale is not None and self._zero is not None
         if self._P is not None:
             assert self._mean is not None
@@ -744,8 +763,7 @@ class SQ8DiskStore:
             for i in range(0, n, n_chunk):
                 j = min(i + n_chunk, n)
                 deq = (
-                    self._q[i:j].astype(np.float32) * self._scale[i:j, None]
-                    + self._zero[i:j, None]
+                    self._q[i:j].astype(np.float32) * self._scale[i:j, None] + self._zero[i:j, None]
                 )
                 # misma aritmetica que la linea historica, sin sus 2 temporales
                 # extra de `qq - 2.0 * (Qc @ deq.T) + normas`
@@ -760,11 +778,7 @@ class SQ8DiskStore:
                 part = np.argpartition(d2[b - qs], k1 - 1)[:k1]
                 cand = np.sort(part)  # gather ordenado = lectura de paginas secuencial
                 x = np.asarray(self._float_mm[cand])
-                exact = (
-                    np.einsum("ij,ij->i", x, x)
-                    - 2.0 * (x @ Q[b])
-                    + qq0[b]
-                )
+                exact = np.einsum("ij,ij->i", x, x) - 2.0 * (x @ Q[b]) + qq0[b]
                 best = cand[np.argsort(exact)[:k]]  # menor distancia primero
                 out[b, : len(best)] = best
         return out

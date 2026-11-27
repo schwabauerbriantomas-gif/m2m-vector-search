@@ -12,7 +12,7 @@ search using Hierarchical Navigable Small World graphs" (2016).
 import heapq
 import math
 import random
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -59,9 +59,7 @@ class HNSWIndex(VectorIndex):
         self.M_max0 = 2 * M  # max connections at layer 0
         self.ef_construction = ef_construction
         self.ef_search = ef_search
-        self.max_level_mult = (
-            max_level_mult if max_level_mult is not None else 1.0 / math.log(M)
-        )
+        self.max_level_mult = max_level_mult if max_level_mult is not None else 1.0 / math.log(M)
         self.metric = metric
         self._rng = random.Random(seed)
 

@@ -3,6 +3,7 @@
 Dataset real: /tmp/m2mvs/embeddings.npy (659x384, rag_test). Si no existe,
 los tests que lo usan se saltan (los de sintetico corren igual).
 """
+
 import os
 
 import numpy as np
@@ -100,9 +101,7 @@ def test_parity_search_vs_batch_lsh_mode():
     single = [set(r.id for r in db.search(q, k=K, include_metadata=True)) for q in queries]
     batch = [set(r.id for r in row) for row in db.search_batch(queries, k=K, include_metadata=True)]
     matches = sum(1 for s, b in zip(single, batch) if s == b)
-    assert matches >= 0.95 * N_QUERIES, (
-        f"parity LSH {matches}/{N_QUERIES} < 95%"
-    )
+    assert matches >= 0.95 * N_QUERIES, f"parity LSH {matches}/{N_QUERIES} < 95%"
 
 
 @pytest.mark.skipif(not HAS_DATASET, reason="dataset real no disponible")
@@ -116,9 +115,7 @@ def test_parity_search_vs_batch_hrm2_mode():
     single = [set(r.id for r in db.search(q, k=K, include_metadata=True)) for q in queries]
     batch = [set(r.id for r in row) for row in db.search_batch(queries, k=K, include_metadata=True)]
     matches = sum(1 for s, b in zip(single, batch) if s == b)
-    assert matches >= 0.95 * N_QUERIES, (
-        f"parity HRM2 {matches}/{N_QUERIES} < 95%"
-    )
+    assert matches >= 0.95 * N_QUERIES, f"parity HRM2 {matches}/{N_QUERIES} < 95%"
 
 
 # ---------------------------------------------------------------------------

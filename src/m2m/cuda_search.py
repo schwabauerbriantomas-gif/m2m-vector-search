@@ -12,8 +12,7 @@ Target: <2ms per query on 10K embeddings × 640D (RTX 3090).
 from __future__ import annotations
 
 import logging
-import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 
@@ -166,7 +165,6 @@ class CUDASearcher:
         queries = np.ascontiguousarray(queries, dtype=np.float32)
         if queries.ndim == 1:
             queries = queries[np.newaxis, :]
-        B = queries.shape[0]
         k = min(k, self._n)
 
         try:
@@ -268,7 +266,6 @@ class MultiStartSearcher:
             indices:   shape [k] int64  — aggregated top-k
             distances: shape [k] float32 — average distance from votes
         """
-        import torch
 
         query = np.asarray(query, dtype=np.float32).flatten()
 

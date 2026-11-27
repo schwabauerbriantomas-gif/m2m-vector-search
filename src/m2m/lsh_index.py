@@ -1,6 +1,6 @@
 import hashlib
-import warnings
 import itertools
+import warnings
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -175,9 +175,9 @@ class CrossPolytopeLSH:
             # query). Antes usaba np.random.choice sobre el RNG GLOBAL: dependia de la
             # semilla global y del historial de llamadas [audit r2-04].
             q_digest = hashlib.blake2b(query.tobytes(), digest_size=8).digest()
-            extra = np.random.default_rng(
-                [self._seed, int.from_bytes(q_digest, "little")]
-            ).choice(self.n_vectors, size=min(k * 10, self.n_vectors), replace=False)
+            extra = np.random.default_rng([self._seed, int.from_bytes(q_digest, "little")]).choice(
+                self.n_vectors, size=min(k * 10, self.n_vectors), replace=False
+            )
             candidates.update(extra)
             candidates_list = list(candidates)
 

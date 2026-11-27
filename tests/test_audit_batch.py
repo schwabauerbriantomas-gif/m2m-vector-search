@@ -8,6 +8,7 @@ candidatos), r1-22 (sentinel BIG), r1-07 (LSH en search_batch_filtered), r1-05
 Convenciones: las posiciones que devuelven search_batch / search_batch_filtered
 en modo HRM2 indexan db._splat_id_order (posicion de splat -> id).
 """
+
 import numpy as np
 import pytest
 
@@ -27,7 +28,9 @@ def _clustered(n, dim, n_clusters=50, seed=42, noise=0.35, nq=200):
     centers = rng.randn(n_clusters, dim).astype(np.float32)
     assign = rng.randint(0, n_clusters, size=n)
     data = centers[assign] + noise * rng.randn(n, dim).astype(np.float32)
-    queries = centers[rng.randint(0, n_clusters, size=nq)] + noise * rng.randn(nq, dim).astype(np.float32)
+    queries = centers[rng.randint(0, n_clusters, size=nq)] + noise * rng.randn(nq, dim).astype(
+        np.float32
+    )
     return _unit(data).astype(np.float32), _unit(queries).astype(np.float32)
 
 
@@ -65,29 +68,30 @@ def _routing(db, q):
 
 def _assert_hrm2_path(db, n_min=3001):
     store = db.engine.m2m.splats
-    assert store.n_active >= n_min and store.engine.coarse_model is not None, (
-        "el test necesita el camino HRM2 (n > 3000): es el unico donde vive el bug de la union"
-    )
+    assert (
+        store.n_active >= n_min and store.engine.coarse_model is not None
+    ), "el test necesita el camino HRM2 (n > 3000): es el unico donde vive el bug de la union"
 
 
-# --------------------------------------------------------------------------- criterio 1 + r4-07 / r1-12
+# ----------------------------------------------------------------------- criterio 1 + r4-07 / r1-12
 @pytest.mark.parametrize("dataset", ["clustered", "uniform"])
 def test_candidates_are_per_query_and_batch_equals_single_batch(dataset):
     """Cada query solo se puntua contra SUS clusters sondeados:
     search_batch(Q)[i] == search_batch(Q[i:i+1])[0] para todas las filas, y ningun
     resultado cae fuera de los candidatos propios (hoy: np.isin aplana probe y la
     union del lote entero se puntua para cada query)."""
-    data, q = (_clustered(5000, 64) if dataset == "clustered" else _uniform(5000, 64))
+    data, q = _clustered(5000, 64) if dataset == "clustered" else _uniform(5000, 64)
     db = _db(data)
     _assert_hrm2_path(db)
     n = db.engine.m2m.splats.n_active
 
     out = db.search_batch(q, k=K)
-    single = np.vstack([db.search_batch(q[i:i + 1], k=K)[0] for i in range(len(q))])
+    single = np.vstack([db.search_batch(q[i : i + 1], k=K)[0] for i in range(len(q))])
     assert out.shape == (len(q), K)
     assert np.array_equal(out, single), (
         f"search_batch(Q)[i] != search_batch(Q[i:i+1])[0] en "
-        f"{int((out != single).any(axis=1).sum())} filas: el resultado depende de las companeras de lote"
+        f"{int((out != single).any(axis=1).sum())} filas: "
+        "el resultado depende de las companeras de lote"
     )
     # ids via include_metadata == ids via posiciones
     rows = db.search_batch(q, k=K, include_metadata=True)
@@ -114,7 +118,7 @@ def test_recall_batch_equals_recall_single_search(dataset):
     queries). El batch rankea por L2 puro; se fija rank_by='l2' en el store (mismo orden
     que find_neighbors) para comparar la misma metrica — el rerank gaussiano (default)
     es otra semantica de score, fuera del alcance de P2 (P7a)."""
-    data, q = (_clustered(5000, 64) if dataset == "clustered" else _uniform(5000, 64))
+    data, q = _clustered(5000, 64) if dataset == "clustered" else _uniform(5000, 64)
     db = _db(data)
     _assert_hrm2_path(db)
     db.engine.m2m.splats.rank_by = "l2"
@@ -125,7 +129,9 @@ def test_recall_batch_equals_recall_single_search(dataset):
     gt = [set(str(j) for j in _brute(data, x)) for x in q]
     rec_batch = np.mean([len(b & g) / K for b, g in zip(batch_sets, gt)])
     rec_single = np.mean([len(s & g) / K for s, g in zip(single_sets, gt)])
-    assert rec_batch == rec_single, f"recall batch {rec_batch:.4f} != recall single {rec_single:.4f}"
+    assert (
+        rec_batch == rec_single
+    ), f"recall batch {rec_batch:.4f} != recall single {rec_single:.4f}"
     assert all(len(s) == K for s in single_sets)
     n_diff = sum(1 for b, s in zip(batch_sets, single_sets) if b != s)
     assert n_diff <= 2, f"top-10 batch vs single difieren en {n_diff}/200 queries"
@@ -164,14 +170,15 @@ def test_filtered_expansion_is_decided_per_query():
     assert X not in probes_B
     # W: un cluster sondeado por B, no sondeado por A, con >= need docs permitidos
     W = next(
-        c for c in order_B
+        c
+        for c in order_B
         if c in probes_B and c not in probes_A and int((assignments == c).sum()) >= need
     )
     assert int((assignments == X).sum()) >= K
     allowed_pos = np.isin(assignments, [X, W])
-    assert not allowed_pos[np.concatenate([eng.coarse_cluster_indices[c] for c in probes_A])].any(), (
-        "precondicion: A no tiene ningun doc permitido en sus probes -> necesita expansion"
-    )
+    assert not allowed_pos[
+        np.concatenate([eng.coarse_cluster_indices[c] for c in probes_A])
+    ].any(), "precondicion: A no tiene ningun doc permitido en sus probes -> necesita expansion"
 
     for ia in (0, 1):  # posicion de A en el lote: el orden no debe importar
         batch = np.vstack([qA, qB]) if ia == 0 else np.vstack([qB, qA])
@@ -179,7 +186,9 @@ def test_filtered_expansion_is_decided_per_query():
         row_A, row_B = out[ia], out[1 - ia]
         assert (row_A >= 0).all() and (row_B >= 0).all()
         assert allowed_pos[row_A].all() and allowed_pos[row_B].all()
-        assert (assignments[row_A] == X).all(), (
+        assert (
+            assignments[row_A] == X
+        ).all(), (
             "la query A recibio docs de un cluster ajeno (W) en vez de expandir SUS probes hasta X"
         )
         assert (assignments[row_B] == W).all()
@@ -242,7 +251,7 @@ def test_lsh_mode_filtered_batch_returns_valid_positions():
     for i in range(3):
         single = [r.id for r in db.search(X[i], k=5, include_metadata=True)]
         assert [db._lsh_id_map[int(j)] for j in sb[i]] == single
-        rows = db.search_batch(X[i:i + 1], k=5, include_metadata=True)[0]
+        rows = db.search_batch(X[i : i + 1], k=5, include_metadata=True)[0]
         assert [r.id for r in rows] == single
 
     # filtro restrictivo: solo las primeras 100 posiciones -> todo resultado dentro del
@@ -288,7 +297,9 @@ def test_empty_db_and_k_validation_batch_apis():
     a = db.search_batch(q2, k=3)
     assert a.shape == (2, 0)
     b = db.search_batch_filtered(q2, k=3, filter_fn=lambda i: True)
-    assert b.shape == a.shape, f"DB vacia: search_batch {a.shape} vs search_batch_filtered {b.shape}"
+    assert (
+        b.shape == a.shape
+    ), f"DB vacia: search_batch {a.shape} vs search_batch_filtered {b.shape}"
 
     rng = np.random.RandomState(3)
     db = _db(rng.randn(300, 8).astype(np.float32))

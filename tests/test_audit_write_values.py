@@ -3,6 +3,7 @@
 Un test por criterio de aceptación de BACKLOG.md §P1; el id de auditoría va en
 el nombre (hallazgos r1.json). Base: a74d9e4.
 """
+
 import logging
 
 import numpy as np
@@ -65,7 +66,8 @@ class TestR102UpdateNaNEInf:
 
     @pytest.mark.parametrize("bad_value", [np.nan, np.inf])
     def test_add_after_rejected_update_triggers_full_retrain_and_works(self, bad_value):
-        # 2 docs entrenan el índice (last_trained_n=2); el 3er add (3 > 1.25*2) fuerza retrain completo
+        # 2 docs entrenan el índice (last_trained_n=2); el 3er add (3 > 1.25*2) fuerza
+        # retrain completo
         db = m2m.SimpleVectorDB(latent_dim=D)
         db.add(ids=["i0", "i1"], vectors=X[:2])
         assert db.engine.m2m.splats._last_trained_n == 2
@@ -214,7 +216,9 @@ class TestR124EmbeddingsSync:
         assert int(eng.coarse_assignments[pos]) == old_cid  # precondición: no se movió
         cid = old_cid
         row = int(np.flatnonzero(eng.coarse_cluster_indices[cid] == pos)[0])
-        np.testing.assert_allclose(eng.coarse_cluster_embeddings[cid][row], _sphere(newv), atol=1e-6)
+        np.testing.assert_allclose(
+            eng.coarse_cluster_embeddings[cid][row], _sphere(newv), atol=1e-6
+        )
         np.testing.assert_allclose(eng.embeddings[pos], _sphere(newv), atol=1e-6)
 
 
@@ -223,7 +227,9 @@ class TestR126CapacityHonesty:
     y get_stats() cuenta solo indexados."""
 
     def test_rejected_not_stored_not_persisted_and_warning_logged(self, tmp_path, caplog):
-        db = m2m.SimpleVectorDB(latent_dim=D, max_splats=10, storage_path=str(tmp_path / "st"), enable_wal=False)
+        db = m2m.SimpleVectorDB(
+            latent_dim=D, max_splats=10, storage_path=str(tmp_path / "st"), enable_wal=False
+        )
         r1 = db.add(ids=[f"s{i}" for i in range(6)], vectors=X[:6])
         with caplog.at_level(logging.WARNING, logger="m2m"):
             r2 = db.add(ids=[f"s{i}" for i in range(6, 16)], vectors=X[6:16])
@@ -234,7 +240,9 @@ class TestR126CapacityHonesty:
         assert len(db._splat_id_order) == 10 == db.engine.m2m.splats.n_active
         stats = db.get_stats()
         assert stats["total_documents"] == 10 and stats["active_documents"] == 10
-        assert sorted(r.id for r in db.search(X[7], k=10, include_metadata=True)) == sorted(accepted)
+        assert sorted(r.id for r in db.search(X[7], k=10, include_metadata=True)) == sorted(
+            accepted
+        )
         # storage: solo los indexados (shard_002 = 4 filas, no 10)
         assert set(db.storage.get_all_ids()) == accepted
         assert db.storage.get_metadata("s10") is None

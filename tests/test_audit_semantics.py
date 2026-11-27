@@ -25,10 +25,9 @@ import numpy as np
 import pytest
 
 from m2m import SimpleVectorDB
-from m2m.ebm import energy_api as ea
 from m2m.ebm import EBMEnergy, EBMExploration
+from m2m.ebm import energy_api as ea
 from m2m.energy import EnergyFunction
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,9 +57,7 @@ def _assert_cosine(q, res):
         np.testing.assert_allclose(r.score, float(np.dot(qn, r.vector)), atol=1e-5)
         assert r.alpha is None or r.alpha > 0
         assert r.distance is not None
-        np.testing.assert_allclose(
-            r.distance, float(np.linalg.norm(r.vector - qn)), atol=1e-5
-        )
+        np.testing.assert_allclose(r.distance, float(np.linalg.norm(r.vector - qn)), atol=1e-5)
         # sobre la esfera: d² = 2 − 2·cos
         np.testing.assert_allclose(r.distance**2, 2.0 - 2.0 * r.score, atol=1e-5)
 
@@ -168,7 +165,9 @@ def test_r3a_02_energy_and_confidence_distinguish_results():
     for r in res:
         pos = by_id[r.id]
         d2 = float(((store.mu[pos].astype(np.float64) - qn) ** 2).sum())
-        expected = min(-math.log(float(store.alpha[pos])) + float(store.kappa[pos]) * d2, ea.OOD_ENERGY)
+        expected = min(
+            -math.log(float(store.alpha[pos])) + float(store.kappa[pos]) * d2, ea.OOD_ENERGY
+        )
         np.testing.assert_allclose(r.energy, expected, atol=1e-4)
 
     # D4: confidence = sigmoid(-E), monotona decreciente en la energía
@@ -180,7 +179,9 @@ def test_r3a_02_energy_and_confidence_distinguish_results():
     assert res[0].confidence >= 0.5 - 1e-9 and res[0].confidence > res[-1].confidence
 
     # mismo doc → misma energía/confianza por el camino con filtro, e independiente de k
-    res_f = db.search(q, k=10, filter={"cat": {"$gte": 0}}, include_energy=True, include_metadata=True)
+    res_f = db.search(
+        q, k=10, filter={"cat": {"$gte": 0}}, include_energy=True, include_metadata=True
+    )
     ef = {r.id: (r.energy, r.confidence) for r in res_f}
     for r in res:
         np.testing.assert_allclose([r.energy, r.confidence], ef[r.id], atol=1e-6)
@@ -202,7 +203,10 @@ def test_r3a_02_search_with_energy_reports_bounded_confidence():
     # negativa en centros de splat). Ahora el modelo lo dice con la energia canonica
     # acotada: OOD_ENERGY y sigmoid(-OOD_ENERGY) > 0, igual para los 10 resultados.
     db = AdvancedVectorDB(latent_dim=32)
-    db.add(ids=[f"item_{i}" for i in range(50)], vectors=rng.standard_normal((50, 32)).astype(np.float32))
+    db.add(
+        ids=[f"item_{i}" for i in range(50)],
+        vectors=rng.standard_normal((50, 32)).astype(np.float32),
+    )
     sr = db.search_with_energy(rng.standard_normal(32).astype(np.float32), k=10)
     confs = [r.confidence for r in sr.results]
     assert len(confs) == 10
@@ -234,9 +238,13 @@ def test_r3a_02_search_with_energy_reports_bounded_confidence():
     for r in res:
         pos = by_id[r.id]
         d2 = float(((store.mu[pos].astype(np.float64) - qn) ** 2).sum())
-        expected = min(-math.log(float(store.alpha[pos])) + float(store.kappa[pos]) * d2, ea.OOD_ENERGY)
+        expected = min(
+            -math.log(float(store.alpha[pos])) + float(store.kappa[pos]) * d2, ea.OOD_ENERGY
+        )
         np.testing.assert_allclose(r.energy, expected, atol=1e-4)
-        np.testing.assert_allclose(r.confidence, 1.0 / (1.0 + math.exp(r.energy)), rtol=1e-6, atol=1e-9)
+        np.testing.assert_allclose(
+            r.confidence, 1.0 / (1.0 + math.exp(r.energy)), rtol=1e-6, atol=1e-9
+        )
     # a mayor energia, menor o igual confianza
     order = np.argsort(E)
     cs = [C[i] for i in order]
@@ -251,7 +259,9 @@ def test_r3a_02_search_with_energy_reports_bounded_confidence():
 def test_r2_15_confidence_bounded_high_at_center_low_far():
     # Antes: centro con α=10 → E=-2.3256, confidence=-0.7544; α=0.5 → -1.0091;
     # E=-1 → división por cero.
-    ebm = EBMEnergy(np.array([[1.0, 0, 0, 0]], dtype=np.float32), np.array([10.0]), np.array([10.0]))
+    ebm = EBMEnergy(
+        np.array([[1.0, 0, 0, 0]], dtype=np.float32), np.array([10.0]), np.array([10.0])
+    )
     center = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     r = ebm.get_result(center)
     assert r.energy == pytest.approx(-math.log(10.0), abs=1e-5)
@@ -323,7 +333,9 @@ def test_r2_15_energy_normalizes_input_like_mu():
             np.testing.assert_allclose(ebm.energy(x * scale), ref_api, atol=1e-5)
             np.testing.assert_allclose(float(ef.E_splats(x * scale, splats)[0]), ref_fn, atol=1e-5)
         # el gradiente se evalúa en el mismo punto normalizado que la energía
-        np.testing.assert_allclose(ebm.energy_gradient(x * 3.7), ebm.energy_gradient(_unit(x)), atol=1e-5)
+        np.testing.assert_allclose(
+            ebm.energy_gradient(x * 3.7), ebm.energy_gradient(_unit(x)), atol=1e-5
+        )
 
 
 def test_r2_15_energy_per_splat_matches_canonical():
@@ -357,7 +369,9 @@ def test_r2_15_energy_per_splat_matches_canonical():
 def _exploration_fixture(seed=1, kappa=1.0):
     rng = np.random.default_rng(seed)
     X = _unit(rng.standard_normal((300, 8))).astype(np.float32)
-    ebm = EBMEnergy(X[:20].copy(), np.ones(20, dtype=np.float32), np.full(20, kappa, dtype=np.float32))
+    ebm = EBMEnergy(
+        X[:20].copy(), np.ones(20, dtype=np.float32), np.full(20, kappa, dtype=np.float32)
+    )
     expl = EBMExploration(ebm, all_vectors=X, all_ids=[str(i) for i in range(len(X))])
     return expl, rng
 

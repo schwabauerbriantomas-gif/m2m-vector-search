@@ -1,16 +1,10 @@
-import sys
-from pathlib import Path
-
-# Add project root to sys.path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import pytest
 
 pytest.importorskip("langchain_core")
-from langchain_core.embeddings import FakeEmbeddings
+from langchain_core.embeddings import FakeEmbeddings  # noqa: E402  (skip antes de importar)
 
-from m2m.integrations.langchain import M2MVectorStore
-from m2m import M2MConfig
+from m2m import M2MConfig  # noqa: E402  (skip antes de importar)
+from m2m.integrations.langchain import M2MVectorStore  # noqa: E402  (skip antes de importar)
 
 
 def test_langchain_integration():

@@ -322,7 +322,9 @@ class TestR2_16SocConstructorMetricAndRelax:
         # μ: la misma α/κ pero toda la masa en una dirección -> tamaños desbalanceados
         x_skew = x.copy()
         x_skew[:170] = _unit(x[0] + 0.01 * np.random.default_rng(12).normal(size=(170, 32)))
-        soc.update_splats(x_skew, np.ones(200, dtype=np.float32), np.full(200, 10.0, dtype=np.float32))
+        soc.update_splats(
+            x_skew, np.ones(200, dtype=np.float32), np.full(200, 10.0, dtype=np.float32)
+        )
         rep_m = soc.check_criticality()
         assert rep_m.components["size"] > base.components["size"]
         assert rep_m.index > base.index
@@ -466,7 +468,9 @@ class TestR3a_07SocOperatesOnTheRealStore:
             assert set(order) == set(active), "posiciones sin doc o docs sin splat"
             for doc_id in active:
                 assert order.count(doc_id) >= 1
-                got = [r.id for r in d.search(d._vectors[doc_id], k=len(active), include_metadata=True)]
+                got = [
+                    r.id for r in d.search(d._vectors[doc_id], k=len(active), include_metadata=True)
+                ]
                 assert doc_id in got, f"{doc_id} activo pero no encontrado por search()"
                 assert set(got) <= set(active)
 

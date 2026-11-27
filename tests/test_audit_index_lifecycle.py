@@ -11,6 +11,7 @@ Audit r1-25: `consolidate()` compacta las filas de `mu` y el `build_index()`
 siguiente tomaba el camino attach (n <= 1.25 * _last_trained_n), dejando el
 índice con posiciones pre-compaction → IndexError en toda búsqueda.
 """
+
 import numpy as np
 import pytest
 
@@ -115,7 +116,7 @@ def _build_attached(seed=7):
     db = SimpleVectorDB(latent_dim=D)
     db.add(ids=ids[:N_BASE], vectors=X[:N_BASE])
     s1 = _snapshot(db)
-    db.add(ids=ids[N_BASE:N_BASE + N_ATTACH], vectors=X[N_BASE:N_BASE + N_ATTACH])
+    db.add(ids=ids[N_BASE : N_BASE + N_ATTACH], vectors=X[N_BASE : N_BASE + N_ATTACH])
     s2 = _snapshot(db)
     db.add(ids=ids[-1:], vectors=X[-1:])
     s3 = _snapshot(db)
@@ -160,16 +161,16 @@ def test_r1_11_update_vector_after_attach():
     store = db.engine.m2m.splats
     eng = store.engine
     rng = np.random.default_rng(11)
-    new_vecs = rng.standard_normal((100, D)).astype(np.float32) * np.linspace(
-        0.5, 3.0, 100
-    )[:, None]
+    new_vecs = (
+        rng.standard_normal((100, D)).astype(np.float32) * np.linspace(0.5, 3.0, 100)[:, None]
+    )
 
     # (a) el doc agregado de a uno (posición 4500, la que excede las máscaras cortas)
     zid = ids[-1]
     pos = db._splat_id_order.index(zid)
     assert pos == N_BASE + N_ATTACH
     # (b) 50 docs del lote attachado
-    batch = ids[N_BASE:N_BASE + 50]
+    batch = ids[N_BASE : N_BASE + 50]
     batch_pos = [db._splat_id_order.index(b) for b in batch]
 
     for j in range(50):
@@ -219,9 +220,7 @@ def test_r1_11_recall_after_attach_not_lower():
     X = rng.standard_normal((N_BASE + N_ATTACH, D)).astype(np.float32)
     ids = [f"t{i}" for i in range(len(X))]
     Q_rand = np.random.default_rng(42).standard_normal((300, D)).astype(np.float32)
-    queries = [("random", q) for q in Q_rand] + [
-        ("self", X[i]) for i in range(0, N_BASE, 13)
-    ]
+    queries = [("random", q) for q in Q_rand] + [("self", X[i]) for i in range(0, N_BASE, 13)]
 
     db = SimpleVectorDB(latent_dim=D)
     db.add(ids=ids[:N_BASE], vectors=X[:N_BASE])
@@ -257,9 +256,12 @@ def test_r1_11_recall_after_attach_not_lower():
 
     # Medición antes/después: el GT cambia con el dataset (4000 → 4500), así
     # que la cota admite ruido de muestreo, no una baja real.
-    print(f"\n[r1-11] recall@10 random: antes={before['random']:.4f} tras attach={after['random']:.4f}"
-          f" | self: antes={before['self']:.4f} tras attach={after['self']:.4f}"
-          f" | vecinos base perdidos: {lost}/{checked}")
+    print(
+        f"\n[r1-11] recall@10 random: antes={before['random']:.4f} "
+        f"tras attach={after['random']:.4f}"
+        f" | self: antes={before['self']:.4f} tras attach={after['self']:.4f}"
+        f" | vecinos base perdidos: {lost}/{checked}"
+    )
     for kind in ("random", "self"):
         assert after[kind] >= before[kind] - 0.01, (kind, before, after)
 
@@ -333,12 +335,17 @@ def test_r1_25_consolidate_keeps_index_aligned_and_searchable(consolidated):
     fresh.add(ids=surv, vectors=X[[ids.index(i) for i in surv]])
     assert _assert_index_invariants(fresh) == 4500
     recs_fresh = [
-        _recall([r.id for r in fresh.search(X[i], k=5, include_metadata=True)],
-                _gt_topk(fresh, _norm(X[i]), 5))
-        for i in range(0, N_TOTAL, 15) if ids[i] in set(surv)
+        _recall(
+            [r.id for r in fresh.search(X[i], k=5, include_metadata=True)],
+            _gt_topk(fresh, _norm(X[i]), 5),
+        )
+        for i in range(0, N_TOTAL, 15)
+        if ids[i] in set(surv)
     ]
-    print(f"\n[r1-25] recall@5 self-queries gaussianos: consolidate={np.mean(recs):.4f} "
-          f"fresh={np.mean(recs_fresh):.4f} n={len(recs)} | paridad exacta: {recs == recs_fresh}")
+    print(
+        f"\n[r1-25] recall@5 self-queries gaussianos: consolidate={np.mean(recs):.4f} "
+        f"fresh={np.mean(recs_fresh):.4f} n={len(recs)} | paridad exacta: {recs == recs_fresh}"
+    )
     assert len(recs) == len(recs_fresh) == 300
     assert recs == recs_fresh
 
@@ -346,7 +353,9 @@ def test_r1_25_consolidate_keeps_index_aligned_and_searchable(consolidated):
     # los docs restantes es 1.0 después de consolidar.
     rng = np.random.default_rng(5)
     centers = rng.standard_normal((40, D)).astype(np.float32) * 20.0
-    Xc = centers[rng.integers(0, 40, N_TOTAL)] + rng.standard_normal((N_TOTAL, D)).astype(np.float32)
+    Xc = centers[rng.integers(0, 40, N_TOTAL)] + rng.standard_normal((N_TOTAL, D)).astype(
+        np.float32
+    )
     cids = [f"c{i}" for i in range(N_TOTAL)]
     advc = AdvancedVectorDB(latent_dim=D, enable_soc=False, enable_energy_features=False)
     advc.add(ids=cids, vectors=Xc)
@@ -361,8 +370,10 @@ def test_r1_25_consolidate_keeps_index_aligned_and_searchable(consolidated):
         got = [r.id for r in res]
         assert len(got) == 5 and not (set(got) & removed_c)
         recs_c.append(_recall(got, _gt_topk(advc, _norm(Xc[i]), 5)))
-    print(f"[r1-25] recall@5 self-queries clustered: mean={np.mean(recs_c):.4f} "
-          f"min={np.min(recs_c):.4f} n={len(recs_c)}")
+    print(
+        f"[r1-25] recall@5 self-queries clustered: mean={np.mean(recs_c):.4f} "
+        f"min={np.min(recs_c):.4f} n={len(recs_c)}"
+    )
     assert min(recs_c) == 1.0
 
 
@@ -376,7 +387,10 @@ def test_r1_25_engine_queries_consistent_after_consolidate(consolidated):
 
     # vectores nuevos (no duplicados: con duplicados el top-1 de la self-query
     # es un empate y puede salir la otra posición)
-    adv.add(ids=["post1", "post2"], vectors=np.random.default_rng(9).standard_normal((2, D)).astype(np.float32))
+    adv.add(
+        ids=["post1", "post2"],
+        vectors=np.random.default_rng(9).standard_normal((2, D)).astype(np.float32),
+    )
     assert store._last_trained_n == n + 2
     _assert_index_invariants(adv)
     _check_engine_self_queries(store.engine, n + 2, [n, n + 1, 0, n // 2])

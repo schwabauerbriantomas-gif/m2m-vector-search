@@ -81,7 +81,11 @@ def test_main_warns_when_binding_non_loopback_without_api_key(monkeypatch, caplo
     monkeypatch.delenv("M2M_API_KEY", raising=False)
     with caplog.at_level(logging.WARNING):
         m.main()
-    assert [r for r in caplog.records if r.levelno == logging.WARNING and "M2M_API_KEY" in r.getMessage()]
+    assert [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "M2M_API_KEY" in r.getMessage()
+    ]
 
 
 @pytest.mark.parametrize("dockerfile", ["Dockerfile", "deploy/Dockerfile"])
@@ -139,7 +143,11 @@ def test_cuda_without_torch_warns_once(monkeypatch, caplog):
         with caplog.at_level(logging.WARNING):
             _db("cuda")
             _db("cuda")
-    uw = [w for w in caught if issubclass(w.category, UserWarning) and "cuda" in str(w.message).lower()]
+    uw = [
+        w
+        for w in caught
+        if issubclass(w.category, UserWarning) and "cuda" in str(w.message).lower()
+    ]
     assert len(uw) == 1, [str(w.message) for w in caught]
     assert "cpu" in str(uw[0].message).lower()
     logs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
@@ -241,7 +249,13 @@ def test_all_is_consistent_and_includes_hrm2config():
     assert len(m2m.__all__) == len(set(m2m.__all__))
     for name in m2m.__all__:
         assert hasattr(m2m, name), name
-    for name in GEOMETRY_NAMES + ("M2MEngine", "M2MConfig", "HRM2Config", "SimpleVectorDB", "__version__"):
+    for name in GEOMETRY_NAMES + (
+        "M2MEngine",
+        "M2MConfig",
+        "HRM2Config",
+        "SimpleVectorDB",
+        "__version__",
+    ):
         assert name in m2m.__all__, name
     assert m2m.HRM2Config is m2m.hrm2_engine.HRM2Config
 

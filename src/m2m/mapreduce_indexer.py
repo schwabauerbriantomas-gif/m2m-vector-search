@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -246,7 +246,6 @@ def parallel_index(
         RuntimeError: Si el engine no tiene splats.
     """
     from .clustering import KMeans
-    from .encoding import FullEmbeddingBuilder
 
     if not engine.splats:
         raise RuntimeError("Engine no tiene splats. Llama add_splats() primero.")
@@ -272,7 +271,6 @@ def parallel_index(
         chunk_size = max(1, n_splats // n_workers)
 
     # --- MAP phase: procesar chunks en paralelo ---
-    map_start = time.time()
     chunk_results: List[ChunkResult] = []
 
     chunks: List[Tuple[int, np.ndarray, np.ndarray]] = []
@@ -316,10 +314,8 @@ def parallel_index(
 
     # Ordenar por chunk_id
     chunk_results.sort(key=lambda cr: cr.chunk_id)
-    map_time = time.time() - map_start
 
     # --- REDUCE phase: combinar clusters parciales ---
-    reduce_start = time.time()
     n_coarse_global = min(engine.n_coarse, max(1, n_splats // 10))
 
     coarse_assignments, fine_models, fine_assignments, coarse_cluster_indices = _reduce_chunks(
@@ -356,7 +352,6 @@ def parallel_index(
                 (0, engine.embedding_dim), dtype=np.float32
             )
 
-    reduce_time = time.time() - reduce_start
     engine._is_indexed = True
     engine.coarse_cluster_radii = None  # [P17] índice nuevo: radios sin calcular
 

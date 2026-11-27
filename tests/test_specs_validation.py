@@ -7,8 +7,6 @@ validation audit report.
 """
 
 import threading
-import time
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -216,7 +214,7 @@ class TestP1DatasetTransformer:
 
         vecs = _make_vectors(1000, 64, seed=30)
         transformer = M2MDatasetTransformer(vecs)
-        result = transformer.transform()
+        transformer.transform()
         assert transformer.hierarchy is not None
         assert len(transformer.splats) > 0
 
@@ -228,7 +226,7 @@ class TestP1DatasetTransformer:
         vecs = _make_vectors(100, 64, seed=31)
         config = TransformConfig(n_clusters=10, hierarchy_levels=1, enable_cache=False)
         t = M2MDatasetTransformer(vecs, config=config)
-        result = t.transform()
+        t.transform()
         out_path = str(tmp_path / "test_splats.bin")
         save_result = t.save_for_m2m(out_path)
         assert save_result is not None
@@ -538,7 +536,7 @@ class TestI3DatasetTransformerSaveLoadSearch:
         t = M2MDatasetTransformer(vecs, config=config)
         t.transform()
         out_path = str(tmp_path / "pipeline.bin")
-        save_info = t.save_for_m2m(out_path)
+        t.save_for_m2m(out_path)
 
         loaded = load_m2m_dataset(out_path)
         assert loaded is not None
