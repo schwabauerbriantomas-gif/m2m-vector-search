@@ -43,12 +43,13 @@ class LangChainRAG:
 
         # Sample documents
         self.documents = [
-            "M2M is a high-performance Gaussian Splat storage system designed for AI applications requiring persistent, long-term memory.",
-            "The system uses a 3-tier memory hierarchy (VRAM Hot, RAM Warm, SSD Cold) for efficient storage and retrieval.",
-            "It achieves 9x-92x speedup vs linear search through Hierarchical Region Merging (HRM2) clustering.",
-            "Self-Organized Criticality (SOC) automatically consolidates representations without human intervention.",
-            "GPU acceleration via Vulkan compute shaders enables massive parallelism for energy calculations and KNN search.",
-            "M2M is optimized for AMD RX 6650XT (8GB VRAM) with full Vulkan support.",
+            # Sample corpus. These sentences are only retrieval targets for the demo.
+            "M2M stores every vector as a Gaussian splat with three parameters: a center, a concentration and an amplitude.",
+            "Each search result carries a cosine similarity score, an energy and a confidence derived from the energy landscape.",
+            "The HRM2 engine routes each query to a small number of clusters instead of scanning the whole index.",
+            "Metadata filters run before the top-k selection and fail closed on unknown operators.",
+            "A database created with a storage_path is restored, including its index, when it is reopened.",
+            "The REST API listens on 127.0.0.1 by default and can require an API key through the M2M_API_KEY variable.",
         ]
 
         print(f"[INFO] Loaded {len(self.documents)} documents")
