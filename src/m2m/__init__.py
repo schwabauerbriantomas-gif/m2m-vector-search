@@ -1512,9 +1512,12 @@ class SimpleVectorDB:
                     # del camino principal (M2MMemory.retrieve normaliza antes de buscar).
                     # Antes el indice rankeaba con la query cruda y el score usaba otra.
                     qn = normalize_sphere(query)
-                    idxs = self.search_batch_filtered(
-                        qn[np.newaxis, :], k=k, filter_fn=lambda i: bool(allowed[i])
-                    )[0]
+                    # `allowed` ya esta calculada (y excluye borrados): se pasa directo al
+                    # kernel en vez de re-entrar por search_batch_filtered, que rehace el
+                    # bucle O(n) del filtro por llamada.
+                    idxs = self._batch_topk_per_query(
+                        qn[np.newaxis, :], k=k, allowed=allowed, expand=True
+                    )[0][0]
                     seen = set()
                     for s_idx in idxs:
                         s_idx = int(s_idx)
