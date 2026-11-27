@@ -24,7 +24,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
@@ -33,6 +33,29 @@ from .wal import WriteAheadLog
 logger = logging.getLogger(__name__)
 
 MANIFEST_NAME = "manifest"  # -> <storage_path>/index/manifest.idx
+
+
+def _confined_path(root: Path, name: str, *parents: str) -> Path:
+    """Resuelve ``root/parents.../name`` exigiendo que quede DENTRO de ``root``.
+
+    Confinamiento de rutas (audit r3a-17 resto): rechaza con ValueError ``..``,
+    rutas absolutas y symlinks que escapen del directorio de storage. El ``..``
+    literal ya se bloqueaba en storage_path/backup_path, pero un symlink en
+    ``index/`` o en un shard eludía esa protección.
+    """
+    candidate = Path(str(name))
+    if candidate.is_absolute() or ".." in candidate.parts or not candidate.name:
+        raise ValueError(
+            f"Path traversal detected in {name!r}: must be a file name inside the storage directory"
+        )
+    resolved = (root.joinpath(*parents) / candidate).resolve()
+    root_resolved = root.resolve()
+    if root_resolved not in resolved.parents:
+        raise ValueError(
+            f"Path escapes the storage directory: {name!r} resolves to {resolved}, "
+            f"outside {root_resolved}"
+        )
+    return resolved
 
 
 class IndexTamperedError(RuntimeError, ValueError):
@@ -95,7 +118,14 @@ class M2MPersistence:
 
         self.storage_path = resolved
         self.enable_wal = enable_wal
-        self._lock = threading.Lock()
+        # RLock: _get_conn() flushea la metadata pendiente tomando este mismo
+        # lock desde adentro de una sección crítica (update_vector).
+        self._lock = threading.RLock()
+        # Metadata entregada a save_metadata() que aún no se commiteó, y filas
+        # que faltan entregar del lote abierto por el último save_vectors()
+        # (audit r3a-17 resto: UNA transacción por add(), no una por documento).
+        self._pending_metadata: List[Tuple] = []
+        self._batch_expected = 0
 
         # Crear estructura de directorios
         self._create_directories()
@@ -148,7 +178,8 @@ class M2MPersistence:
         self._db_path = db_path
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Obtiene conexión SQLite thread-safe."""
+        """Obtiene conexión SQLite thread-safe (flusheando antes la metadata pendiente)."""
+        self._flush_pending_metadata()
         return sqlite3.connect(self._db_path, check_same_thread=False)
 
     # -------------------------------------------------------------------------
@@ -164,11 +195,15 @@ class M2MPersistence:
         (data loss reproducido en la auditoría: 20 docs irrecuperables tras
         add(20)+add(5)+restart).
         """
+        # Un shard nuevo abre un lote de metadata nuevo: lo pendiente de un lote
+        # anterior (incompleto) queda durable ANTES de escribir este shard.
+        with self._lock:
+            self._flush_pending_metadata()
         if shard_name is None:
             existing = self.list_shards()
             n = len(existing) + 1
             shard_name = f"shard_{n:03d}"
-        shard_path = self.storage_path / "data" / "vectors" / f"{shard_name}.npy"
+        shard_path = _confined_path(self.storage_path, f"{shard_name}.npy", "data", "vectors")
         np.save(str(shard_path), vectors.astype(np.float32))
 
         # shard_idx (1-based) es lo que restore usa para mapear doc -> shard
@@ -189,10 +224,14 @@ class M2MPersistence:
             )
         self._last_shard_name = shard_name
         self._last_shard_idx = shard_idx
+        # Filas de metadata que el caller entregará para este shard: el lote se
+        # commitea en UNA transacción al recibir la última.
+        with self._lock:
+            self._batch_expected = 1 if vectors.ndim == 1 else int(len(vectors))
 
     def load_vectors(self, shard_name: str = "shard_001") -> Optional[np.ndarray]:
         """Carga vectores de un shard."""
-        shard_path = self.storage_path / "data" / "vectors" / f"{shard_name}.npy"
+        shard_path = _confined_path(self.storage_path, f"{shard_name}.npy", "data", "vectors")
         if shard_path.exists():
             return np.load(str(shard_path))
         return None
@@ -214,27 +253,87 @@ class M2MPersistence:
         metadata: Optional[Dict] = None,
         document: Optional[str] = None,
     ):
-        """Guarda metadata de un documento."""
+        """Guarda metadata de un documento.
+
+        Escritura por lotes (audit r3a-17 resto): antes cada llamada abría una
+        conexión y hacía un commit (fsync) propio, así un add() de N documentos
+        costaba N transacciones y eso dominaba el tiempo de escritura. Ahora la
+        fila se acumula y TODO el lote del shard actual —las filas entregadas
+        desde el último save_vectors()— se escribe en UNA transacción atómica
+        dentro de la última save_metadata() del lote: al volver de add() el lote
+        entero es durable y visible para cualquier otra conexión o instancia.
+        Una llamada suelta (sin save_vectors() previo, o con el lote ya
+        cerrado) commitea inmediatamente, como siempre. Si un lote queda
+        incompleto, lo pendiente se flushea en la próxima operación de storage
+        (_get_conn(), save_vectors(), checkpoint(), close(), backup()).
+        """
         now = time.time()
-        conn = self._get_conn()
+        row = (doc_id, shard_idx, vector_idx, json.dumps(metadata or {}), document, now, now)
+        with self._lock:
+            self._pending_metadata.append(row)
+            if self._batch_expected > 1:
+                self._batch_expected -= 1
+                return
+            self._batch_expected = 0
+            self._flush_pending_metadata()
+
+    def save_metadata_many(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Guarda muchas filas de metadata en UNA transacción (API explícita).
+
+        Args:
+            rows: dicts con ``id`` (o ``doc_id``), ``shard_idx``, ``vector_idx``
+                y opcionalmente ``metadata`` / ``document``.
+
+        Returns:
+            Cantidad de filas escritas. Si la transacción falla no se escribe
+            ninguna (atómico) y la excepción se propaga.
+        """
+        prepared = [self._metadata_row(r) for r in rows]
+        with self._lock:
+            self._flush_pending_metadata()  # lo entregado antes, primero
+            self._write_metadata_rows(prepared)
+        return len(prepared)
+
+    @staticmethod
+    def _metadata_row(r: Dict[str, Any]) -> Tuple:
+        now = time.time()
+        return (
+            r.get("id", r.get("doc_id")),
+            r.get("shard_idx"),
+            r.get("vector_idx"),
+            json.dumps(r.get("metadata") or {}),
+            r.get("document"),
+            now,
+            now,
+        )
+
+    def _flush_pending_metadata(self) -> None:
+        """Escribe en UNA transacción las filas de metadata pendientes."""
+        with self._lock:
+            if not self._pending_metadata:
+                return
+            # Si falla, las filas quedan pendientes (no se pierden) y la
+            # excepción se propaga.
+            self._write_metadata_rows(self._pending_metadata)
+            self._pending_metadata = []
+            self._batch_expected = 0
+
+    def _write_metadata_rows(self, rows: List[Tuple]) -> None:
+        """INSERT OR REPLACE de varias filas en una sola transacción SQLite."""
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
         try:
-            conn.execute(
+            conn.executemany(
                 """
                 INSERT OR REPLACE INTO documents
                     (id, shard_idx, vector_idx, metadata, document, deleted, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 0, ?, ?)
             """,
-                (
-                    doc_id,
-                    shard_idx,
-                    vector_idx,
-                    json.dumps(metadata or {}),
-                    document,
-                    now,
-                    now,
-                ),
+                rows,
             )
             conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
@@ -575,7 +674,7 @@ class M2MPersistence:
 
     def save_index(self, index_data: Any, name: str = "hrm2"):
         """Guarda el índice serializado con firma HMAC (H-05 fix)."""
-        index_path = self.storage_path / "index" / f"{name}.idx"
+        index_path = _confined_path(self.storage_path, f"{name}.idx", "index")
         import hashlib
         import hmac
         import os
@@ -601,7 +700,7 @@ class M2MPersistence:
             raise RuntimeError(
                 "M2M_HMAC_SECRET environment variable required for secure deserialization"
             )
-        index_path = self.storage_path / "index" / f"{name}.idx"
+        index_path = _confined_path(self.storage_path, f"{name}.idx", "index")
         if index_path.exists():
             with open(str(index_path), "rb") as f:
                 raw = f.read()
@@ -646,6 +745,7 @@ class M2MPersistence:
         """Crea un backup completo del storage."""
         import shutil
 
+        self._flush_pending_metadata()  # el backup copia metadata.db: debe estar al día
         # -- P-04 FIX: Path traversal prevention -----------------------
         backup_dir = Path(backup_path).resolve()
         if ".." in Path(backup_path).parts:
@@ -662,6 +762,11 @@ class M2MPersistence:
         """Restaura desde un backup."""
         import shutil
 
+        # El storage se reemplaza entero: las filas pendientes de un lote
+        # incompleto corresponden al estado previo y se descartan.
+        with self._lock:
+            self._pending_metadata = []
+            self._batch_expected = 0
         shutil.rmtree(str(self.storage_path), ignore_errors=True)
         shutil.copytree(backup_path, str(self.storage_path))
         self._init_metadata_db()
@@ -672,6 +777,7 @@ class M2MPersistence:
 
     def checkpoint(self):
         """Crea checkpoint del WAL."""
+        self._flush_pending_metadata()  # checkpoint = todo durable
         if self.wal:
             self.wal.checkpoint()
 
@@ -712,6 +818,7 @@ class M2MPersistence:
 
     def close(self):
         """Cierra el storage flusheando el WAL."""
+        self._flush_pending_metadata()
         if self.wal:
             self.wal.checkpoint()
             self.wal.close()

@@ -22,18 +22,26 @@ Endpoints:
   POST /v1/admin/backup
 """
 
+import hmac
+import json
+import logging
 import os
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 from .. import AdvancedVectorDB, SimpleVectorDB
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -228,10 +236,37 @@ class CollectionManager:
 # App setup
 # ---------------------------------------------------------------------------
 
+# -- SECURITY: Request body size limit (audit r3a-17 resto) ---------------
+# Un body mayor a M2M_MAX_BODY_BYTES (default 32 MiB) se rechaza con HTTP 413
+# ANTES de parsearse: con Content-Length, sin leer ni un byte; sin
+# Content-Length (chunked) la lectura se corta al superar el tope. Lo implementa
+# el max_body_size nativo de FastAPI/Starlette; se lee al construir la app.
+_DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
+
+
+def _max_body_bytes() -> int:
+    raw = os.environ.get("M2M_MAX_BODY_BYTES")
+    if raw is None:
+        return _DEFAULT_MAX_BODY_BYTES
+    try:
+        limit = int(raw)
+    except ValueError:
+        limit = -1
+    if limit < 0:
+        logger.warning(
+            "M2M_MAX_BODY_BYTES=%r is not a non-negative integer; using %d",
+            raw,
+            _DEFAULT_MAX_BODY_BYTES,
+        )
+        return _DEFAULT_MAX_BODY_BYTES
+    return limit
+
+
 app = FastAPI(
     title="M2M EBM Vector Database API",
     description="REST API para M2M Vector Search con features EBM",
     version="2.0.0",
+    max_body_size=_max_body_bytes(),
 )
 
 # -- SECURITY: CORS configuration (M-01 fix) ----------------------------
@@ -251,40 +286,103 @@ _rate_limit_store: Dict[str, List[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_MAX_REQUESTS = 100  # per window per IP
 _RATE_LIMIT_MAX_VECTORS_PER_INSERT = 100_000
+# Memoria acotada (audit r3a-17 resto): a lo sumo _RATE_LIMIT_MAX_CLIENTS IPs en
+# memoria. Las IPs sin pedidos dentro de la ventana se purgan en un barrido
+# amortizado (a lo sumo uno cada _RATE_LIMIT_SWEEP_INTERVAL s, además del prune
+# por-IP); si aun con el barrido se supera el tope, se evicta la IP con la
+# actividad más vieja. Los defaults (100 pedidos / 60 s) no cambian.
+_RATE_LIMIT_MAX_CLIENTS = 10_000
+_RATE_LIMIT_SWEEP_INTERVAL = 5.0
+_rate_limit_last_sweep = 0.0
+_rate_limit_lock = threading.Lock()
 
 
-def _check_rate_limit(client_ip: str) -> None:
+def _trim_rate_limit_store(now: float) -> None:
+    """Recorta la tabla a ``_RATE_LIMIT_MAX_CLIENTS`` (evicta la IP con actividad más vieja)."""
+    store = _rate_limit_store
+    overflow = len(store) - _RATE_LIMIT_MAX_CLIENTS
+    if overflow > 0:
+        # Una entrada sin timestamps registrados cuenta como recién tocada (ahora).
+        oldest_first = sorted(store, key=lambda ip: store[ip][-1] if store[ip] else now)
+        for ip in oldest_first[:overflow]:
+            store.pop(ip, None)
+
+
+def _sweep_rate_limit_store(now: float) -> None:
+    """Purga las IPs sin pedidos dentro de la ventana y recorta la tabla al tope."""
+    store = _rate_limit_store
+    for ip in [ip for ip, ts in store.items() if not ts or now - ts[-1] >= _RATE_LIMIT_WINDOW]:
+        store.pop(ip, None)
+    _trim_rate_limit_store(now)
+
+
+def _check_rate_limit(client_ip: str, now: Optional[float] = None) -> None:
     """Basic rate limiting per IP. Raises HTTPException if exceeded."""
-    import time as _time
+    global _rate_limit_last_sweep
 
-    now = _time.time()
-    if client_ip not in _rate_limit_store:
-        _rate_limit_store[client_ip] = []
-    # Prune old entries
-    _rate_limit_store[client_ip] = [
-        t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
-    ]
-    if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    if now is None:
+        now = time.time()
+    with _rate_limit_lock:
+        if now - _rate_limit_last_sweep >= _RATE_LIMIT_SWEEP_INTERVAL:
+            _sweep_rate_limit_store(now)
+            _rate_limit_last_sweep = now
+        if client_ip not in _rate_limit_store:
+            _rate_limit_store[client_ip] = []
+            _trim_rate_limit_store(now)
+        # Prune old entries
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store[client_ip] if now - t < _RATE_LIMIT_WINDOW
+        ]
+        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
 
 # -- SECURITY: API Key validation (C-01, P-06 fix) ---------------------
+# Modelo de autenticación (audit r3a-17 resto):
+#   * SIN M2M_API_KEY (default): la API queda ABIERTA en los endpoints normales
+#     (desarrollo local / Quick Start). Decisión conservada a propósito.
+#   * CON M2M_API_KEY: los endpoints que validan exigen ``Authorization: Bearer
+#     <key>`` o ``X-API-Key: <key>``, comparados en tiempo constante.
+#   * ``/v1/admin/*`` (checkpoint, backup) EXIGEN key: sin key configurada
+#     responden 503 (fail closed) en vez de quedar abiertos.
 _API_KEY = None  # Set via M2M_API_KEY env var
 
 
-def _validate_api_key(request: Request) -> None:
-    """Validates API key if configured via M2M_API_KEY environment variable."""
-    import os
+def _configured_api_key() -> Optional[str]:
+    """Key efectiva: la global ``_API_KEY`` si se seteó a mano; si no, ``M2M_API_KEY``."""
+    return _API_KEY if _API_KEY is not None else os.environ.get("M2M_API_KEY")
 
-    global _API_KEY
-    if _API_KEY is None:
-        _API_KEY = os.environ.get("M2M_API_KEY")
-    if _API_KEY is not None:
-        auth = request.headers.get("Authorization", "")
-        api_key = request.headers.get("X-API-Key", "")
-        token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else api_key
-        if not token or token != _API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+def _extract_token(request: Request) -> str:
+    """Token del pedido: ``Authorization: Bearer <tok>`` (scheme case-insensitive,
+    RFC 7235) o el header ``X-API-Key``. Otro scheme de Authorization no es una key."""
+    auth = request.headers.get("Authorization", "")
+    scheme, _, credential = auth.partition(" ")
+    if scheme.strip().lower() == "bearer":
+        return credential.strip()
+    return request.headers.get("X-API-Key", "").strip()
+
+
+def _validate_api_key(request: Request, admin: bool = False) -> None:
+    """Valida la API key si está configurada (M2M_API_KEY o ``edge_api._API_KEY``).
+
+    La comparación es en tiempo constante (``hmac.compare_digest``). Con
+    ``admin=True`` el endpoint es de administración y falla cerrado: sin key
+    configurada responde 503 en vez de quedar abierto.
+    """
+    expected = _configured_api_key()
+    if expected is None:
+        if admin:
+            raise HTTPException(
+                status_code=503,
+                detail="Admin endpoints require an API key: M2M_API_KEY is not configured",
+            )
+        return
+    token = _extract_token(request)
+    if not token or not hmac.compare_digest(
+        token.encode("utf-8"), expected.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 # -- SECURITY: Collection name sanitization (H-01, P-03 fix) -----------
@@ -349,8 +447,9 @@ def stats(request: Request):
             db = _manager.get(name)
             s = db.get_stats()
             collections.append({"name": name, **s})
-        except Exception:
-            pass
+        except Exception as e:
+            # Antes: `pass` → la colección desaparecía del informe sin rastro.
+            collections.append({"name": name, "error": str(e)})
     return {
         "collections_count": len(_manager.list_names()),
         "collections": collections,
@@ -408,8 +507,53 @@ def delete_collection(name: str, request: Request):
 # ---------------------------------------------------------------------------
 
 
+async def _parse_insert_request(request: Request) -> InsertVectorsRequest:
+    """Body del insert en dos pasos: JSON → CONTEO de vectores → validación.
+
+    El tope de vectores por request se chequea por conteo sobre el JSON ya
+    decodificado y ANTES de que pydantic convierta/valide los arrays (audit
+    r3a-17 resto): antes el validador del tope corría último, así 100.001
+    vectores quemaban segundos de CPU en validación para terminar en 422.
+    """
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as e:
+        # Mismo 422 ("json_invalid") que produce FastAPI para JSON inválido.
+        raise RequestValidationError(
+            [
+                {
+                    "type": "json_invalid",
+                    "loc": ("body", e.pos),
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": e.msg},
+                }
+            ],
+            body=e.doc,
+        ) from e
+    vectors = body.get("vectors") if isinstance(body, dict) else None
+    if isinstance(vectors, list) and len(vectors) > _RATE_LIMIT_MAX_VECTORS_PER_INSERT:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", "vectors"],
+                    "msg": f"Value error, Max {_RATE_LIMIT_MAX_VECTORS_PER_INSERT} vectors per request",
+                    "type": "value_error",
+                    "input": {"count": len(vectors)},
+                }
+            ],
+        )
+    try:
+        return InsertVectorsRequest.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=jsonable_encoder(e.errors())) from e
+
+
 @app.post("/v1/collections/{name}/vectors")
-def insert_vectors(name: str, req: InsertVectorsRequest, request: Request):
+def insert_vectors(
+    name: str, request: Request, req: InsertVectorsRequest = Depends(_parse_insert_request)
+):
     """Inserta vectores en una colección."""
     _validate_api_key(request)
     _check_rate_limit(request.client.host if request.client else "unknown")
@@ -678,11 +822,13 @@ def explore(name: str, req: ExploreRequest, request: Request):
 
 
 @app.get("/v1/collections/{name}/suggest")
-def suggest_exploration(name: str, n: int = 3):
+def suggest_exploration(name: str, request: Request, n: int = 3):
     """Sugerencias de exploración (GET)."""
     req = ExploreRequest()
     req.n_suggestions = n
-    return explore(name, req)
+    # El Request viaja a explore(): con key configurada validaba ``request=None``
+    # y devolvía 500 (AttributeError) en vez de 401/200.
+    return explore(name, req, request)
 
 
 # ---------------------------------------------------------------------------
@@ -707,25 +853,61 @@ def collection_stats(name: str):
 
 
 @app.post("/v1/admin/checkpoint")
-def checkpoint(name: Optional[str] = None, request: Request = None):
-    """Crea checkpoint del WAL."""
-    if request:
-        _validate_api_key(request)
+def checkpoint(request: Request, name: Optional[str] = None):
+    """Crea checkpoint (flush + fsync del WAL) de una colección o de todas.
+
+    No silencia errores (audit r3a-17 resto). ``name`` inexistente → 404. Una
+    colección sin ``storage_path`` pedida por nombre → 400 (no hay WAL que
+    flushear); en el barrido de todas se informa como ``skipped``. Un fallo real
+    de ``db.save()`` → 500 con el mensaje y el resultado por colección (antes:
+    ``except Exception: pass`` y un "Checkpoint created" falso).
+    """
+    _validate_api_key(request, admin=True)
+    if name is not None and name not in _manager._collections:
+        raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
     names = [name] if name else _manager.list_names()
+    results: Dict[str, Dict[str, str]] = {}
+    failed = []
     for n in names:
+        db = _manager.get(n)
+        if not db.storage:
+            if name:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Collection '{n}' has no storage_path: nothing to checkpoint",
+                )
+            results[n] = {"status": "skipped", "reason": "no storage configured"}
+            continue
         try:
-            db = _manager.get(n)
-            db.save(path="")
-        except Exception:
-            pass
-    return {"message": "Checkpoint created", "collections": names}
+            path = db.save()
+        except Exception as e:
+            results[n] = {"status": "error", "reason": str(e)}
+            failed.append(f"{n}: {e}")
+        else:
+            results[n] = {"status": "ok", "path": str(path)}
+    if failed:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Checkpoint failed for {len(failed)} collection(s): " + "; ".join(failed),
+                "collections": names,
+                "results": results,
+            },
+        )
+    return {"message": "Checkpoint created", "collections": names, "results": results}
 
 
 @app.post("/v1/admin/backup")
 def backup(req: BackupRequest, request: Request):
-    """Crea backup de todas las colecciones con storage."""
-    _validate_api_key(request)
+    """Crea backup de todas las colecciones con storage.
+
+    Sin ``storage_path`` → ``skipped``. ``ValueError`` (entrada inválida, p.ej.
+    path traversal) → 400. Cualquier otro fallo → 500 con el motivo por
+    colección (antes: HTTP 200 con el error escondido adentro del body).
+    """
+    _validate_api_key(request, admin=True)
     results = {}
+    failed = []
     for name in _manager.list_names():
         try:
             db = _manager.get(name)
@@ -734,8 +916,20 @@ def backup(req: BackupRequest, request: Request):
                 results[name] = {"status": "ok", "path": path}
             else:
                 results[name] = {"status": "skipped", "reason": "no storage configured"}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"{name}: {e}")
         except Exception as e:
             results[name] = {"status": "error", "reason": str(e)}
+            failed.append(name)
+    if failed:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Backup failed for {len(failed)} collection(s): " + ", ".join(failed),
+                "backup_path": req.backup_path,
+                "results": results,
+            },
+        )
     return {"backup_path": req.backup_path, "results": results}
 
 
