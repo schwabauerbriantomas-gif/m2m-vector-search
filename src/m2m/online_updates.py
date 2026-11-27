@@ -125,10 +125,16 @@ class OnlineUpdater:
             # most-reinforced splat shrinks toward the origin (‖μ‖ 1 → 0.073
             # after 500 relevant feedbacks) and loses all directional specificity.
             diff = event.query - mu[idx]
+            old_norm = float(np.linalg.norm(mu[idx]))
             new_mu = mu[idx] + self.lr_mu * diff
             new_norm = float(np.linalg.norm(new_mu))
             if np.isfinite(new_norm) and new_norm >= 1e-6:
-                mu[idx] = new_mu / new_norm
+                # Se preserva la norma PROPIA del splat (no "1" a secas): con un store
+                # normalizado equivale a re-proyectar a la esfera unidad; con un store
+                # sin normalizar (SplatStore directo) no encoge ese único splat con
+                # respecto a sus vecinos, que lo degradaba en el ranking.
+                target = old_norm if np.isfinite(old_norm) and old_norm >= 1e-6 else 1.0
+                mu[idx] = new_mu * (target / new_norm)
             # else: paso degenerado (query antipodal con lr_mu >= 0.5, o query no
             # finita) -> se rechaza el drift y el splat queda intacto.
 
