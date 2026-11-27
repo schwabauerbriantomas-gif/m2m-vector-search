@@ -6,7 +6,7 @@ described a `unit/`, `integration/` and `benchmarks/` tree, LlamaIndex/MCP tests
 
 ## Structure
 
-Flat: 36 `test_*.py` files in `tests/`, no subdirectories. `tests/test_audit_*.py` are the
+Flat: 40 `test_*.py` files in `tests/`, no subdirectories (count on the 2.4.0 branch). `tests/test_audit_*.py` are the
 regression tests of the 2026-11 audit fix pass. `tests/validate_vulkan.py` is a manual script
 and is not collected by pytest.
 
