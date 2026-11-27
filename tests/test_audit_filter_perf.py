@@ -268,6 +268,51 @@ def test_cache_rebuilt_after_restore_from_storage(tmp_path):
 # ---------------------------------------------------------------------------
 # 3. search_batch_filtered(Q, k, filter={...})
 # ---------------------------------------------------------------------------
+def test_search_batch_filtered_accepts_dict_filter(count_evals):
+    db, X = _make_db()
+    Q = X[:8]
+    flt = {"cat": {"$in": [1, 3]}}
+    got = db.search_batch_filtered(Q, k=K, filter=flt)
+    assert got.shape == (8, K)
+    order = db._splat_id_order
+    ref = db.search_batch_filtered(
+        Q, k=K, filter_fn=lambda i: order[i] in db._vectors and db._metadata[order[i]]["cat"] in (1, 3)
+    )
+    np.testing.assert_array_equal(got, ref)
+    for row in got:
+        for pos in row:
+            assert pos >= 0 and db._metadata[order[pos]]["cat"] in (1, 3)
+    # 2ª llamada con el mismo filtro: 0 evaluaciones (usa el cache)
+    n0 = count_evals["n"]
+    got2 = db.search_batch_filtered(Q, k=K, filter=flt)
+    assert count_evals["n"] == n0
+    np.testing.assert_array_equal(got2, got)
+    # Filtro invalido -> ValueError ANTES de tocar el indice (fail closed)
+    with pytest.raises(ValueError):
+        db.search_batch_filtered(Q, k=K, filter={"cat": {"$bogus": 1}})
+    with pytest.raises(ValueError):
+        db.search_batch_filtered(Q, k=K, filter={"cat": {"$eq": 1}}, filter_fn=lambda i: True)
+
+
+def test_lsh_mode_dict_filter_matches_filter_fn():
+    rng = np.random.default_rng(7)
+    n, d = 400, 16
+    X = rng.standard_normal((n, d)).astype(np.float32)  # uniforme -> silueta baja -> LSH
+    db = SimpleVectorDB(latent_dim=d, enable_lsh_fallback=True)
+    db.add(ids=[f"d{i}" for i in range(n)], vectors=X, metadata=[{"cat": int(i % 4)} for i in range(n)])
+    assert db._use_lsh
+    flt = {"cat": {"$eq": 1}}
+    res = db.search(X[0], k=20, filter=flt, include_metadata=True)
+    assert len(res) == 20 and all(r.metadata["cat"] == 1 for r in res)
+    Q = X[:6]
+    a = db.search_batch_filtered(Q, k=20, filter=flt)
+    b = db.search_batch_filtered(Q, k=20, filter_fn=lambda i: db._metadata[db._lsh_id_map[i]]["cat"] == 1)
+    np.testing.assert_array_equal(a, b)
+    db.update("d1", metadata={"cat": 0})
+    res = db.search(X[1], k=1000, filter=flt, include_metadata=True)
+    assert "d1" not in {r.id for r in res} and len(res) == 99
+
+
 # ---------------------------------------------------------------------------
 # 5. Concurrencia: 2 lectores con filtro + 1 writer (add/update/delete con metadata)
 # ---------------------------------------------------------------------------

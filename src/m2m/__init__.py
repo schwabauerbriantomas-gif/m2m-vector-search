@@ -2297,6 +2297,7 @@ class SimpleVectorDB:
         queries: np.ndarray,
         k: int = 10,
         filter_fn=None,
+        filter: Optional[Union[Dict, Callable]] = None,
     ) -> np.ndarray:
         """Búsqueda por lotes con PRE-filtro (ACORN-lite, H8).
 
@@ -2304,6 +2305,11 @@ class SimpleVectorDB:
         contener ni un solo doc que pase el filtro (post-filter media recall 0.26 con
         selectividad 25%; medido en audit). filter_fn: callable(int posicion) -> bool,
         evaluado una vez por posición y aplicado como máscara de candidatos.
+        ``filter`` (adicional [P13]): dict ``{campo: valor | {op: valor}}`` o
+        callable ``metadata -> bool`` con la misma semántica que
+        ``search(filter=...)``; la máscara por posición se cachea por (filtro,
+        versión de metadata) y toda escritura (add/update/delete) la invalida.
+        ``filter`` y ``filter_fn`` juntos -> ValueError.
 
         Candidatos POR QUERY [audit r4-07, r1-12]: cada query se puntúa solo contra las
         filas que pasan el filtro dentro de SUS clusters sondeados; si así quedan menos
@@ -2332,11 +2338,19 @@ class SimpleVectorDB:
         k = int(k)
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
-        if filter_fn is None:
+        if filter is not None and filter_fn is not None:
+            raise ValueError("pasa filter (dict) o filter_fn (callable posicion -> bool), no ambos")
+        validate_metadata_filter(filter)
+        if filter is None and filter_fn is None:
             return self.search_batch(queries, k=k, include_metadata=False)
         if self._use_lsh and self.lsh is not None:
             # Modo LSH: los vectores viven en el indice LSH (n_active=0 en splats); sin
             # esta rama search_batch_filtered devolvia todo -1 [audit r1-07].
+            if filter is not None:
+                id_map = self._lsh_id_map
+                with self._rw_lock:
+                    allowed = self._filter_position_mask(filter, id_map, len(id_map))
+                filter_fn = lambda i: i < len(allowed) and bool(allowed[i])
             return self._lsh_batch_topk(queries, k=k, filter_fn=filter_fn)[0]
 
         # Mismo lock que los writers (audit r1-03): ver search_batch().
@@ -2348,9 +2362,14 @@ class SimpleVectorDB:
             if n == 0 or (alive is not None and not alive.any()):
                 return np.full((B, 0), -1, dtype=np.int64)
 
-            allowed = np.fromiter((bool(filter_fn(i)) for i in range(n)), dtype=bool, count=n)
-            if alive is not None:
-                allowed &= alive
+            if filter is not None:
+                # [P13] dict (o callable): mascara por posicion cacheada; ya excluye
+                # las posiciones de docs borrados.
+                allowed = self._filter_position_mask(filter, self._splat_id_order, n)
+            else:
+                allowed = np.fromiter((bool(filter_fn(i)) for i in range(n)), dtype=bool, count=n)
+                if alive is not None:
+                    allowed &= alive
             if not allowed.any():
                 return np.full((B, k), -1, dtype=np.int64)
             return self._batch_topk_per_query(queries, k, allowed=allowed, expand=True)[0]
