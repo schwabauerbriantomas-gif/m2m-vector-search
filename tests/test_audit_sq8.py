@@ -140,3 +140,46 @@ def test_explicit_oversample_still_honoured_and_validated(clustered_case):
     for bad in (0, -1):
         with pytest.raises(ValueError):
             st.search_batch(Q, k=K, oversample=bad)
+
+
+# ----------------------------------------------------------------- r2-05
+@pytest.mark.parametrize("spec", [None, 16, "auto"])
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_add_rejects_non_finite_before_writing(tmp_path, spec, bad):
+    rng = np.random.default_rng(5)
+    dim = 16
+    st = SQ8DiskStore(dim=dim, dump_dir=str(tmp_path), spectral_r=spec)
+    st.add(rng.standard_normal((50, dim)).astype(np.float32))
+    st.flush()  # dump activo: el add rechazado no debe invalidarlo ni abrir spill
+    before = (len(st), st._f32_lines, st._f32_path, st._float_mm is not None,
+              None if st._q is None else st._q.copy(),
+              None if st._scale is None else st._scale.copy(),
+              None if st._stats is None else st._stats[0])
+    rows = rng.standard_normal((3, dim)).astype(np.float32)
+    rows[1, 2] = bad
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        st.add(rows)
+    assert (len(st), st._f32_lines, st._f32_path, st._float_mm is not None) == before[:4]
+    if before[4] is None:
+        assert st._q is None
+    else:
+        np.testing.assert_array_equal(st._q, before[4])
+        np.testing.assert_array_equal(st._scale, before[5])
+    assert (None if st._stats is None else st._stats[0]) == before[6]
+    assert np.all(np.isfinite(st._scale))
+    assert np.all(np.isfinite(np.asarray(st._float_mm)))
+    with pytest.raises(ValueError, match=r"row\(s\) \[1\]"):  # nombra la fila ofensiva
+        st.add(rows)
+
+
+@pytest.mark.parametrize("spec", [None, "auto"])
+def test_build_from_float_npy_rejects_non_finite(tmp_path, spec):
+    X = np.random.default_rng(6).standard_normal((500, 32)).astype(np.float32)
+    X[123, 7] = np.nan
+    xp = str(tmp_path / "X.npy")
+    np.save(xp, X)
+    dump = tmp_path / "dump"
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        SQ8DiskStore.build_from_float_npy(xp, str(dump), chunk=100, spectral_r=spec)
+    assert not (dump / "scale.npy").exists()
+    assert not (dump / ".f32_spill.bin").exists()

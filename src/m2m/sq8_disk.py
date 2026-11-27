@@ -66,6 +66,19 @@ KNEE_MIN_CURVATURE = 0.1
 MP_EDGE_MARGIN = 1.10
 
 
+def _check_finite(x: np.ndarray, offset: int = 0) -> None:
+    """audit r2-05: NaN/Inf se codificaban como ceros con scale NaN/inf (vector
+    no-buscable, descubierto recien al buscar). Mismo criterio que
+    SimpleVectorDB.add: ValueError ANTES de tocar codigos, spill o stats."""
+    finite = np.isfinite(x)
+    if not finite.all():
+        rows = np.flatnonzero(~finite.all(axis=1))
+        raise ValueError(
+            f"vectors contain NaN or Inf values at row(s) "
+            f"{(offset + rows[:5]).tolist()} ({len(rows)} row(s)); nothing was added"
+        )
+
+
 def _knee_deviation(evals_desc: np.ndarray):
     """Kneedle crudo, sin umbral -> (rank en la maxima distancia a la cuerda de
     la varianza explicada acumulada, distancia maxima, varianza explicada ahi).
@@ -207,6 +220,7 @@ class SQ8DiskStore:
             x = x[np.newaxis, :]
         if x.shape[1] != self.dim:
             raise ValueError(f"dim mismatch: expected {self.dim}, got {x.shape[1]}")
+        _check_finite(x)  # audit r2-05: antes de tocar codigos, spill o stats
         if self.spectral_r is not None:
             self._add_spectral(x)
             return
@@ -489,8 +503,17 @@ class SQ8DiskStore:
         st = cls(dim=int(mm.shape[1]), dump_dir=dump_dir, spectral_r=spectral_r)
         os.makedirs(dump_dir, exist_ok=True)
         if spectral_r is None:
-            for i in range(0, len(mm), chunk):
-                st.add(np.asarray(mm[i : i + chunk]))
+            try:
+                for i in range(0, len(mm), chunk):
+                    st.add(np.asarray(mm[i : i + chunk]))
+            except ValueError:
+                # audit r2-05: que no quede un spill parcial en dump_dir (un
+                # build posterior lo appendearia y el flush degradaria el
+                # rescoring a la reconstruccion SQ8).
+                st._close_spill()
+                if st._f32_path is not None and os.path.exists(st._f32_path):
+                    os.remove(st._f32_path)
+                raise
             q = st._q
             scale = st._scale
             zero = st._zero
@@ -515,6 +538,7 @@ class SQ8DiskStore:
         ntot = 0
         for i in range(0, len(mm), chunk):
             x64 = np.asarray(mm[i : i + chunk]).astype(np.float64)
+            _check_finite(x64, offset=i)  # audit r2-05
             sx = sx + x64.sum(axis=0)
             sxx = sxx + x64.T @ x64
             ntot += len(x64)
