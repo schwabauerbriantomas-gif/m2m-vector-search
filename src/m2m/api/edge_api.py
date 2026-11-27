@@ -420,12 +420,16 @@ def insert_vectors(name: str, req: InsertVectorsRequest, request: Request):
         raise HTTPException(status_code=404, detail=str(e))
 
     vectors = np.array(req.vectors, dtype=np.float32)
-    added = db.add(
-        ids=req.ids,
-        vectors=vectors,
-        metadata=req.metadata,
-        documents=req.documents,
-    )
+    try:
+        added = db.add(
+            ids=req.ids,
+            vectors=vectors,
+            metadata=req.metadata,
+            documents=req.documents,
+        )
+    except ValueError as e:
+        # Payload inválido (NaN/Inf, norma ~0, ids inválidos) → 400, no 500.
+        raise HTTPException(status_code=400, detail=str(e))
     _manager.update_count(name, added)
     return {"added": added, "collection": name}
 
@@ -459,13 +463,17 @@ def update_vector(name: str, vector_id: str, req: UpdateVectorRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
     vector = np.array(req.vector, dtype=np.float32) if req.vector else None
-    result = db.update(
-        id=vector_id,
-        vector=vector,
-        metadata=req.metadata,
-        document=req.document,
-        upsert=req.upsert,
-    )
+    try:
+        result = db.update(
+            id=vector_id,
+            vector=vector,
+            metadata=req.metadata,
+            document=req.document,
+            upsert=req.upsert,
+        )
+    except ValueError as e:
+        # Vector inválido (NaN/Inf, norma ~0, upsert sin vector) → 400, no 500.
+        raise HTTPException(status_code=400, detail=str(e))
 
     if not result.success:
         raise HTTPException(status_code=404, detail=result.message)
@@ -485,7 +493,10 @@ def delete_vector(name: str, vector_id: str, hard: bool = False):
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    result = db.delete(id=vector_id, hard=hard)
+    try:
+        result = db.delete(id=vector_id, hard=hard)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if result.deleted == 0:
         raise HTTPException(status_code=404, detail=f"Vector '{vector_id}' not found")
 
@@ -772,7 +783,10 @@ async def legacy_ingest(request: Request):
     if np.any(np.isnan(vecs)):
         raise HTTPException(status_code=400, detail="vectors contain NaN values")
     db = _manager.get(_LEGACY_COLLECTION)
-    added = db.add(ids=doc_ids, vectors=vecs)
+    try:
+        added = db.add(ids=doc_ids, vectors=vecs)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     _manager.update_count(_LEGACY_COLLECTION, added)
     return {"added": added}
 
