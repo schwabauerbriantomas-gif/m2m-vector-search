@@ -629,6 +629,10 @@ class SQ8DiskStore:
             Q = Q[np.newaxis, :]
         if Q.shape[1] != self.dim:
             raise ValueError(f"dim mismatch: expected {self.dim}, got {Q.shape[1]}")
+        if not np.isfinite(Q).all():
+            # Antes un NaN/Inf en Q daba d2 NaN y un top-k basura en silencio
+            # [audit P15]; misma respuesta que SimpleVectorDB.search.
+            raise ValueError("queries contain NaN or Inf values")
         if k < 1:
             raise ValueError(f"k must be >= 1 (got {k})")
         if oversample is None:
@@ -684,6 +688,8 @@ class SQ8DiskStore:
                 blk += qq[qs:qe, None]
                 blk += np.einsum("ij,ij->i", deq, deq)[None, :]
                 np.maximum(blk, 0.0, out=d2[:, i:j])
+                # Libera antes de asignar los arrays de la próxima iteración [audit P15].
+                del deq, blk
             for b in range(qs, qe):
                 part = np.argpartition(d2[b - qs], k1 - 1)[:k1]
                 cand = np.sort(part)  # gather ordenado = lectura de paginas secuencial
