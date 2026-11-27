@@ -12,7 +12,10 @@ refuses to produce output when any of these fails:
 * two texts, or a text and a legend, overlap after the figure is drawn;
 * a text falls outside the canvas;
 * a value label sits on top of a bar;
-* two consecutive runs do not produce byte-identical PNGs.
+* two consecutive runs do not produce byte-identical PNGs;
+* a text that a JSON records in Spanish is not in the explicit dictionary ``TEXTO_EN``
+  (the run and ``--check`` fail with the list of missing texts; a translation may not
+  introduce a digit that the source text does not have).
 
 Design rules: English text, comma thousands / dot decimals, horizontal bars with the
 label on the left and the value at the end of the bar, ``layout="constrained"``, one
@@ -20,6 +23,7 @@ palette shared by all figures (amber = NumPy linear scan, gray = before commit, 
 single-query path after, greens = batch paths, violet/pink/cyan = datasets).
 
 Usage:  python scripts/make_readme_figures.py [--check] [--solo bench-hero,bench-qps]
+        (--check: no hand-typed numbers, no digit added by a translation, no untranslated text)
 """
 import ast
 import hashlib
@@ -29,6 +33,7 @@ import math
 import os
 import re
 import sys
+from collections import Counter
 
 import matplotlib
 
@@ -58,11 +63,8 @@ UMBRAL_RECALL = 1.0  # el recall se anota solo donde es menor que esto
 T_VALOR = 8.5
 
 # Texto mandado por el dueno del pass que SI lleva cifras (no salen de los JSON).
-NOTA_RUIDO = ("Noise, stated honestly: between two runs of the same code most rows vary by about "
-              "±10%, but the large batches (B=1000, and B=200 on the 10k clustered dataset) varied "
-              "by up to 40%. Treat differences inside that band as noise.")
 LITERALES_DE_LAYOUT = frozenset({DPI})  # unicos enteros >= 100 permitidos en este archivo
-TEXTO_CON_CIFRAS_PERMITIDAS = {"NOTA_RUIDO", "_RE_SHA"}
+TEXTO_CON_CIFRAS_PERMITIDAS = {"TEXTO_EN", "_RE_SHA"}  # claves = textos de los JSON (con sus numeros), ver sin_cifras_nuevas
 _RE_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _RE_CIFRAS = re.compile(r"\d{3,}")
 _RE_SHA = re.compile(r"(?i)sha-?256")  # nombre de algoritmo, no una cifra
@@ -77,8 +79,121 @@ FN_C = "#2dd4bf"          # search_batch_filtered(filter_fn=)
 POSTFILTRO_C = "#f87171"  # post-filtro legado
 DS_PALETTE = ["#a78bfa", "#f472b6", "#22d3ee", "#fafafa", "#facc15"]  # por (n, d)
 DS_NOMBRES = ["violet", "pink", "cyan", "white", "yellow"]
+# Textos que los JSON de resultados guardan en espanol (identificadores de camino, parametros,
+# descripciones de filtro, invalidacion, definiciones de qps, veredicto del gate) -> ingles para
+# docs/BENCHMARKS.md. Diccionario EXPLÍCITO texto -> texto: un texto que no está hace fallar la
+# corrida con la lista de faltantes (no hay heurística ni traducción parcial). Las claves son
+# copias literales de los JSON, números incluidos; sin_cifras_nuevas() comprueba que la
+# traducción no agregue ningún dígito que el original no tenga.
+TEXTO_EN = {
+    # --- dataset.kind
+    "clustered": "clustered", "uniform": "uniform",
+    # --- camino
+    "baseline": "baseline", "m2m": "m2m", "build": "build", "snapshot": "reopen", "escritura": "add(n)",
+    "add_unitario": "single add", "single_filtro": "search(filter=dict)",
+    "single_filtro_frio": "search(filter=dict), first evaluation", "batch_filtro_dict": "batch_filtered (dict)",
+    "batch_filtro_fn": "batch_filtered (filter_fn)", "batch_postfiltro": "batch + post-filter",
+    "hrm2_lod": "hrm2_lod", "sq8": "sq8", "hnsw": "hnsw", "lsh": "lsh", "gate": "gate",
+    # --- estado / modo / spectral_r / filtro_nombre
+    "n/d": "n/d", "completo": "full vectors", "espectral_auto": "spectral (auto)", "auto": "auto",
+    "nocorr_25": "nocorr_25", "nocorr_5": "nocorr_5", "corr_25": "corr_25", "corr_5": "corr_5",
+    # --- descripcion del filtro (bench_filtered.json)
+    "correlacionado: 1/20 de los clusters verdaderos": "correlated: 1/20 of the true clusters",
+    "correlacionado: 1/4 de los clusters verdaderos": "correlated: 1/4 of the true clusters",
+    "no correlacionado: i % 20 == 0": "uncorrelated: i % 20 == 0",
+    "no correlacionado: i % 4 == 0": "uncorrelated: i % 4 == 0",
+    "escritura publica update(doc0, metadata) antes de cada consulta":
+        "public write update(doc0, metadata) before each query",
+    # --- qps_definicion / unidad (bench_storage.json, bench_filtered.json)
+    "1 / latencia mediana de evaluaciones frías individuales": "1 / median latency of individual cold evaluations",
+    "adds / s (1 doc por add; 1/mediana)": "adds / s (1 doc per add; 1/median)",
+    "docs / tiempo de add() (mediana entre repeticiones)": "docs / add() wall time (median over repetitions)",
+    "docs / tiempo de add(n)": "docs / add(n) wall time",
+    "no aplica (latencia = tiempo de reopen)": "not applicable (latency = reopen time)",
+    "no aplica (tiempo total del veredicto)": "not applicable (total time of the verdict)",
+    "ms por add() completo": "ms per complete add()", "ms por add(1 doc)": "ms per add(1 doc)",
+    "ms por add(n)": "ms per add(n)", "ms por reopen": "ms per reopen",
+    # --- parametro (bench_search / bench_filtered / bench_index_types / bench_storage)
+    "linear_single (X @ q + top-10)": "linear_single (X @ q + top-10)",
+    "linear_batched B=200 (Q @ X.T)": "linear_batched B=200 (Q @ X.T)",
+    "linear_batched B=1000 (200 queries x5)": "linear_batched B=1000 (200 queries x5)",
+    "linear_batched B=200 (referencia)": "linear_batched B=200 (reference)",
+    "search(q,k) legacy (tupla)": "search(q,k) legacy (tuple)",
+    "search(q,k) include_metadata=True": "search(q,k) include_metadata=True",
+    "search_batch B=1": "search_batch B=1", "search_batch B=8": "search_batch B=8",
+    "search_batch B=200": "search_batch B=200", "search_batch B=1000 (200 queries x5)": "search_batch B=1000 (200 queries x5)",
+    "search(filter=dict) repetida [nocorr_25]": "search(filter=dict) repeated [nocorr_25]",
+    "search(filter=dict) repetida [nocorr_5]": "search(filter=dict) repeated [nocorr_5]",
+    "search(filter=dict) repetida [corr_25]": "search(filter=dict) repeated [corr_25]",
+    "search(filter=dict) repetida [corr_5]": "search(filter=dict) repeated [corr_5]",
+    "search(filter=dict) 1ra evaluacion [nocorr_25]": "search(filter=dict) first evaluation [nocorr_25]",
+    "search(filter=dict) 1ra evaluacion [nocorr_5]": "search(filter=dict) first evaluation [nocorr_5]",
+    "search(filter=dict) 1ra evaluacion [corr_25]": "search(filter=dict) first evaluation [corr_25]",
+    "search(filter=dict) 1ra evaluacion [corr_5]": "search(filter=dict) first evaluation [corr_5]",
+    "search_batch_filtered B=200 filter=dict [nocorr_25]": "search_batch_filtered B=200 filter=dict [nocorr_25]",
+    "search_batch_filtered B=200 filter=dict [nocorr_5]": "search_batch_filtered B=200 filter=dict [nocorr_5]",
+    "search_batch_filtered B=200 filter=dict [corr_25]": "search_batch_filtered B=200 filter=dict [corr_25]",
+    "search_batch_filtered B=200 filter=dict [corr_5]": "search_batch_filtered B=200 filter=dict [corr_5]",
+    "search_batch_filtered B=200 filter_fn=callable [nocorr_25]": "search_batch_filtered B=200 filter_fn=callable [nocorr_25]",
+    "search_batch_filtered B=200 filter_fn=callable [nocorr_5]": "search_batch_filtered B=200 filter_fn=callable [nocorr_5]",
+    "search_batch_filtered B=200 filter_fn=callable [corr_25]": "search_batch_filtered B=200 filter_fn=callable [corr_25]",
+    "search_batch_filtered B=200 filter_fn=callable [corr_5]": "search_batch_filtered B=200 filter_fn=callable [corr_5]",
+    "search_batch B=200 + post-filtro top-10 [nocorr_25]": "search_batch B=200 + post-filter top-10 [nocorr_25]",
+    "search_batch B=200 + post-filtro top-10 [nocorr_5]": "search_batch B=200 + post-filter top-10 [nocorr_5]",
+    "search_batch B=200 + post-filtro top-10 [corr_25]": "search_batch B=200 + post-filter top-10 [corr_25]",
+    "search_batch B=200 + post-filtro top-10 [corr_5]": "search_batch B=200 + post-filter top-10 [corr_5]",
+    "hrm2 retrieve(q, k=10, lod=0)": "hrm2 retrieve(q, k=10, lod=0)",
+    "hrm2 retrieve(q, k=10, lod=1)": "hrm2 retrieve(q, k=10, lod=1)",
+    "hrm2 retrieve(q, k=10, lod=2)": "hrm2 retrieve(q, k=10, lod=2)",
+    "sq8_disk modo=completo search_batch(k=10, oversample=2)":
+        "sq8_disk mode=full vectors search_batch(k=10, oversample=2)",
+    "sq8_disk modo=completo search_batch(k=10, oversample=default)":
+        "sq8_disk mode=full vectors search_batch(k=10, oversample=default)",
+    "sq8_disk modo=espectral_auto search_batch(k=10, oversample=2)":
+        "sq8_disk mode=spectral (auto) search_batch(k=10, oversample=2)",
+    "sq8_disk modo=espectral_auto search_batch(k=10, oversample=default)":
+        "sq8_disk mode=spectral (auto) search_batch(k=10, oversample=default)",
+    "hnsw python (M=16, ef_construction=200, ef_search=50)": "hnsw python (M=16, ef_construction=200, ef_search=50)",
+    "lsh cross-polytope (tables=15, bits=18, probes=50, cand=500)":
+        "lsh cross-polytope (tables=15, bits=18, probes=50, cand=500)",
+    "gate_select_k(X) target_docs_per_cluster=25": "gate_select_k(X) target_docs_per_cluster=25",
+    "save(path) + reopen SimpleVectorDB(storage_path=path) n=10000":
+        "save(path) + reopen SimpleVectorDB(storage_path=path) n=10000",
+    "save(path) + reopen SimpleVectorDB(storage_path=path) n=50000":
+        "save(path) + reopen SimpleVectorDB(storage_path=path) n=50000",
+    "add(50000 docs) en memoria (build)": "add(50000 docs) in memory (build)",
+    "add(10000 docs) en memoria (build)": "add(10000 docs) in memory (build)",
+    "add(10000 docs) con storage_path": "add(10000 docs) with storage_path",
+    "add(10000 docs) sin storage_path": "add(10000 docs) without storage_path",
+    "add(1000 docs) con storage_path": "add(1000 docs) with storage_path",
+    "add(1000 docs) sin storage_path": "add(1000 docs) without storage_path",
+    "add(1 doc) x100 con storage_path": "add(1 doc) x100 with storage_path",
+    "add(1 doc) x100 sin storage_path": "add(1 doc) x100 without storage_path",
+    # --- veredicto del gate (bench_index_types.json; escalares que imprime resumen_veredicto)
+    "inconclusivo": "inconclusive", "mono": "mono", "250->350": "250->350",
+    "38dd2564d84119a8cfbea5462cc87e4724050e3d": "38dd2564d84119a8cfbea5462cc87e4724050e3d",
+    "aeb849385880cf9d6f2c77a7987d44d44d08df97": "aeb849385880cf9d6f2c77a7987d44d44d08df97",
+    "corpus mono-escala: knee=125 descartado como fantasma (slope_seg 0.61 >= -3.0) -> K operacional = N//25 = 100":
+        "mono-scale corpus: knee=125 discarded as a ghost (slope_seg 0.61 >= -3.0) -> operational K = N//25 = 100",
+    "[inconclusivo: escalas finas perdidas por grafo de clústeres desconectado [16, 22, 30, 44] "
+    "(veredicto.verdict.escalas)] corpus mono-escala: knee=88 descartado como fantasma (slope_seg -1.12 >= -3.0) "
+    "-> K operacional = N//25 = 100":
+        "[inconclusive: fine scales lost to a disconnected cluster graph [16, 22, 30, 44] "
+        "(veredicto.verdict.escalas)] mono-scale corpus: knee=88 discarded as a ghost (slope_seg -1.12 >= -3.0) "
+        "-> operational K = N//25 = 100",
+    "corpus mono-escala o knee/artefacto: knee=125 slope_seg=0.61 -> revisar bracket; codebook K ~ bracket del knee si es real":
+        "mono-scale corpus or knee/artefact: knee=125 slope_seg=0.61 -> review the bracket; codebook K ~ knee bracket if it is real",
+    "corpus mono-escala o knee/artefacto: knee=88 slope_seg=-1.12 -> revisar bracket; codebook K ~ bracket del knee si es real "
+    "| inconclusivo: 4 escalas finas perdidas por grafo de clústeres desconectado [16, 22, 30, 44] "
+    "(clasificación sin esas pérdidas: 'mono')":
+        "mono-scale corpus or knee/artefact: knee=88 slope_seg=-1.12 -> review the bracket; codebook K ~ knee bracket if it is real "
+        "| inconclusive: 4 fine scales lost to a disconnected cluster graph [16, 22, 30, 44] "
+        "(classification without those losses: 'mono')",
+    # --- bloques de bench_index_types.json (tabla Protocolo)
+    "hrm2_lod,sq8,hnsw_lsh,gate": "hrm2_lod,sq8,hnsw_lsh,gate",
+}
 # nombres de modo del JSON (en espanol) -> etiqueta en ingles para la figura
-MODO_EN = {"completo": "full vectors", "espectral_auto": "spectral (auto)"}
+MODO_EN = {k: TEXTO_EN[k] for k in ("completo", "espectral_auto")}
 HNSW_C, LSH_C = "#e879f9", "#fb923c"
 MEMORIA_C, PERSISTENTE_C = SINGLE, "#22c55e"
 
@@ -119,6 +234,66 @@ def sin_cifras_hardcodeadas():
                          "toda cifra debe salir de benchmarks/results/*.json")
 
 
+def sin_cifras_nuevas():
+    """Una traduccion no puede traer digitos que el texto original no tiene: las claves de TEXTO_EN
+    son las unicas cadenas con cifras permitidas (copias literales de los JSON)."""
+    mal = []
+    for es, en in TEXTO_EN.items():
+        if Counter(re.findall(r"\d+", en)) - Counter(re.findall(r"\d+", es)):
+            mal.append((es[:60], en[:60]))
+    if mal:
+        raise SystemExit(f"make_readme_figures: traducciones con cifras que el original no tiene {mal}")
+
+
+_FALTA = []
+_TRADUCIDAS = {"celdas": 0, "textos": set()}
+
+
+def traducir(s):
+    """Texto de un JSON -> ingles con TEXTO_EN. El que falta se anota en _FALTA (la corrida cae en
+    _revisar_faltantes con la lista completa) y se imprime tal cual mientras tanto."""
+    try:
+        en = TEXTO_EN[s]
+    except KeyError:
+        _FALTA.append(s)
+        return s
+    if en != s:
+        _TRADUCIDAS["textos"].add(s)
+    return en
+
+
+def traducir_hoja(v):
+    """Strings -> traducidos; dict/list -> igual con las hojas traducidas (las claves son nombres
+    del JSON y no se tocan); el resto pasa tal cual."""
+    if isinstance(v, str):
+        return traducir(v)
+    if isinstance(v, dict):
+        return {k: traducir_hoja(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [traducir_hoja(x) for x in v]
+    return v
+
+
+def _revisar_faltantes():
+    if _FALTA:
+        lista = sorted(set(_FALTA))
+        raise SystemExit("make_readme_figures: textos de los JSON sin traduccion en TEXTO_EN (%d):\n  " % len(lista)
+                         + "\n  ".join(repr(x) for x in lista))
+
+
+def sin_textos_sin_traducir(D):
+    """Todo texto que las tablas imprimen (y la invalidacion de la leyenda de filtros) esta en TEXTO_EN."""
+    _FALTA.clear()
+    for clave in ("bus", "bus_antes", "fil", "idx", "sto"):
+        doc = D[clave][0]
+        if doc:
+            for f in doc["resultados"]:
+                aplanar(f)
+            if doc.get("bloques"):
+                traducir(doc["bloques"])
+    _revisar_faltantes()
+
+
 def sha256(ruta):
     h = hashlib.sha256()
     with open(ruta, "rb") as f:
@@ -140,7 +315,7 @@ def cargar_todo():
     D = {}
     for clave, nombre, antes in (("bus", "bench_search", False), ("bus_antes", "bench_search", True),
                                  ("fil", "bench_filtered", False), ("idx", "bench_index_types", False),
-                                 ("sto", "bench_storage", False)):
+                                 ("sto", "bench_storage", False), ("ruido", "bench_noise", False)):
         doc, ruta = cargar(nombre, antes)
         if doc is None and not antes:
             raise SystemExit(f"falta {ruta}")
@@ -990,12 +1165,15 @@ SALTAR = {"tabla", "commit", "meta", "dataset.seed"}
 
 
 def resumen_veredicto(v):
-    plano = {k: x for k, x in v.items() if not isinstance(x, (dict, list))}
+    plano = {}
+    for k, x in v.items():
+        if not isinstance(x, (dict, list)):
+            plano[k] = traducir_hoja(x)
     ver = v.get("verdict")
     if isinstance(ver, dict):
         for k, x in ver.items():
             if not isinstance(x, (dict, list)):
-                plano["verdict." + k] = x
+                plano["verdict." + k] = traducir_hoja(x)
     return "scalars only (full object in the JSON): " + json.dumps(plano, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -1011,9 +1189,15 @@ def aplanar(f):
         elif k == "veredicto" and isinstance(v, dict):
             out[k] = resumen_veredicto(v)
         elif isinstance(v, (dict, list)):
-            out[k] = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+            t = traducir_hoja(v)
+            if t != v:
+                _TRADUCIDAS["celdas"] += 1
+            out[k] = json.dumps(t, ensure_ascii=False, separators=(",", ":"))
         else:
-            out[k] = v
+            t = traducir_hoja(v)
+            if t != v:
+                _TRADUCIDAS["celdas"] += 1
+            out[k] = t
     return out
 
 
@@ -1099,7 +1283,7 @@ def leyenda_filtered(H):
     if H["frio"]:
         t += (f"The first evaluation after a public write is {rango(H['frio'], lambda x: f'{x:.1f}×')} slower than a "
               "repeated one (the benchmark forces a cold cache before each cold query — `invalidacion` in the "
-              f"JSON: \"{H['invalidacion']}\"). ")
+              f'JSON: "{traducir(H["invalidacion"])}"). ')
     t += "What it does not show: other selectivities, 50k-docs corpora, or the cost of keeping the masks up to date."
     return t
 
@@ -1155,12 +1339,30 @@ def leyenda_storage(H):
 LEYENDAS = (leyenda_hero, leyenda_qps, leyenda_filtered, leyenda_index, leyenda_storage)
 
 
+def nota_ruido(D):
+    """Seccion «Noise»: cada cifra sale de bench_noise.json (dos corridas archivadas de bench_search)."""
+    doc, ruta = D["ruido"]
+    s = doc["resumen"]
+    f = s["fila_delta_max"]
+    ds = f["dataset"]
+    c1, c2 = doc["corridas"]["run1"]["commit"], doc["corridas"]["run2"]["commit"]
+    return (f"Noise, stated honestly: `{os.path.relpath(ruta, ROOT)}` compares, row by row, the two archived runs of "
+            f"the search table (measurement commits `{c1[:7]}` and `{c2[:7]}`, same code behaviour on the measured "
+            f"paths). Of {s['filas_comparadas']} rows {s['filas_dentro_umbral']} stay within ±{s['umbral_pct']:g}% of QPS "
+            f"(median |Δ| {s['delta_abs_mediana_pct']:.1f}%, p90 {s['delta_abs_p90_pct']:.0f}%); the largest gap is "
+            f"{s['delta_max_abs_pct']:.0f}% (`{f['parametro']}` on {ds['kind']} {ds['n'] // MIL}k · d={ds['d']}: "
+            f"{fmt_qps(f['qps1'])} against {fmt_qps(f['qps2'])} QPS, same recall), and recall@10 was identical in "
+            f"{'every row' if s['recall_identico_en_todas'] else 'no row'}. Treat differences inside that band as noise; "
+            "the per-row deltas are in the JSON.")
+
+
 def benchmarks_md(D, manifest):
     bus, fil, idx, sto = D["bus"][0], D["fil"][0], D["idx"][0], D["sto"][0]
     bus_antes = D["bus_antes"][0]
     H = hechos(D)
     m = bus["meta"]
     hilos = m["hilos"]
+    _TRADUCIDAS["celdas"], _TRADUCIDAS["textos"] = 0, set()
     L = ["# Benchmarks (measured)", ""]
     L += ["Every number on this page — the tables, the captions and the five figures — is generated from the JSON "
           "files in `benchmarks/results/` by `scripts/make_readme_figures.py`; nothing is typed by hand. The same "
@@ -1209,7 +1411,7 @@ def benchmarks_md(D, manifest):
                  f"{x['n_probe']} | {fmt_num(x['build_s'])} | {fmt_num(x['gt_s'])} | {fmt_num(x['rss_pico_build_mb'])} |")
     L += ["", "Corpus generators, as recorded in `protocolo`: clustered = C = round(sqrt(n)) centers ~ N(0, I_d)·2, "
           "point = center + N(0, I_d), L2-normalized float32; uniform = N(0, I_d), L2-normalized float32. "
-          "The verbatim `protocolo` text of each JSON is reproduced in the appendix.", ""]
+          "The verbatim `protocolo` text of each JSON is in the JSON file itself (in Spanish).", ""]
     L += ["Load average (1/5/15 min) before → after each table:", "",
           "| Table | Commit | Load before | Load after |", "|---|---|---|---|"]
     for etiqueta, (doc, ruta) in (("bench_search (after)", D["bus"]), ("bench_search (before)", D["bus_antes"]),
@@ -1232,8 +1434,11 @@ def benchmarks_md(D, manifest):
               "Sources: " + "; ".join(f"`{f['ruta']}` (sha256 `{f['sha256']}`)" for f in info["fuentes"]) + ".", ""]
     # ---------------------------------------------------------------- tablas
     L += ["## Tables", "",
-          "Column names are the JSON keys and values are printed exactly as stored (no rounding). `n/a` = null "
-          "in the JSON; a row recorded as `n/d` (not measured) keeps its `estado` / `motivo` columns.", ""]
+          "Column names are the JSON keys and numbers are printed exactly as stored (no rounding). Texts that the JSON "
+          "records in Spanish (path names, parameters, filter descriptions, QPS definitions, the gate verdict) are "
+          "translated here by the explicit dictionary `TEXTO_EN` in the generator; a text missing from it fails the "
+          "run. `n/a` = null in the JSON; a row recorded as `n/d` (not measured) keeps its `estado` / `motivo` "
+          "columns.", ""]
     for i, (titulo_tabla, doc, ruta) in enumerate((
             ("bench_search.json — after", bus, D["bus"][1]),
             ("before_a74d9e4/bench_search.json — before, used by Figure 1", bus_antes, D["bus_antes"][1]),
@@ -1244,13 +1449,11 @@ def benchmarks_md(D, manifest):
             continue
         L += [f"### Table {i} — `{os.path.relpath(ruta, ROOT)}` ({titulo_tabla}; commit `{commit_corto_de(doc)}`, "
               f"sha256 `{sha256(ruta)}`)", "", tabla_md(doc), ""]
-    L += ["## Noise", "", NOTA_RUIDO, ""]
-    L += ["## Appendix — verbatim `protocolo` recorded in each JSON", ""]
-    for etiqueta, (doc, ruta) in (("bench_search (after)", D["bus"]), ("bench_search (before)", D["bus_antes"]),
-                                  ("bench_filtered", D["fil"]), ("bench_index_types", D["idx"])):
-        if doc and doc.get("protocolo"):
-            L += [f"<details><summary>{etiqueta} — <code>{os.path.relpath(ruta, ROOT)}</code></summary>", "",
-                  "```json", json.dumps(doc["protocolo"], ensure_ascii=False, indent=1), "```", "", "</details>", ""]
+    L += ["## Noise", "", nota_ruido(D), ""]
+    L += ["The source files behind every table and figure on this page are the JSON files in `benchmarks/results/` "
+          "(the before commit under `before_a74d9e4/`), listed under each table heading with their SHA-256; the "
+          "`protocolo` block recorded in each file stays there verbatim, in Spanish.", ""]
+    _revisar_faltantes()
     return "\n".join(L)
 
 
@@ -1281,7 +1484,10 @@ def main():
     sin_cifras_hardcodeadas()
     argv = sys.argv[1:]
     if "--check" in argv:
-        print("make_readme_figures: sin literales de cifras (AST del script, incluidos strings)")
+        sin_cifras_nuevas()
+        sin_textos_sin_traducir(cargar_todo())
+        print("make_readme_figures: sin literales de cifras (AST del script, incluidos strings); traducciones sin "
+              "cifras nuevas; todo texto que imprimen las tablas esta en TEXTO_EN")
         return 0
     estilo()
     solo = set(argv[argv.index("--solo") + 1].split(",")) if "--solo" in argv else None
@@ -1325,7 +1531,8 @@ def main():
         f.write("\n")
     with open(os.path.join(DOCS, "BENCHMARKS.md"), "w", encoding="utf-8") as f:
         f.write(md)
-    print("-> docs/bench-manifest.json, docs/BENCHMARKS.md")
+    print(f"-> docs/bench-manifest.json, docs/BENCHMARKS.md  (celdas traducidas al ingles: {_TRADUCIDAS['celdas']}, "
+          f"textos distintos: {len(_TRADUCIDAS['textos'])} de {sum(1 for k, v in TEXTO_EN.items() if k != v)} en TEXTO_EN)")
     return 0
 
 

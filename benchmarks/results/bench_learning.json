@@ -1,0 +1,307 @@
+{
+ "tabla": "bench_learning",
+ "protocolo": {
+  "k": 10,
+  "n_queries": 200,
+  "seed_datos": 42,
+  "seed_queries": 7,
+  "warmup": 1,
+  "min_reps": 5,
+  "max_reps": 200,
+  "min_tiempo_s": 1.0,
+  "dataset_clustered": "C = round(sqrt(n)) centros ~ N(0, I_d)*2; punto = centro + N(0, I_d); L2-normalizado, float32",
+  "dataset_uniform": "N(0, I_d) L2-normalizado, float32",
+  "queries": "mismo generador que el dataset, seed_queries, n_queries",
+  "gt": "fuerza bruta float64 (producto punto contra todas las filas, argpartition + orden); recall@10 = |top-10 interseccion GT| / |GT|",
+  "latencia": "ms por query: mediana / p5 / p95 sobre todas las queries de todas las repeticiones",
+  "qps": "queries_por_repeticion / tiempo de pared de la repeticion; mediana entre repeticiones (no es 1/latencia media)",
+  "batch": "una repeticion = una llamada con B queries; latencia por query = tiempo / B",
+  "rss": "pico de RSS del proceso muestreado cada 0.005 s (/proc/self/statm)",
+  "carga": "carga_cpu_sistema_pct = CPU ocupada del sistema (/proc/stat, todos los CPUs) durante la medicion; cpu_propio_pct = (utime+stime del proceso)/pared"
+ },
+ "meta": {
+  "commit": "7d19f8610924416acdcaf8c383c3b8c81323aee2",
+  "commit_corto": "7d19f8610",
+  "arbol": "wt_p18",
+  "src_sucio": false,
+  "m2m_file": "src/m2m/__init__.py",
+  "cpu": "AMD Ryzen 5 3400G with Radeon Vega Graphics",
+  "nproc": 8,
+  "cpu_count": 8,
+  "hilos": {
+   "OPENBLAS_NUM_THREADS": "1",
+   "OMP_NUM_THREADS": "1",
+   "MKL_NUM_THREADS": null,
+   "NUMEXPR_NUM_THREADS": null
+  },
+  "python": "3.12.3",
+  "numpy": "2.5.5",
+  "plataforma": "Linux-6.18.58.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "uptime_antes": "11:52:26 up 3 days, 15:35,  2 users,  load average: 1.56, 0.88, 0.62",
+  "loadavg_antes": "1.56 0.88 0.62 1/575 819465",
+  "uptime_despues": "11:52:28 up 3 days, 15:35,  2 users,  load average: 1.56, 0.88, 0.62",
+  "loadavg_despues": "1.56 0.88 0.62 1/575 819466"
+ },
+ "resultados": [
+  {
+   "tabla": "bench_learning",
+   "bloque": "feedback",
+   "medicion": "rank del documento target para su query",
+   "antes": 2,
+   "despues": 0,
+   "target": "d20"
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "feedback",
+   "medicion": "score del target para su query",
+   "antes": 0.4443,
+   "despues": 0.9982,
+   "target": "d20"
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "feedback",
+   "medicion": "recall@10 de las otras 99 queries (GT fuerza bruta)",
+   "antes": 1.0,
+   "despues": 0.996
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "mu",
+   "medicion": "‖μ‖ del splat reforzado tras 500 feedbacks relevantes (OnlineUpdater lr_mu=0.01, 8 splats d=64)",
+   "antes": 1.0,
+   "despues": 0.999997
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "mu",
+   "medicion": "‖μ‖ mín / máx de los 20 splats tras 500 db.feedback (d0, d1 relevantes)",
+   "antes": [
+    1.0,
+    1.0
+   ],
+   "despues": [
+    0.999996,
+    1.0
+   ]
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "criticality",
+   "medicion": "check_criticality().index — store con 75 % de splats de α baja",
+   "antes": 0.0,
+   "despues": 0.9051,
+   "estado_antes": "subcritical",
+   "estado_despues": "supercritical",
+   "fraccion_amplitud_baja": 0.75
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "relax",
+   "medicion": "free_energy (get_stats) tras relax(iterations=10) — store fresco, seed 15",
+   "antes": 14.431,
+   "despues": 13.351,
+   "improved": true
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "relax",
+   "medicion": "free_energy (get_stats) tras relax(iterations=10) — store sobre-afilado (κ=100), seed 16",
+   "antes": 51.273,
+   "despues": 49.72,
+   "improved": true
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "maybe_consolidate",
+   "medicion": "check_criticality().index antes → después de la 1ª llamada",
+   "antes": 0.9051,
+   "despues": 0.0,
+   "estado_antes": "supercritical",
+   "estado_despues": "subcritical"
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "maybe_consolidate",
+   "medicion": "documentos activos antes → después de la 1ª llamada",
+   "antes": 60,
+   "despues": 15
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "maybe_consolidate",
+   "medicion": "triggered: 1ª llamada → 2ª llamada",
+   "antes": true,
+   "despues": false
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "maybe_consolidate",
+   "medicion": "removed: 1ª llamada → 2ª llamada",
+   "antes": 45,
+   "despues": 0
+  },
+  {
+   "tabla": "bench_learning",
+   "bloque": "maybe_consolidate",
+   "medicion": "index después: 1ª llamada → 2ª llamada",
+   "antes": 0.0,
+   "despues": 0.0,
+   "estado_despues_1": "subcritical",
+   "estado_despues_2": "subcritical"
+  }
+ ],
+ "secciones": {
+  "a_feedback": {
+   "n_docs": 400,
+   "d": 64,
+   "seed_datos": 6,
+   "seed_queries": 7,
+   "n_queries": 100,
+   "n_feedbacks": 300,
+   "relevant_ids": [
+    "d20"
+   ],
+   "target": "d20",
+   "score_definicion": "DocResult.score de search(q, k=10, include_metadata=True)",
+   "rank": {
+    "antes": 2,
+    "despues": 0
+   },
+   "score": {
+    "antes": 0.4443167746067047,
+    "despues": 0.9981574416160583
+   },
+   "recall@10_otras_99_queries": {
+    "antes": 1.0,
+    "despues": 0.9959595959595959
+   },
+   "norma_mu_min_max_despues": [
+    0.9999999433333835,
+    1.0000002827603136
+   ]
+  },
+  "b_norma_mu": {
+   "online_updater": {
+    "n_splats": 8,
+    "d": 64,
+    "seed_splats": 0,
+    "seed_queries": 1,
+    "lr_mu": 0.01,
+    "n_feedbacks": 500,
+    "norma_mu_antes": 1.0000000214037483,
+    "norma_mu_despues": 0.9999968316989718,
+    "cos_mu_antes_despues": 0.9950612783432007,
+    "alpha_despues": 9.989999771118164,
+    "kappa_despues": 100.0,
+    "alpha_min": 0.01,
+    "alpha_max": 10.0
+   },
+   "db_feedback": {
+    "n_docs": 20,
+    "d": 32,
+    "seed_datos": 3,
+    "seed_queries": 4,
+    "n_feedbacks": 500,
+    "relevant_ids": [
+     "d0",
+     "d1"
+    ],
+    "norma_mu_antes": 1.0,
+    "norma_mu_min_despues": 0.9999955607984119,
+    "norma_mu_max_despues": 1.0000000996117189,
+    "alpha_max_despues": 9.989999771118164,
+    "kappa_max_despues": 100.0
+   }
+  },
+  "c_criticality": {
+   "n_docs": 200,
+   "d": 32,
+   "seed_datos": 14,
+   "n_feedbacks": 60,
+   "irrelevantes_por_feedback": 150,
+   "fraccion_splats_amplitud_baja": 0.75,
+   "antes": {
+    "state": "subcritical",
+    "index": 0.0,
+    "n_clusters": 14,
+    "decayed_fraction": 0.0,
+    "kappa_dispersion": 0.0,
+    "components": {
+     "decayed": 0.0,
+     "energy": 0.0,
+     "size": 0.0,
+     "kappa": 0.0
+    }
+   },
+   "despues": {
+    "state": "supercritical",
+    "index": 0.905137430027599,
+    "n_clusters": 14,
+    "decayed_fraction": 0.75,
+    "kappa_dispersion": 1.4308245801655943,
+    "components": {
+     "decayed": 0.75,
+     "energy": 0.0,
+     "size": 0.0,
+     "kappa": 0.6205497201103962
+    }
+   },
+   "n_docs_activos_despues": 200
+  },
+  "d_relax": {
+   "store_fresco": {
+    "seed": 15,
+    "kappa_inicial": 10.0,
+    "iterations": 10,
+    "improved": true,
+    "F_antes": 14.43133875209223,
+    "F_despues": 13.35091479242529,
+    "energy_delta": -1.0804239596669412,
+    "initial_energy": 14.43133875209223,
+    "final_energy": 13.35091479242529
+   },
+   "store_sobreafilado_kappa_100": {
+    "seed": 16,
+    "kappa_inicial": 100.0,
+    "iterations": 10,
+    "improved": true,
+    "F_antes": 51.27270023999697,
+    "F_despues": 49.72041982347955,
+    "energy_delta": -1.5522804165174193,
+    "initial_energy": 51.27270023999697,
+    "final_energy": 49.72041982347955
+   },
+   "n_docs": 60,
+   "d": 32
+  },
+  "e_maybe_consolidate": {
+   "n_docs": 60,
+   "d": 32,
+   "seed_datos": 21,
+   "n_feedbacks": 60,
+   "irrelevantes_por_feedback": 45,
+   "index_antes": 0.905137430027599,
+   "state_antes": "supercritical",
+   "llamada_1": {
+    "triggered": true,
+    "removed": 45,
+    "state": "subcritical",
+    "index": 0.0,
+    "threshold": 0.1,
+    "n_docs": 15
+   },
+   "llamada_2": {
+    "triggered": false,
+    "removed": 0,
+    "state": "subcritical",
+    "index": 0.0,
+    "threshold": 0.1,
+    "n_docs": 15
+   }
+  }
+ },
+ "nota": "valores del código ACTUAL con setups deterministas (tests/test_audit_learning_soc.py); no hay timings. Los valores «antes del fix» (‖μ‖ 0.073, índice 0.5649) no son reproducibles desde este árbol y no están en este archivo",
+ "filas_definicion": "antes / despues = valor antes y después de la operación de la sección; ver secciones"
+}
