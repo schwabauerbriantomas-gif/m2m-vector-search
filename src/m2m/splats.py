@@ -141,6 +141,9 @@ class SplatStore:
             existente más cercano sin re-entrenar (streaming IVF estándar).
             O(|new|·k·d) en vez de O(n·k·d·iters) — el recall se mide en
             bench/exp_h7_churn.py.
+          - si n_active BAJÓ desde el último entrenamiento (compact), retrain
+            completo: las filas de mu se desplazaron y el índice viejo apunta a
+            posiciones pre-compaction (audit r1-25).
         """
         n = self.n_active
         if n == 0:
@@ -152,7 +155,22 @@ class SplatStore:
             or not getattr(eng, "_is_indexed", False)
             or last_n == 0
             or n > 1.25 * last_n
+            or n < last_n
         )
+        if not need_full:
+            # El attach solo es válido si el índice cubre EXACTAMENTE las
+            # primeras last_n filas; con cualquier otra longitud (índice armado
+            # desde afuera, p. ej. mapreduce/load) las posiciones no coinciden.
+            prev_assign = getattr(eng, "coarse_assignments", None)
+            prev_emb = getattr(eng, "embeddings", None)
+            if (
+                eng.coarse_model is None
+                or prev_assign is None
+                or len(prev_assign) != last_n
+                or prev_emb is None
+                or len(prev_emb) != last_n
+            ):
+                need_full = True
         if need_full:
             self._recompute_n_coarse()
             embeddings = self.mu[:n]
@@ -673,6 +691,10 @@ class SplatStore:
 
         self.n_active = n_kept
         self._m_sq_dirty = True
+        # r1-25: las filas se desplazaron; el índice HRM2 apunta a posiciones
+        # pre-compaction. Marcarlo como no indexado fuerza el retrain completo
+        # en el build_index() siguiente (o el auto-build de find_neighbors).
+        self.engine._is_indexed = False
         return removed
 
     def get_statistics(self) -> Dict[str, object]:

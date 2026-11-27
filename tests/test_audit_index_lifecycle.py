@@ -262,3 +262,142 @@ def test_r1_11_recall_after_attach_not_lower():
           f" | vecinos base perdidos: {lost}/{checked}")
     for kind in ("random", "self"):
         assert after[kind] >= before[kind] - 0.01, (kind, before, after)
+
+
+# ---------------------------------------------------------------------------
+# r1-25 — consolidate() poda y deja el índice con posiciones pre-compaction
+# ---------------------------------------------------------------------------
+
+N_TOTAL, PRUNE_LO, PRUNE_HI = 6000, 1000, 2500  # alpha=0.001 → 1500 splats fuera
+
+
+def _assert_engine_aligned(eng, n):
+    """Estructuras del engine alineadas con n (sin depender de SimpleVectorDB)."""
+    assert eng._is_indexed
+    assert len(eng.coarse_assignments) == n
+    assert len(eng.embeddings) == n
+    assert len(eng._cluster_masks) > 0
+    assert {int(m.shape[0]) for m in eng._cluster_masks.values()} == {n}
+    stack = np.stack([eng._cluster_masks[c] for c in sorted(eng._cluster_masks)])
+    assert np.array_equal(stack.sum(axis=0), np.ones(n, dtype=int))
+    all_idx = np.concatenate([np.asarray(v) for v in eng.coarse_cluster_indices.values()])
+    assert len(all_idx) == n and len(np.unique(all_idx)) == n
+    assert all_idx.max() < n
+    for cid, idx in eng.coarse_cluster_indices.items():
+        assert np.array_equal(np.sort(np.asarray(idx)), np.where(eng._cluster_masks[cid])[0])
+        assert len(eng.coarse_cluster_embeddings[cid]) == len(idx)
+
+
+@pytest.fixture(scope="module")
+def consolidated():
+    """6000 docs → alpha[1000:2500]=0.001 → consolidate(threshold=0.01)."""
+    rng = np.random.default_rng(7)
+    X = rng.standard_normal((N_TOTAL, D)).astype(np.float32)
+    ids = [f"v{i}" for i in range(N_TOTAL)]
+    adv = AdvancedVectorDB(latent_dim=D, enable_soc=False, enable_energy_features=False)
+    adv.add(ids=ids, vectors=X)
+    adv.engine.m2m.splats.alpha[PRUNE_LO:PRUNE_HI] = 0.001
+    n_removed = adv.consolidate(threshold=0.01)
+    return adv, X, ids, n_removed
+
+
+def test_r1_25_consolidate_keeps_index_aligned_and_searchable(consolidated):
+    """Criterio 3: poda real → search no lanza, recall@5 == 1.0, invariantes de (1)."""
+    adv, X, ids, n_removed = consolidated
+    store = adv.engine.m2m.splats
+    removed = set(ids[PRUNE_LO:PRUNE_HI])
+    assert n_removed == PRUNE_HI - PRUNE_LO == 1500
+    assert store.n_active == N_TOTAL - 1500
+    assert len(adv._splat_id_order) == len(adv._vectors) == store.n_active
+    assert not (set(adv._vectors) & removed)
+    assert store._last_trained_n == store.n_active
+    assert _assert_index_invariants(adv) == 4500
+
+    recs = []
+    for i in range(0, N_TOTAL, 15):
+        if ids[i] in removed:
+            continue
+        res = adv.search(X[i], k=5, include_metadata=True)  # hoy: IndexError
+        got = [r.id for r in res]
+        assert len(got) == 5 and not (set(got) & removed)
+        for r in res:
+            assert np.allclose(r.vector, _norm(adv._vectors[r.id]), atol=1e-5)
+        recs.append(_recall(got, _gt_topk(adv, _norm(X[i]), 5)))
+
+    # (a) Paridad exacta query a query con un índice RECÍN construido sobre los
+    # docs sobrevivientes: consolidar no debe dejar un índice peor que empezar
+    # de cero. (Datos gaussianos sin estructura: el recall IVF absoluto es
+    # intrínsecamente < 1 con n_probe=5, por eso la comparación es de paridad.)
+    surv = [i for i in ids if i not in removed]
+    fresh = AdvancedVectorDB(latent_dim=D, enable_soc=False, enable_energy_features=False)
+    fresh.add(ids=surv, vectors=X[[ids.index(i) for i in surv]])
+    assert _assert_index_invariants(fresh) == 4500
+    recs_fresh = [
+        _recall([r.id for r in fresh.search(X[i], k=5, include_metadata=True)],
+                _gt_topk(fresh, _norm(X[i]), 5))
+        for i in range(0, N_TOTAL, 15) if ids[i] in set(surv)
+    ]
+    print(f"\n[r1-25] recall@5 self-queries gaussianos: consolidate={np.mean(recs):.4f} "
+          f"fresh={np.mean(recs_fresh):.4f} n={len(recs)} | paridad exacta: {recs == recs_fresh}")
+    assert len(recs) == len(recs_fresh) == 300
+    assert recs == recs_fresh
+
+    # (b) Con estructura de clústeres (el caso de uso de IVF) el recall@5 sobre
+    # los docs restantes es 1.0 después de consolidar.
+    rng = np.random.default_rng(5)
+    centers = rng.standard_normal((40, D)).astype(np.float32) * 20.0
+    Xc = centers[rng.integers(0, 40, N_TOTAL)] + rng.standard_normal((N_TOTAL, D)).astype(np.float32)
+    cids = [f"c{i}" for i in range(N_TOTAL)]
+    advc = AdvancedVectorDB(latent_dim=D, enable_soc=False, enable_energy_features=False)
+    advc.add(ids=cids, vectors=Xc)
+    advc.engine.m2m.splats.alpha[PRUNE_LO:PRUNE_HI] = 0.001
+    assert advc.consolidate(threshold=0.01) == 1500
+    assert _assert_index_invariants(advc) == 4500
+    recs_c, removed_c = [], set(cids[PRUNE_LO:PRUNE_HI])
+    for i in range(0, N_TOTAL, 15):
+        if cids[i] in removed_c:
+            continue
+        res = advc.search(Xc[i], k=5, include_metadata=True)
+        got = [r.id for r in res]
+        assert len(got) == 5 and not (set(got) & removed_c)
+        recs_c.append(_recall(got, _gt_topk(advc, _norm(Xc[i]), 5)))
+    print(f"[r1-25] recall@5 self-queries clustered: mean={np.mean(recs_c):.4f} "
+          f"min={np.min(recs_c):.4f} n={len(recs_c)}")
+    assert min(recs_c) == 1.0
+
+
+def test_r1_25_engine_queries_consistent_after_consolidate(consolidated):
+    """Criterio 4 (compact+retrain): posiciones válidas y consistentes en las 3 APIs,
+    y el attach sigue siendo válido sobre el índice reconstruido."""
+    adv, X, ids, _ = consolidated
+    store = adv.engine.m2m.splats
+    n = store.n_active
+    _check_engine_self_queries(store.engine, n, list(range(0, n, 50)) + [n - 1])
+
+    # vectores nuevos (no duplicados: con duplicados el top-1 de la self-query
+    # es un empate y puede salir la otra posición)
+    adv.add(ids=["post1", "post2"], vectors=np.random.default_rng(9).standard_normal((2, D)).astype(np.float32))
+    assert store._last_trained_n == n + 2
+    _assert_index_invariants(adv)
+    _check_engine_self_queries(store.engine, n + 2, [n, n + 1, 0, n // 2])
+
+
+def test_r1_25_build_index_after_direct_compact_retrains():
+    """Guardia en build_index: si n_active bajó desde el último entrenamiento
+    (compact() directo, sin pasar por consolidate) el attach no es válido
+    (las filas se desplazaron) → retrain completo y estructuras alineadas."""
+    rng = np.random.default_rng(3)
+    X = rng.standard_normal((3600, D)).astype(np.float32)
+    db = SimpleVectorDB(latent_dim=D)
+    db.add(ids=[f"c{i}" for i in range(len(X))], vectors=X)
+    store = db.engine.m2m.splats
+    cent_before = np.asarray(store.engine.coarse_model.centroids_).copy()
+    store.alpha[500:1500] = 0.001
+    assert store.compact() == 1000
+    assert store.n_active == 2600 < store._last_trained_n
+    store.build_index()
+    assert store._last_trained_n == 2600
+    _assert_engine_aligned(store.engine, 2600)
+    # con retrain los centroides se re-adaptan al corpus compactado (y K cambia)
+    cent_after = np.asarray(store.engine.coarse_model.centroids_)
+    assert cent_after.shape != cent_before.shape or not np.allclose(cent_before, cent_after)
