@@ -38,7 +38,9 @@ class HNSWIndex(VectorIndex):
         M: Max number of connections per node per layer
         ef_construction: Size of dynamic candidate list during construction
         ef_search: Size of dynamic candidate list during search
-        max_level_mult: Controls the max layer (log(M) * max_level_mult)
+        max_level_mult: Level-generator multiplier: level = int(-ln(u) * max_level_mult).
+            Default 1/ln(M) as in the paper (Malkov & Yashunin 2016, eq. 4), so a
+            fraction ~1/M of the nodes lives in layer >= 1 [audit r2-09].
         metric: 'cosine' or 'euclidean'
     """
 
@@ -48,7 +50,7 @@ class HNSWIndex(VectorIndex):
         M: int = 16,
         ef_construction: int = 200,
         ef_search: int = 50,
-        max_level_mult: float = 1.0 / math.log(2),
+        max_level_mult: Optional[float] = None,
         metric: str = "cosine",
         seed: int = 42,
     ):
@@ -57,7 +59,9 @@ class HNSWIndex(VectorIndex):
         self.M_max0 = 2 * M  # max connections at layer 0
         self.ef_construction = ef_construction
         self.ef_search = ef_search
-        self.max_level_mult = max_level_mult
+        self.max_level_mult = (
+            max_level_mult if max_level_mult is not None else 1.0 / math.log(M)
+        )
         self.metric = metric
         self._rng = random.Random(seed)
 
@@ -194,6 +198,8 @@ class HNSWIndex(VectorIndex):
                     )
 
             if candidates:
+                # closest-first (ver _search_layer): el mas cercano de W es el entry
+                # point de la capa inferior [audit r2-07].
                 ep = candidates[0][1]
 
         if level > self._max_level:
@@ -225,7 +231,11 @@ class HNSWIndex(VectorIndex):
     def _search_layer(
         self, query: np.ndarray, entry: int, ef: int, level: int
     ) -> List[Tuple[float, int]]:
-        """Search a single layer, returning (distance, index) pairs sorted by distance."""
+        """Search a single layer.
+
+        Returns (distance, index) pairs sorted from CLOSEST to farthest; _insert
+        enters the layer below through the first one [audit r2-07].
+        """
         visited: Set[int] = {entry}
         dist_ep = self._distance(query, self._vectors[entry])
 
@@ -259,7 +269,9 @@ class HNSWIndex(VectorIndex):
                     if len(results) > ef:
                         heapq.heappop(results)
 
-        return [(abs(d), idx) for d, idx in sorted(results)]
+        # results es un max-heap de (-dist, idx): ordenarlo tal cual da el MAS LEJANO
+        # primero. Devolver closest-first [audit r2-07].
+        return sorted((-neg_d, idx) for neg_d, idx in results)
 
     def _select_neighbors(
         self,
