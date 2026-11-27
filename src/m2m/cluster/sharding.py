@@ -14,8 +14,10 @@ def shard_by_hash(doc_id: str, num_edges: int) -> str:
     if num_edges <= 0:
         raise ValueError("Number of edges must be greater than 0")
 
-    # Create a deterministic integer from the doc_id string
-    hash_obj = hashlib.md5(doc_id.encode("utf-8"))
+    # Create a deterministic integer from the doc_id string.
+    # Hash de ENRUTAMIENTO (a qué edge va cada doc_id), no criptográfico; el digest
+    # no cambia (anotado para bandit B324) [audit P15].
+    hash_obj = hashlib.md5(doc_id.encode("utf-8"), usedforsecurity=False)
     hash_val = int(hash_obj.hexdigest(), 16)
 
     edge_index = hash_val % num_edges

@@ -95,7 +95,9 @@ def _data_fingerprint(X: np.ndarray) -> str:
     distinto de igual tamaño.
     """
     X = np.ascontiguousarray(X, dtype=np.float32)
-    h = hashlib.sha1()
+    # Clave de cache, no criptográfico; el digest NO cambia (rompería los caches
+    # ya escritos) (anotado para bandit B324) [audit P15].
+    h = hashlib.sha1(usedforsecurity=False)
     h.update(f"{X.shape[0]}x{X.shape[1]} float32;".encode())
     for s in range(0, X.shape[0], 65536):
         h.update(X[s:s + 65536].tobytes())
