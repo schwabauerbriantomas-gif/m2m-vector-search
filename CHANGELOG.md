@@ -12,21 +12,19 @@ code base. Every id either names a test under `tests/` that cites it, or carries
 
 ## [Unreleased]
 
-Nothing pending. The entries that used to be listed here landed before the release and
-are part of 2.4.0 — the version below, which is not published yet (it lives on `main`,
-not on PyPI).
+Nothing pending.
 
 
-## [2.4.0] - Unreleased
+## [2.4.0] - 2026-11-27
 
 Version `2.4.0` is set in `pyproject.toml` and `m2m.__version__` [audit r3a-04].
-It is **not published on PyPI yet**: the `publish` workflow runs on
-`release: published`, so nothing is uploaded until a GitHub Release is created.
+It was uploaded to PyPI as `m2m-vector-search==2.4.0` when the GitHub Release
+`v2.4.0` was created (the `publish` workflow runs on `release: published`).
 
 ### Note on the entries below
 
 This release is the result of a full audit of the code, its claims and its
-benchmarks (2026-11). 112 commits (merges excluded) fix the behaviour of the engine, the
+benchmarks (2026-11). 114 commits (merges excluded) fix the behaviour of the engine, the
 persistence layer and the HTTP API; the documentation was rewritten to describe
 what the code does. Every behavioural change listed here cites the audit id of
 the finding it closes, and each has a regression test that cites the id; ids without a
@@ -258,6 +256,16 @@ fast or faster; on uniform data the recall@10 of the approximate path is 0.149 /
 
 ### Fixed
 
+- The HTTP API imports again on Python 3.10. `FastAPI(max_body_size=...)` exists only
+  from FastAPI 0.164, which requires Python >= 3.11; on 3.10 (FastAPI 0.162.5 at most)
+  the body-size limit is applied by the ASGI middleware `_BodySizeLimit` with the same
+  behaviour: 413 by `Content-Length` without reading the body, cut-off while reading
+  when there is no `Content-Length` (`tests/test_audit_api_storage.py`, `TestBodyLimit`).
+  The test suite reads `pyproject.toml` with `tomllib` (standard library from Python
+  3.11) and falls back to `tomli` on 3.10, declared in the `dev` extra.
+- `/v1/health` and the OpenAPI document report the installed version (`m2m.__version__`)
+  instead of a fixed `2.0.0`
+  (`tests/test_audit_truthfulness.py::test_http_api_reports_the_package_version`).
 - `search_batch()` and `search_batch_filtered()` score candidates **per query**
   (the rows of that query's probed clusters), not the union of the whole batch;
   probe expansion for filters is decided per query with its own cluster order

@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10%2B-green" alt="Python">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-orange" alt="License">
-  <img src="https://img.shields.io/badge/tests-920%20passed%20%7C%2022%20skipped-brightgreen" alt="CI selection: 920 passed, 22 skipped">
+  <img src="https://img.shields.io/badge/tests-924%20passed%20%7C%2022%20skipped-brightgreen" alt="CI selection: 924 passed, 22 skipped">
   <img src="https://img.shields.io/badge/backends-CPU%20%7C%20CUDA%20%7C%20Vulkan-purple" alt="Backends">
 </p>
 
@@ -29,11 +29,10 @@
 ---
 
 **Status of 2.4.0.** This version is the outcome of a full audit of the code, its claims and
-its benchmarks (2026-11): 112 commits (merges excluded) fix search semantics, filters, the write path,
+its benchmarks (2026-11): 114 commits (merges excluded) fix search semantics, filters, the write path,
 persistence and the HTTP API, and the documentation was rewritten to describe what the code
-does. It is **not on PyPI yet** (the publish workflow runs when a GitHub
-Release is created), so install from source to get it. What changed, with the audit id of
-every fix, is in the [CHANGELOG](CHANGELOG.md).
+does. It is on PyPI as `m2m-vector-search` (the publish workflow uploads every GitHub
+Release). What changed, with the audit id of every fix, is in the [CHANGELOG](CHANGELOG.md).
 
 ---
 
@@ -58,9 +57,9 @@ every fix, is in the [CHANGELOG](CHANGELOG.md).
 ### Install
 
 ```bash
-# 2.4.0 is not on PyPI yet: install from source
-pip install "git+https://github.com/schwabauerbriantomas-gif/m2m-vector-search.git"
-# once released: pip install m2m-vector-search
+pip install "m2m-vector-search"
+# latest development state, from source:
+# pip install "git+https://github.com/schwabauerbriantomas-gif/m2m-vector-search.git"
 ```
 
 Extras: `[api]` for the HTTP service, `[langchain]`, `[embeddings]` (torch + sentence-transformers, also needed for CUDA), `[vulkan]`, `[dev]` for development. `pip install -e ".[all]"` pulls everything, including torch (> 1 GB).

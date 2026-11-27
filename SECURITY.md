@@ -4,7 +4,7 @@
 
 | Version | Supported | Notes |
 |---|---|---|
-| `2.4.0` (branch `main`) | :white_check_mark: | Not published on PyPI yet. Receives security fixes. |
+| `2.4.0` | :white_check_mark: | Published on PyPI on 2026-11-27. Receives security fixes. |
 | `2.3.1` and earlier | :x: | No backports. Several findings listed below are only fixed in `2.4.0`. |
 
 Report the version from `python -c "import m2m; print(m2m.__version__)"`.
